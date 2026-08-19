@@ -63,6 +63,7 @@ jobs:
 
       - name: Run unit tests
         run: |
+          set +e
           xcodebuild \
             -project Bardo.xcodeproj \
             -scheme Bardo \
@@ -70,4 +71,12 @@ jobs:
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath .derived-data \
             CODE_SIGNING_ALLOWED=NO \
-            test
+            test > .xcode-test.log 2>&1
+          STATUS=$?
+          if [ "$STATUS" -ne 0 ]; then
+            echo "---- XCTest failure summary ----"
+            grep -E "Test Case .* failed|error:|XCTAssert|failed -|\*\* TEST FAILED \*\*" .xcode-test.log || tail -n 120 .xcode-test.log
+          else
+            grep -E "Executed [0-9]+ tests|\*\* TEST SUCCEEDED \*\*" .xcode-test.log || true
+          fi
+          exit "$STATUS"
