@@ -1,3 +1,8 @@
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 actor RecordingStore {
@@ -236,24 +241,29 @@ actor RecordingStore {
         let temporaryURL = directoryURL.appendingPathComponent(".manifest-\(UUID().uuidString).tmp")
 
         do {
-            try data.write(to: temporaryURL, options: [.atomic])
-
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                _ = try FileManager.default.replaceItemAt(
-                    destinationURL,
-                    withItemAt: temporaryURL,
-                    backupItemName: nil,
-                    options: []
-                )
-            } else {
-                try FileManager.default.moveItem(at: temporaryURL, to: destinationURL)
-            }
+            try data.write(to: temporaryURL, options: [])
         } catch {
-            try? FileManager.default.removeItem(at: temporaryURL)
             throw RecordingStoreError.fileSystem(
-                operation: "write",
+                operation: "write temporary manifest",
                 entry: destinationURL.lastPathComponent,
                 description: error.localizedDescription
+            )
+        }
+
+        let result = temporaryURL.path.withCString { temporaryPath in
+            destinationURL.path.withCString { destinationPath in
+                rename(temporaryPath, destinationPath)
+            }
+        }
+
+        guard result == 0 else {
+            let code = errno
+            let description = String(cString: strerror(code))
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw RecordingStoreError.fileSystem(
+                operation: "atomically replace",
+                entry: destinationURL.lastPathComponent,
+                description: description
             )
         }
     }
