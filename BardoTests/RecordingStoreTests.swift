@@ -18,7 +18,7 @@ final class RecordingStoreTests: XCTestCase {
         rootURL = nil
     }
 
-    func testSaveAndReadPreserveRecordingAndSchemaVersion() async throws {
+    func testSaveAndReadPreserveRecordingAndCurrentSchemaVersion() async throws {
         let id = UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
         let recording = makeRecording(
             id: id,
@@ -38,7 +38,7 @@ final class RecordingStoreTests: XCTestCase {
         let json = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
         )
-        XCTAssertEqual(json["schemaVersion"] as? Int, RecordingManifestV1.currentSchemaVersion)
+        XCTAssertEqual(json["schemaVersion"] as? Int, RecordingManifestV2.currentSchemaVersion)
     }
 
     func testMultipleRecordingsCoexistAndFreshStoreRebuildsFromDisk() async throws {
