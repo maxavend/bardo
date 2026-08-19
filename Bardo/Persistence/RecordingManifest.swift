@@ -65,6 +65,7 @@ struct RecordingManifestV2: Codable, Equatable, Sendable {
     let id: UUID
     let title: String
     let createdAtEpochSeconds: TimeInterval
+    let createdAtEpochSecondsBitPattern: UInt64
     let duration: TimeInterval?
     let sources: [AudioSource]
     let processingState: ProcessingState
@@ -75,6 +76,7 @@ struct RecordingManifestV2: Codable, Equatable, Sendable {
         id = recording.id
         title = recording.title
         createdAtEpochSeconds = recording.createdAt.timeIntervalSince1970
+        createdAtEpochSecondsBitPattern = recording.createdAt.timeIntervalSince1970.bitPattern
         duration = recording.duration
         sources = recording.sources.sorted { $0.rawValue < $1.rawValue }
         processingState = recording.processingState
@@ -85,7 +87,7 @@ struct RecordingManifestV2: Codable, Equatable, Sendable {
         Recording(
             id: id,
             title: title,
-            createdAt: Date(timeIntervalSince1970: createdAtEpochSeconds),
+            createdAt: Date(timeIntervalSince1970: Double(bitPattern: createdAtEpochSecondsBitPattern)),
             duration: duration,
             sources: Set(sources),
             processingState: processingState,

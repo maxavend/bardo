@@ -48,7 +48,10 @@ final class AudioPlaybackControllerTests: XCTestCase {
             XCTAssertTrue(controller.play())
         }
 
-        try await Task.sleep(for: .milliseconds(250))
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await MainActor.run(body: { controller.isPlaying }), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
 
         await MainActor.run {
             XCTAssertFalse(controller.isPlaying)
