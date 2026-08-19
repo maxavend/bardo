@@ -1,6 +1,6 @@
 import CoreMedia
 import Foundation
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 
 final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     @MainActor var eventHandler: ((SystemAudioCaptureBackendEvent) -> Void)?
@@ -58,7 +58,7 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
             if includeMicrophone {
                 try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: sampleQueue)
             }
-            try await stream.startCapture()
+            try await startCapture(stream)
             self.stream = stream
         } catch {
             processor.reset()
@@ -71,7 +71,7 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
         guard let stream else { throw SystemAudioCaptureError.notCapturing }
         guard let filter = selection.filter else { throw SystemAudioCaptureError.invalidSelection }
         do {
-            try await stream.updateContentFilter(filter)
+            try await updateContentFilter(stream, filter: filter)
         } catch {
             throw SystemAudioCaptureError.screenCapture(error.localizedDescription)
         }
@@ -92,13 +92,13 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
         isStopping = true
         var stopError: String?
         do {
-            try await stream.stopCapture()
+            try await stopCapture(stream)
         } catch {
             stopError = error.localizedDescription
         }
         self.stream = nil
 
-        // Drain every sample callback that was already enqueued before finalizing writers.
+        // Drain every callback already enqueued before finalizing writers.
         sampleQueue.sync { }
         let result = await processor.finish(streamStopError: stopError)
         processor.reset()
@@ -127,6 +127,45 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
         Task { @MainActor [weak self] in
             guard let self, !self.isStopping, self.stream != nil else { return }
             self.eventHandler?(.interrupted(message))
+        }
+    }
+
+    @MainActor
+    private func startCapture(_ stream: SCStream) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            stream.startCapture { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func updateContentFilter(_ stream: SCStream, filter: SCContentFilter) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            stream.updateContentFilter(filter) { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func stopCapture(_ stream: SCStream) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            stream.stopCapture { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
         }
     }
 }
