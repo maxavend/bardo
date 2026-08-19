@@ -6,7 +6,7 @@ struct RecordingManifestV1: Codable, Equatable, Sendable {
     let schemaVersion: Int
     let id: UUID
     let title: String
-    let createdAt: Date
+    let createdAtEpochSeconds: TimeInterval
     let duration: TimeInterval?
     let sources: [AudioSource]
     let processingState: ProcessingState
@@ -15,7 +15,7 @@ struct RecordingManifestV1: Codable, Equatable, Sendable {
         schemaVersion = Self.currentSchemaVersion
         id = recording.id
         title = recording.title
-        createdAt = recording.createdAt
+        createdAtEpochSeconds = recording.createdAt.timeIntervalSince1970
         duration = recording.duration
         sources = recording.sources.sorted { $0.rawValue < $1.rawValue }
         processingState = recording.processingState
@@ -25,7 +25,7 @@ struct RecordingManifestV1: Codable, Equatable, Sendable {
         Recording(
             id: id,
             title: title,
-            createdAt: createdAt,
+            createdAt: Date(timeIntervalSince1970: createdAtEpochSeconds),
             duration: duration,
             sources: Set(sources),
             processingState: processingState

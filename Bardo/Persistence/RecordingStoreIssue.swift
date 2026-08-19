@@ -1,7 +1,7 @@
 import Foundation
 
 struct RecordingStoreIssue: Identifiable, Equatable, Sendable {
-    enum Kind: String, Equatable, Sendable {
+    enum Kind: String, Hashable, Sendable {
         case corruptManifest
         case missingManifest
         case unsupportedSchemaVersion
@@ -24,8 +24,6 @@ struct RecordingStoreIssue: Identifiable, Equatable, Sendable {
 struct LibrarySnapshot: Equatable, Sendable {
     let recordings: [Recording]
     let issues: [RecordingStoreIssue]
-
-    static let empty = LibrarySnapshot(recordings: [], issues: [])
 }
 
 enum RecordingStoreError: Error, LocalizedError, Equatable, Sendable {

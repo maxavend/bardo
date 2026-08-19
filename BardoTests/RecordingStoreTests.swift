@@ -20,7 +20,11 @@ final class RecordingStoreTests: XCTestCase {
 
     func testSaveAndReadPreserveRecordingAndSchemaVersion() async throws {
         let id = UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
-        let recording = makeRecording(id: id, title: "Persisted sync")
+        let recording = makeRecording(
+            id: id,
+            title: "Persisted sync",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000.123_456)
+        )
         let store = RecordingStore(rootURL: rootURL)
 
         try await store.save(recording)

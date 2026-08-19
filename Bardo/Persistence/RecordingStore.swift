@@ -187,15 +187,12 @@ actor RecordingStore {
 
     private func encode(_ recording: Recording) throws -> Data {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(RecordingManifestV1(recording: recording))
     }
 
     private func decode(_ data: Data) throws -> Recording {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-
         let header: RecordingManifestHeader
         do {
             header = try decoder.decode(RecordingManifestHeader.self, from: data)

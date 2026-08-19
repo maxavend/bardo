@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct LibraryView: View {
@@ -56,6 +57,14 @@ struct LibraryView: View {
             )
         } else {
             List(selection: $model.selection) {
+                if let errorMessage = model.errorMessage {
+                    Section("Library Error") {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 if !model.issues.isEmpty {
                     Section("Recovery") {
                         ForEach(model.issues) { issue in
