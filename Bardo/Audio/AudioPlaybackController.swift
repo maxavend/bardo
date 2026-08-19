@@ -16,7 +16,8 @@ final class AudioPlaybackController: ObservableObject {
         player != nil
     }
 
-    func load(url: URL) {
+    @discardableResult
+    func load(url: URL) -> Bool {
         unload()
 
         do {
@@ -28,12 +29,14 @@ final class AudioPlaybackController: ObservableObject {
             duration = player.duration
             position = player.currentTime
             errorMessage = nil
+            return true
         } catch {
             player = nil
             duration = 0
             position = 0
             isPlaying = false
             errorMessage = AudioPlaybackError.unreadableAudio(error.localizedDescription).localizedDescription
+            return false
         }
     }
 
@@ -133,9 +136,6 @@ final class AudioPlaybackController: ObservableObject {
 
         duration = player.duration
 
-        // AVAudioPlayer may reset currentTime to zero after natural completion on macOS.
-        // The transition from our active playing state to !player.isPlaying therefore
-        // represents completion even when the underlying clock has already rewound.
         if isPlaying && !player.isPlaying {
             isPlaying = false
             position = player.duration

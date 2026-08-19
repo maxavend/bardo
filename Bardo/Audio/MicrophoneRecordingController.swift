@@ -54,6 +54,7 @@ final class MicrophoneRecordingController: ObservableObject {
     private let backend: any AudioCapturing
     private let metadataReader: AudioMetadataReader
     private let settingsOpener: MicrophoneSystemSettingsOpener
+    private let captureLeaseID = UUID()
     private var session: Session?
     private var progressTask: Task<Void, Never>?
 
@@ -86,7 +87,7 @@ final class MicrophoneRecordingController: ObservableObject {
             return
         }
         guard acquireGlobalCaptureLease() else {
-            errorMessage = "Another Bardo recording is already using the microphone."
+            errorMessage = "Another Bardo recording is already active."
             return
         }
 
@@ -133,7 +134,8 @@ final class MicrophoneRecordingController: ObservableObject {
                 id: session.audioAssetID,
                 originalFileName: "Microphone Recording.\(session.fileExtension)",
                 fileExtension: session.fileExtension,
-                metadata: metadata
+                metadata: metadata,
+                role: .microphoneOriginal
             )
             let recording = Recording(
                 id: session.recordingID,
@@ -145,8 +147,6 @@ final class MicrophoneRecordingController: ObservableObject {
                 audioAssets: [asset]
             )
 
-            // Reuse the certified Phase 2 publication transaction. The staging file is
-            // the source; RecordingStore owns the final managed copy + manifest ordering.
             try await store.importRecording(recording, audioAsset: asset, from: session.stagingURL)
 
             do {
@@ -326,14 +326,13 @@ final class MicrophoneRecordingController: ObservableObject {
     }
 
     private func acquireGlobalCaptureLease() -> Bool {
-        if let owner = Self.globalCaptureOwner, owner !== self {
-            return false
-        }
+        guard RecordingCaptureLease.acquire(ownerID: captureLeaseID) else { return false }
         Self.globalCaptureOwner = self
         return true
     }
 
     private func releaseGlobalCaptureLease() {
+        RecordingCaptureLease.release(ownerID: captureLeaseID)
         if Self.globalCaptureOwner === self {
             Self.globalCaptureOwner = nil
         }

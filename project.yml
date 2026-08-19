@@ -34,6 +34,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Bardo
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Bardo records microphone audio only when you choose to start a local recording.
+        INFOPLIST_KEY_NSScreenCaptureUsageDescription: Bardo captures audio from content you explicitly choose using the macOS system sharing picker.
         CODE_SIGN_ENTITLEMENTS: Bardo/Bardo.entitlements
         ENABLE_HARDENED_RUNTIME: YES
 

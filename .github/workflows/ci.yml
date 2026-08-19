@@ -34,7 +34,7 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Verify microphone build configuration
+      - name: Verify capture build configuration
         run: |
           test -f Bardo/Bardo.entitlements
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' Bardo/Bardo.entitlements)" = "true"
@@ -59,6 +59,7 @@ jobs:
           test -f "$BUNDLE/Contents/Info.plist"
           test -x "$BUNDLE/Contents/MacOS/Bardo"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
 
       - name: Run unit tests
         run: |

@@ -81,24 +81,33 @@ final class LibraryViewModel: ObservableObject {
     func preparePlaybackForSelection() async {
         playback.unload()
         guard let recording = selectedRecording else { return }
-        guard let asset = recording.audioAssets.first else {
+        guard !recording.audioAssets.isEmpty else {
             playback.setUnavailable("This recording has no managed audio file.")
             return
         }
 
         let recordingID = recording.id
-        do {
-            let activeStore = try resolveStore()
-            let url = try await activeStore.managedAudioURL(
-                recordingID: recordingID,
-                audioAssetID: asset.id
-            )
-            guard selection == recordingID else { return }
-            playback.load(url: url)
-        } catch {
-            guard selection == recordingID else { return }
-            playback.setUnavailable(error.localizedDescription)
+        var lastError: String?
+
+        for asset in recording.playbackAudioAssets {
+            do {
+                let activeStore = try resolveStore()
+                let url = try await activeStore.managedAudioURL(
+                    recordingID: recordingID,
+                    audioAssetID: asset.id
+                )
+                guard selection == recordingID else { return }
+                if playback.load(url: url) {
+                    return
+                }
+                lastError = playback.errorMessage
+            } catch {
+                guard selection == recordingID else { return }
+                lastError = error.localizedDescription
+            }
         }
+
+        playback.setUnavailable(lastError ?? "This recording has no playable managed audio.")
     }
 
     func stopPlayback() {
