@@ -3,6 +3,7 @@ import Foundation
 import XCTest
 @testable import Bardo
 
+@MainActor
 final class ScreenCaptureKitAudioBackendTests: XCTestCase {
     func testSystemOnlyConfigurationUsesAudioAndExcludesBardoPlayback() {
         let configuration = ScreenCaptureKitAudioBackend.makeConfiguration(includeMicrophone: false)

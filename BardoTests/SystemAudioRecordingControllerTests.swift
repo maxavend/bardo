@@ -2,7 +2,6 @@ import Foundation
 import XCTest
 @testable import Bardo
 
-@MainActor
 final class SystemAudioRecordingControllerTests: XCTestCase {
     private var baseURL: URL!
     private var libraryURL: URL!
@@ -25,6 +24,7 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         stagingURL = nil
     }
 
+    @MainActor
     func testPickerCancellationCreatesNoRecordingAndReleasesLease() async throws {
         let picker = FakeSystemContentPicker()
         let backend = FakeSystemAudioCaptureBackend()
@@ -55,6 +55,7 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         _ = await mic.stop()
     }
 
+    @MainActor
     func testSystemOnlyWritesBeforeStopPublishesAndSurvivesRestartPlayback() async throws {
         let picker = FakeSystemContentPicker()
         let backend = FakeSystemAudioCaptureBackend()
@@ -72,7 +73,8 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         controller.refreshElapsedTime()
         XCTAssertEqual(controller.elapsedTime, 3_600.75, accuracy: 0.001)
 
-        let recording = try XCTUnwrap(await controller.stop())
+        let stopped = await controller.stop()
+        let recording = try XCTUnwrap(stopped)
         XCTAssertEqual(recording.sources, [.systemAudio])
         XCTAssertEqual(recording.audioAssets.map(\.role), [.systemOriginal])
         XCTAssertEqual(recording.audioAssets.first?.timelineOffset, 0)
@@ -88,6 +90,7 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         XCTAssertEqual(restartedRecording, recording)
     }
 
+    @MainActor
     func testDualCaptureKeepsIndependentSourcesUsesSharedPTSAndCreatesDerivedMix() async throws {
         let picker = FakeSystemContentPicker()
         let backend = FakeSystemAudioCaptureBackend()
@@ -110,7 +113,8 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         XCTAssertGreaterThan(try Data(contentsOf: systemStagingURL).count, 0)
         XCTAssertGreaterThan(try Data(contentsOf: microphoneStagingURL).count, 0)
 
-        let recording = try XCTUnwrap(await controller.stop())
+        let stopped = await controller.stop()
+        let recording = try XCTUnwrap(stopped)
         XCTAssertEqual(recording.sources, [.systemAudio, .microphone])
         XCTAssertEqual(recording.audioAssets.count, 3)
 
@@ -136,6 +140,7 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         XCTAssertEqual(model.recordings.first?.playbackAudioAssets.first?.role, .conversationMix)
     }
 
+    @MainActor
     func testMissingDerivedMixFallsBackToOriginalPlayback() async throws {
         let picker = FakeSystemContentPicker()
         let backend = FakeSystemAudioCaptureBackend()
@@ -150,7 +155,8 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         await controller.start(includeMicrophone: true)
         picker.selectInitial()
         await waitUntil { controller.phase == .recording }
-        let recording = try XCTUnwrap(await controller.stop())
+        let stopped = await controller.stop()
+        let recording = try XCTUnwrap(stopped)
         let mix = try XCTUnwrap(recording.audioAssets.first { $0.role == .conversationMix })
         let system = try XCTUnwrap(recording.audioAssets.first { $0.role == .systemOriginal })
         let mic = try XCTUnwrap(recording.audioAssets.first { $0.role == .microphoneOriginal })
@@ -169,6 +175,41 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: micURL.path))
     }
 
+    @MainActor
+    func testCorruptDerivedMixFallsBackToOriginalPlayback() async throws {
+        let picker = FakeSystemContentPicker()
+        let backend = FakeSystemAudioCaptureBackend()
+        let store = RecordingStore(rootURL: libraryURL)
+        let controller = makeController(
+            store: store,
+            picker: picker,
+            backend: backend,
+            microphonePermission: TestMicrophonePermissionAuthorizer(status: .authorized)
+        )
+
+        await controller.start(includeMicrophone: true)
+        picker.selectInitial()
+        await waitUntil { controller.phase == .recording }
+        let stopped = await controller.stop()
+        let recording = try XCTUnwrap(stopped)
+        let mix = try XCTUnwrap(recording.audioAssets.first { $0.role == .conversationMix })
+        let system = try XCTUnwrap(recording.audioAssets.first { $0.role == .systemOriginal })
+        let mic = try XCTUnwrap(recording.audioAssets.first { $0.role == .microphoneOriginal })
+        let mixURL = try await store.managedAudioURL(recordingID: recording.id, audioAssetID: mix.id)
+        try Data("corrupt derived mix".utf8).write(to: mixURL)
+
+        let restartedStore = RecordingStore(rootURL: libraryURL)
+        let model = LibraryViewModel(store: restartedStore)
+        await model.reload()
+
+        XCTAssertTrue(model.playback.isLoaded)
+        let systemURL = try await restartedStore.managedAudioURL(recordingID: recording.id, audioAssetID: system.id)
+        let micURL = try await restartedStore.managedAudioURL(recordingID: recording.id, audioAssetID: mic.id)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: systemURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: micURL.path))
+    }
+
+    @MainActor
     func testMicrophoneFailurePublishesGoodSystemSourceAndPreservesStagingEvidence() async throws {
         let picker = FakeSystemContentPicker()
         let backend = FakeSystemAudioCaptureBackend()
@@ -184,7 +225,8 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         await controller.start(includeMicrophone: true)
         picker.selectInitial()
         await waitUntil { controller.phase == .recording }
-        let recording = try XCTUnwrap(await controller.stop())
+        let stopped = await controller.stop()
+        let recording = try XCTUnwrap(stopped)
 
         XCTAssertEqual(recording.sources, [.systemAudio])
         XCTAssertEqual(recording.audioAssets.map(\.role), [.systemOriginal])
@@ -194,6 +236,7 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         XCTAssertEqual(snapshot.recordings.count, 1)
     }
 
+    @MainActor
     func testMixFailureDoesNotDestroyOriginals() async throws {
         let picker = FakeSystemContentPicker()
         let backend = FakeSystemAudioCaptureBackend()
@@ -209,7 +252,8 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         await controller.start(includeMicrophone: true)
         picker.selectInitial()
         await waitUntil { controller.phase == .recording }
-        let recording = try XCTUnwrap(await controller.stop())
+        let stopped = await controller.stop()
+        let recording = try XCTUnwrap(stopped)
 
         XCTAssertEqual(Set(recording.audioAssets.map(\.role)), Set([.systemOriginal, .microphoneOriginal]))
         XCTAssertTrue(controller.errorMessage?.contains("derived conversation mix") == true)
@@ -218,6 +262,7 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testSelectionUpdateUsesCurrentStreamAndCancelledUpdateKeepsRecording() async throws {
         let picker = FakeSystemContentPicker()
         let backend = FakeSystemAudioCaptureBackend()
@@ -238,6 +283,7 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         _ = await controller.stop()
     }
 
+    @MainActor
     func testSystemSelectionOwnsSameProcessLeaseAsPhase3Microphone() async throws {
         let picker = FakeSystemContentPicker()
         let backend = FakeSystemAudioCaptureBackend()
@@ -264,6 +310,28 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         await waitUntil { system.phase == .idle }
     }
 
+    @MainActor
+    func testNormalApplicationTerminationFinalizesActiveSystemRecording() async throws {
+        let picker = FakeSystemContentPicker()
+        let backend = FakeSystemAudioCaptureBackend()
+        let store = RecordingStore(rootURL: libraryURL)
+        let controller = makeController(store: store, picker: picker, backend: backend)
+
+        await controller.start(includeMicrophone: false)
+        picker.selectInitial()
+        await waitUntil { controller.phase == .recording }
+        XCTAssertTrue(controller.requiresTerminationFinalization)
+
+        await controller.prepareForApplicationTermination()
+
+        XCTAssertEqual(controller.phase, .idle)
+        XCTAssertFalse(controller.requiresTerminationFinalization)
+        let snapshot = try await store.loadLibrary()
+        XCTAssertEqual(snapshot.recordings.count, 1)
+        XCTAssertEqual(snapshot.recordings.first?.sources, [.systemAudio])
+    }
+
+    @MainActor
     private func makeController(
         store: RecordingStore,
         picker: FakeSystemContentPicker,
@@ -281,6 +349,7 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         )
     }
 
+    @MainActor
     private func waitUntil(
         _ condition: @escaping @MainActor () -> Bool,
         file: StaticString = #filePath,
