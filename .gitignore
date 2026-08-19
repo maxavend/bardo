@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Xcode build products
+DerivedData/
+.derived-data/
+build/
+*.dSYM
+*.dSYM.zip
+
+# Swift Package Manager local state
+.build/
+.swiftpm/
+
+# XcodeGen output (project.yml is the source of truth)
+Bardo.xcodeproj/
+
+# Local editor/tooling
+.vscode/
+.idea/
+*.swp
+*~

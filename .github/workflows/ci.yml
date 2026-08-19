@@ -1,0 +1,62 @@
+name: CI
+
+"on":
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Report toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build Bardo
+        run: |
+          xcodebuild \
+            -project Bardo.xcodeproj \
+            -scheme Bardo \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath .derived-data \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Verify application bundle
+        run: |
+          test -f .derived-data/Build/Products/Debug/Bardo.app/Contents/Info.plist
+          test -x .derived-data/Build/Products/Debug/Bardo.app/Contents/MacOS/Bardo
+
+      - name: Run unit tests
+        run: |
+          xcodebuild \
+            -project Bardo.xcodeproj \
+            -scheme Bardo \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath .derived-data \
+            CODE_SIGNING_ALLOWED=NO \
+            test
