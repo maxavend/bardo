@@ -29,6 +29,28 @@ final class TestMicrophonePermissionAuthorizer: MicrophonePermissionAuthorizing 
 }
 
 @MainActor
+final class SuspendingMicrophonePermissionAuthorizer: MicrophonePermissionAuthorizing {
+    private(set) var status: MicrophonePermissionState = .notDetermined
+    private var continuation: CheckedContinuation<MicrophonePermissionState, Never>?
+
+    func currentStatus() -> MicrophonePermissionState {
+        status
+    }
+
+    func requestAccess() async -> MicrophonePermissionState {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func resolve(_ state: MicrophonePermissionState) {
+        status = state
+        continuation?.resume(returning: state)
+        continuation = nil
+    }
+}
+
+@MainActor
 final class IncrementalTestCaptureBackend: AudioCapturing {
     var fileExtension: String { "wav" }
     var currentTime: TimeInterval = 0

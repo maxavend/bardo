@@ -30,7 +30,9 @@ final class MicrophoneRecordingController: ObservableObject {
         }
     }
 
-    var requiresTerminationFinalization: Bool { isBusy }
+    var requiresTerminationFinalization: Bool {
+        phase == .recording || phase == .finalizing
+    }
 
     static var activeForApplicationTermination: MicrophoneRecordingController? {
         globalCaptureOwner
@@ -143,11 +145,15 @@ final class MicrophoneRecordingController: ObservableObject {
                 audioAssets: [asset]
             )
 
+            // Reuse the certified Phase 2 publication transaction. The staging file is
+            // the source; RecordingStore owns the final managed copy + manifest ordering.
             try await store.importRecording(recording, audioAsset: asset, from: session.stagingURL)
 
             do {
                 try await stagingStore.discardPreparedCapture(recordingID: session.recordingID)
             } catch {
+                // The recording is already safely published. Preserve cleanup residue and
+                // surface it through recovery instead of invalidating a successful capture.
             }
 
             self.session = nil
@@ -169,12 +175,12 @@ final class MicrophoneRecordingController: ObservableObject {
     }
 
     func prepareForApplicationTermination() async {
-        while phase == .requestingPermission || phase == .preparing || phase == .finalizing {
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-
         if phase == .recording {
             _ = await stop()
+        }
+
+        while phase == .finalizing {
+            try? await Task.sleep(for: .milliseconds(50))
         }
     }
 

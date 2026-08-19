@@ -150,6 +150,39 @@ final class MicrophoneRecordingControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingPermissionDoesNotBlockApplicationTermination() async throws {
+        let env = makeEnvironment()
+        defer { try? FileManager.default.removeItem(at: env.baseURL) }
+        let permission = SuspendingMicrophonePermissionAuthorizer()
+        let backend = IncrementalTestCaptureBackend()
+        let controller = MicrophoneRecordingController(
+            store: env.recordingStore,
+            stagingStore: env.stagingStore,
+            permissionAuthorizer: permission,
+            backend: backend
+        )
+
+        let startTask = Task { @MainActor in
+            await controller.start()
+        }
+
+        for _ in 0..<100 where controller.phase != .requestingPermission {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(controller.phase, .requestingPermission)
+        XCTAssertFalse(controller.requiresTerminationFinalization)
+        XCTAssertEqual(backend.startCount, 0)
+
+        permission.resolve(.denied)
+        await startTask.value
+
+        XCTAssertEqual(controller.phase, .idle)
+        XCTAssertFalse(controller.requiresTerminationFinalization)
+        XCTAssertEqual(backend.startCount, 0)
+    }
+
+    @MainActor
     private func makeController(
         env: TestEnvironment,
         backend: IncrementalTestCaptureBackend
