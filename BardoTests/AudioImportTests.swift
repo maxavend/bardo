@@ -74,7 +74,7 @@ final class AudioImportTests: XCTestCase {
             audioAssetID: restartedAsset.id
         )
 
-        XCTAssertEqual(restartedRecording, recording)
+        XCTAssertRecordingPersistenceEqual(restartedRecording, recording)
         XCTAssertTrue(FileManager.default.fileExists(atPath: restartedManagedURL.path))
     }
 

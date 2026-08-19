@@ -52,8 +52,11 @@ final class RecordingStoreTests: XCTestCase {
         try await store.save(recording)
         let loaded = try await RecordingStore(rootURL: rootURL).read(id: recording.id)
 
-        XCTAssertEqual(loaded.createdAt.timeIntervalSince1970.bitPattern, recording.createdAt.timeIntervalSince1970.bitPattern)
-        XCTAssertEqual(loaded, recording)
+        XCTAssertEqual(
+            loaded.createdAt.timeIntervalSince1970.bitPattern,
+            recording.createdAt.timeIntervalSince1970.bitPattern
+        )
+        XCTAssertRecordingPersistenceEqual(loaded, recording)
     }
 
     func testMultipleRecordingsCoexistAndFreshStoreRebuildsFromDisk() async throws {
