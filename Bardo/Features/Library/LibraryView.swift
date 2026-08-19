@@ -38,6 +38,16 @@ struct LibraryView: View {
                     Task { await model.reload() }
                 }
             }
+        } else if model.recordings.isEmpty && !model.issues.isEmpty {
+            ContentUnavailableView {
+                Label("Library Needs Recovery", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text("\(model.issues.count) stored item\(model.issues.count == 1 ? "" : "s") could not be loaded. Bardo left them untouched.")
+            } actions: {
+                Button("Reload") {
+                    Task { await model.reload() }
+                }
+            }
         } else if model.recordings.isEmpty {
             ContentUnavailableView(
                 "No Recordings",
@@ -47,13 +57,12 @@ struct LibraryView: View {
         } else {
             List(selection: $model.selection) {
                 if !model.issues.isEmpty {
-                    Section {
-                        Label(
-                            "\(model.issues.count) stored item\(model.issues.count == 1 ? "" : "s") need recovery",
-                            systemImage: "exclamationmark.triangle"
-                        )
-                        .foregroundStyle(.secondary)
-                        .help("Bardo preserved these entries and loaded the healthy recordings.")
+                    Section("Recovery") {
+                        ForEach(model.issues) { issue in
+                            Label(issue.message, systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
