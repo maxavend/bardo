@@ -51,10 +51,20 @@ actor RecordingStore {
         audioAsset: AudioAsset,
         from sourceURL: URL
     ) throws {
-        guard recording.audioAssets.contains(where: { $0.id == audioAsset.id }) else {
-            throw RecordingStoreError.audioAssetNotFound(
+        try importRecording(recording, audioFiles: [audioAsset.id: sourceURL])
+    }
+
+    func importRecording(
+        _ recording: Recording,
+        audioFiles: [AudioAsset.ID: URL]
+    ) throws {
+        let expectedIDs = Set(recording.audioAssets.map(\.id))
+        let suppliedIDs = Set(audioFiles.keys)
+        guard !expectedIDs.isEmpty, expectedIDs == suppliedIDs else {
+            throw RecordingStoreError.audioAssetFileSetMismatch(
                 recordingID: recording.id,
-                audioAssetID: audioAsset.id
+                expected: expectedIDs.count,
+                supplied: suppliedIDs.count
             )
         }
 
@@ -71,37 +81,47 @@ actor RecordingStore {
             let audioDirectory = audioDirectoryURL(for: recording.id)
             try ensureDirectoryExists(audioDirectory)
 
-            let temporaryAudioURL = audioDirectory
-                .appendingPathComponent(".audio-\(audioAsset.id.uuidString).tmp")
-            let destinationAudioURL = managedAudioURL(
-                recordingID: recording.id,
-                asset: audioAsset
-            )
+            for asset in recording.audioAssets {
+                guard let sourceURL = audioFiles[asset.id] else {
+                    throw RecordingStoreError.audioAssetNotFound(
+                        recordingID: recording.id,
+                        audioAssetID: asset.id
+                    )
+                }
 
-            do {
-                try FileManager.default.copyItem(at: sourceURL, to: temporaryAudioURL)
-            } catch {
-                throw RecordingStoreError.fileSystem(
-                    operation: "copy imported audio",
-                    entry: sourceURL.lastPathComponent,
-                    description: error.localizedDescription
+                let temporaryAudioURL = audioDirectory
+                    .appendingPathComponent(".audio-\(asset.id.uuidString).tmp")
+                let destinationAudioURL = managedAudioURL(
+                    recordingID: recording.id,
+                    asset: asset
+                )
+
+                do {
+                    try FileManager.default.copyItem(at: sourceURL, to: temporaryAudioURL)
+                } catch {
+                    throw RecordingStoreError.fileSystem(
+                        operation: "copy managed audio",
+                        entry: sourceURL.lastPathComponent,
+                        description: error.localizedDescription
+                    )
+                }
+
+                try atomicallyMove(
+                    from: temporaryAudioURL,
+                    to: destinationAudioURL,
+                    operation: "finalize managed audio"
                 )
             }
 
-            try atomicallyMove(
-                from: temporaryAudioURL,
-                to: destinationAudioURL,
-                operation: "finalize imported audio"
-            )
+            // All managed audio files are final before the manifest becomes visible.
             try atomicallyWrite(
                 data,
                 to: manifestURL(for: recording.id),
                 in: recordingDirectory
             )
         } catch {
-            // This directory was created exclusively for this failed import. Removing it
-            // cannot affect pre-existing Bardo data or the user's original source file.
-            // If cleanup itself fails, the residue is intentionally left for recovery.
+            // This directory was created exclusively for this failed publication. Removing
+            // it cannot affect an existing recording or the caller-owned staging sources.
             try? FileManager.default.removeItem(at: recordingDirectory)
             throw error
         }
@@ -271,7 +291,7 @@ actor RecordingStore {
     private func encode(_ recording: Recording) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(RecordingManifestV2(recording: recording))
+        return try encoder.encode(RecordingManifestV3(recording: recording))
     }
 
     private func decode(_ data: Data) throws -> Recording {
@@ -289,6 +309,8 @@ actor RecordingStore {
                 return try decoder.decode(RecordingManifestV1.self, from: data).recording
             case RecordingManifestV2.currentSchemaVersion:
                 return try decoder.decode(RecordingManifestV2.self, from: data).recording
+            case RecordingManifestV3.currentSchemaVersion:
+                return try decoder.decode(RecordingManifestV3.self, from: data).recording
             default:
                 throw RecordingStoreError.unsupportedSchemaVersion(header.schemaVersion)
             }
@@ -409,7 +431,7 @@ actor RecordingStore {
                     kind: .temporaryAudioArtifact,
                     recordingID: recordingID,
                     entryName: temporaryURL.lastPathComponent,
-                    message: "An incomplete audio import was detected for recording \(recordingID.uuidString) and was preserved."
+                    message: "An incomplete audio publication was detected for recording \(recordingID.uuidString) and was preserved."
                 )
             }
     }
@@ -418,11 +440,21 @@ actor RecordingStore {
         recording.audioAssets.compactMap { asset in
             let url = managedAudioURL(recordingID: recording.id, asset: asset)
             guard !FileManager.default.fileExists(atPath: url.path) else { return nil }
+
+            if asset.role.isDerived {
+                return issue(
+                    kind: .missingDerivedAudioFile,
+                    recordingID: recording.id,
+                    entryName: asset.id.uuidString,
+                    message: "A derived playback asset for \(recording.title) is missing. Original source audio was preserved."
+                )
+            }
+
             return issue(
                 kind: .missingAudioFile,
                 recordingID: recording.id,
                 entryName: asset.id.uuidString,
-                message: "Managed audio for \(recording.title) is missing. Its manifest was preserved."
+                message: "Managed source audio for \(recording.title) is missing. Its manifest was preserved."
             )
         }
     }

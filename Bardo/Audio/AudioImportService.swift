@@ -91,7 +91,8 @@ actor AudioImportService {
         let asset = AudioAsset(
             originalFileName: sourceURL.lastPathComponent,
             fileExtension: fileExtension,
-            metadata: metadata
+            metadata: metadata,
+            role: .importedOriginal
         )
         let title = sourceURL.deletingPathExtension().lastPathComponent
         let recording = Recording(

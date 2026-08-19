@@ -9,6 +9,7 @@ struct RecordingStoreIssue: Identifiable, Equatable, Sendable {
         case temporaryArtifact
         case temporaryAudioArtifact
         case missingAudioFile
+        case missingDerivedAudioFile
         case unexpectedEntry
         case unreadableEntry
     }
@@ -32,6 +33,7 @@ enum RecordingStoreError: Error, LocalizedError, Equatable, Sendable {
     case recordingNotFound(UUID)
     case recordingAlreadyExists(UUID)
     case audioAssetNotFound(recordingID: UUID, audioAssetID: UUID)
+    case audioAssetFileSetMismatch(recordingID: UUID, expected: Int, supplied: Int)
     case managedAudioMissing(recordingID: UUID, audioAssetID: UUID)
     case unsupportedSchemaVersion(Int)
     case invalidManifest(String)
@@ -46,6 +48,8 @@ enum RecordingStoreError: Error, LocalizedError, Equatable, Sendable {
             return "Recording \(id.uuidString) already exists."
         case .audioAssetNotFound(let recordingID, let audioAssetID):
             return "Audio \(audioAssetID.uuidString) is not registered for recording \(recordingID.uuidString)."
+        case .audioAssetFileSetMismatch(let recordingID, let expected, let supplied):
+            return "Recording \(recordingID.uuidString) expected \(expected) managed audio files but received \(supplied)."
         case .managedAudioMissing(let recordingID, let audioAssetID):
             return "Managed audio \(audioAssetID.uuidString) for recording \(recordingID.uuidString) is missing."
         case .unsupportedSchemaVersion(let version):

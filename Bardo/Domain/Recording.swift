@@ -27,6 +27,15 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
         self.audioAssets = audioAssets
     }
 
+    var playbackAudioAssets: [AudioAsset] {
+        audioAssets.sorted {
+            if $0.role.playbackPriority == $1.role.playbackPriority {
+                return $0.id.uuidString < $1.id.uuidString
+            }
+            return $0.role.playbackPriority < $1.role.playbackPriority
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case title

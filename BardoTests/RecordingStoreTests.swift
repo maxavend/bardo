@@ -38,7 +38,7 @@ final class RecordingStoreTests: XCTestCase {
         let json = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
         )
-        XCTAssertEqual(json["schemaVersion"] as? Int, RecordingManifestV2.currentSchemaVersion)
+        XCTAssertEqual(json["schemaVersion"] as? Int, RecordingManifestV3.currentSchemaVersion)
     }
 
     func testCurrentSchemaPreservesArbitraryCreatedAtExactly() async throws {
