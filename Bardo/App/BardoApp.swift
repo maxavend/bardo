@@ -3,6 +3,8 @@ import SwiftUI
 
 @main
 struct BardoApp: App {
+    @NSApplicationDelegateAdaptor(BardoAppDelegate.self) private var appDelegate
+
     private static let logger = Logger(
         subsystem: "com.maxavend.bardo",
         category: "application"

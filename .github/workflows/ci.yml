@@ -47,8 +47,10 @@ jobs:
 
       - name: Verify application bundle
         run: |
-          test -f .derived-data/Build/Products/Debug/Bardo.app/Contents/Info.plist
-          test -x .derived-data/Build/Products/Debug/Bardo.app/Contents/MacOS/Bardo
+          BUNDLE=.derived-data/Build/Products/Debug/Bardo.app
+          test -f "$BUNDLE/Contents/Info.plist"
+          test -x "$BUNDLE/Contents/MacOS/Bardo"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
 
       - name: Run unit tests
         run: |
