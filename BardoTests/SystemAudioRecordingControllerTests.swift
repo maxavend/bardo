@@ -87,7 +87,7 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         XCTAssertTrue(model.playback.isLoaded)
         XCTAssertTrue(model.issues.isEmpty)
         let restartedRecording = try await restartedStore.read(id: recording.id)
-        XCTAssertEqual(restartedRecording, recording)
+        XCTAssertRecordingPersistenceEqual(restartedRecording, recording)
     }
 
     @MainActor
@@ -128,7 +128,7 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
 
         let restartedStore = RecordingStore(rootURL: libraryURL)
         let restarted = try await restartedStore.read(id: recording.id)
-        XCTAssertEqual(restarted, recording)
+        XCTAssertRecordingPersistenceEqual(restarted, recording)
         for asset in restarted.audioAssets {
             let url = try await restartedStore.managedAudioURL(recordingID: recording.id, audioAssetID: asset.id)
             XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))

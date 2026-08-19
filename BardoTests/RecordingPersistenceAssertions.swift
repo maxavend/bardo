@@ -10,8 +10,9 @@ func XCTAssertRecordingPersistenceEqual(
     XCTAssertEqual(actual.id, expected.id, file: file, line: line)
     XCTAssertEqual(actual.title, expected.title, file: file, line: line)
     XCTAssertEqual(
-        actual.createdAt.timeIntervalSince1970.bitPattern,
-        expected.createdAt.timeIntervalSince1970.bitPattern,
+        actual.createdAt.timeIntervalSince1970,
+        expected.createdAt.timeIntervalSince1970,
+        accuracy: 0.000_001,
         file: file,
         line: line
     )
@@ -43,5 +44,14 @@ func XCTAssertRecordingPersistenceEqual(
             line: line
         )
         XCTAssertEqual(actualAsset.metadata.channelCount, expectedAsset.metadata.channelCount, file: file, line: line)
+        XCTAssertEqual(actualAsset.role, expectedAsset.role, file: file, line: line)
+        XCTAssertEqual(
+            actualAsset.timelineOffset,
+            expectedAsset.timelineOffset,
+            accuracy: 0.000_000_001,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(actualAsset.derivedFromAssetIDs, expectedAsset.derivedFromAssetIDs, file: file, line: line)
     }
 }
