@@ -1,6 +1,6 @@
 # Bardo
 
-Bardo is a privacy-first native macOS app for managing conversations locally. The repository is currently implementing **Phase 2 — Audio Import**: real audio files can be validated, copied into Bardo-managed storage, reconstructed after restart, inspected for technical metadata, and played from the managed copy.
+Bardo is a privacy-first native macOS app for managing conversations locally. **Phase 2 — Audio Import** is implemented and certified on its phase branch: real audio files can be validated, copied into Bardo-managed storage, reconstructed after restart, inspected for technical metadata, and played from the managed copy.
 
 Phase 2 intentionally contains **zero AI**. There is no transcription, diarization, microphone capture, or system-audio capture yet.
 
@@ -49,11 +49,13 @@ Bardo provides:
 - `NavigationSplitView` Library;
 - native file picker and drag & drop audio import;
 - managed local copies for successful imports;
-- supported import extensions: `.m4a`, `.mp3`, `.wav`, `.flac`, `.aac`, `.aiff`;
+- accepted import extensions: `.m4a`, `.mp3`, `.wav`, `.flac`, `.aac`, `.aiff`;
 - audio-content validation through AVFoundation rather than trusting only the extension;
 - persisted duration, codec label, sample rate, and channel count;
 - native play, pause, seek, current-position, and total-duration controls;
 - schema-versioned persistence and per-recording recovery isolation.
+
+CI positively validates the complete import/playback flow with a generated WAV fixture and verifies that invalid `.mp3` contents are rejected. Other accepted extensions must still be readable by AVFoundation at runtime; Bardo does not equate a filename extension with valid audio.
 
 Importing the same external file twice intentionally creates two independent recordings. Phase 2 has no hash-deduplication system.
 
@@ -92,7 +94,7 @@ sampleRate
 channelCount
 ```
 
-The managed absolute path is not persisted in Domain. `RecordingStore` derives it from recording UUID, audio asset UUID, and the persisted extension.
+Schema 2 also preserves exact timestamp reconstruction for arbitrary `Date` values. The managed absolute path is not persisted in Domain; `RecordingStore` derives it from recording UUID, audio asset UUID, and the persisted extension.
 
 Unsupported future schema versions are detected and preserved rather than silently migrated or deleted.
 
@@ -102,11 +104,13 @@ Bardo keeps the policy:
 
 `preserve → detect → inform → continue loading healthy data`
 
-In addition to Phase 1 manifest recovery, Phase 2 detects missing managed audio and interrupted `.audio-*.tmp` import residue. A corrupt manifest does not cause Bardo to erase an existing audio file. A missing or corrupt managed audio resource produces a controlled playback/recovery state rather than crashing the Library.
+In addition to Phase 1 manifest recovery, Phase 2 detects missing managed audio and interrupted `.audio-*.tmp` import residue. Corrupt managed audio produces a controlled playback failure while the Library remains stable. A corrupt manifest does not cause Bardo to erase an existing audio file.
 
 ## Test audio
 
 Tests generate tiny deterministic WAV fixtures programmatically with AVFoundation. No network resource and no large multimedia fixture is required or committed.
+
+The certified Phase 2 suite contains **32 XCTest cases with 0 failures**, including all Phase 0 and Phase 1 regressions.
 
 ## Repository structure
 
