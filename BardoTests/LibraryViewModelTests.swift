@@ -43,6 +43,35 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    @MainActor
+    func testRecordingWithoutManagedAudioKeepsLibraryStableAndReportsPlaybackUnavailable() async throws {
+        let rootURL = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let recording = Recording(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000202")!,
+            title: "Legacy recording",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_300),
+            duration: 42,
+            sources: [.importedFile],
+            processingState: .pending,
+            audioAssets: []
+        )
+        let store = RecordingStore(rootURL: rootURL)
+        try await store.save(recording)
+
+        let model = LibraryViewModel(store: RecordingStore(rootURL: rootURL))
+        await model.reload()
+
+        XCTAssertEqual(model.recordings, [recording])
+        XCTAssertEqual(model.selection, recording.id)
+        XCTAssertNil(model.errorMessage)
+        XCTAssertTrue(model.issues.isEmpty)
+        XCTAssertFalse(model.playback.isLoaded)
+        XCTAssertFalse(model.playback.isPlaying)
+        XCTAssertNotNil(model.playback.errorMessage)
+    }
+
     private func makeTemporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("BardoLibraryModelTests-\(UUID().uuidString)", isDirectory: true)
