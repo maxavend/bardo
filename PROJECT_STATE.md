@@ -6,7 +6,7 @@
 
 **Status:** PHASE_READY
 
-Phases 0–2 remain integrated and certified. Phase 3 is fully implemented on `feat/phase-3-microphone-recording`; code-bearing head `05469b069f9b9d4345a47aebaa5b923f33213808` passed the complete macOS build/test gate before this documentation-only certification commit.
+Phases 0–2 remain integrated and certified. Phase 3 is fully implemented on `feat/phase-3-microphone-recording`. The final code/configuration head `5a0a53ccd844471c077dd362e39a343a33857bce` passed the complete macOS CI gate before this documentation-only certification update.
 
 ## Integrated baseline
 
@@ -26,8 +26,10 @@ Phases 0–2 remain integrated and certified. Phase 3 is fully implemented on `f
 - Explicit application states: `notDetermined`, `authorized`, `denied`, `restricted`, and unexpected error.
 - Permission is requested only after an explicit Record action; an empty launch does not request it.
 - Denied/restricted permission never starts the capture backend and produces controlled UI state.
-- Denied UI offers a best-effort route to the macOS microphone privacy settings.
-- `NSMicrophoneUsageDescription` is owned by `project.yml`; CI verifies the exact key/value in the generated `Bardo.app/Contents/Info.plist`.
+- Denied UI offers a best-effort route to macOS microphone privacy settings.
+- `NSMicrophoneUsageDescription` is owned by `project.yml`; CI verifies the exact value in the generated `Bardo.app/Contents/Info.plist`.
+- macOS Audio Input entitlement configuration is owned by XcodeGen: `CODE_SIGN_ENTITLEMENTS = Bardo/Bardo.entitlements`, `ENABLE_HARDENED_RUNTIME = YES`, and `com.apple.security.device.audio-input = true`.
+- CI verifies those generated build settings and the entitlement source file.
 - A pending permission prompt does not hold application termination open indefinitely.
 
 ## Mission 3.2 — Recorder
@@ -47,13 +49,13 @@ bit rate: 96 kbps
 encoder quality: high
 ```
 
-Rationale: direct native recording to a compact, broadly playable conversation format without conversion or future-Phase assumptions.
+Rationale: direct native recording to a compact, broadly playable conversation format without conversion or assumptions about future phases.
 
-`AVAudioRecorder` writes directly to the staging file while capture is active. Bardo does not retain the complete recording in RAM. Elapsed time is sampled from the recorder backend's `currentTime`; the UI timer only samples that clock every 250 ms and is cancelled when no longer needed.
+`AVAudioRecorder` writes directly to the staging file while capture is active. Bardo does not retain the complete recording in RAM. Elapsed time is sampled from the recorder backend's `currentTime`; the UI task only samples that clock every 250 ms and is cancelled when no longer needed.
 
 Pause/resume is intentionally not implemented in Phase 3. Start/active/stop/finalize/error are the certified lifecycle.
 
-The current microphone display name is shown as informational UI while recording. Durable recording origin uses the already-persisted `Recording.sources = [.microphone]`; no ephemeral hardware identifier/path was promoted into Domain.
+The current microphone display name is shown as informational UI while recording. Durable recording origin uses the already-persisted `Recording.sources = [.microphone]`; no ephemeral hardware identifier/path is promoted into Domain.
 
 ## Mission 3.3 — Recording Safety
 
@@ -86,7 +88,7 @@ stop/close AVAudioRecorder
 → reload Library
 ```
 
-If start fails, the prepared staging directory is removed and no Recording is published. If recording is unexpectedly interrupted or final publication fails, the staging bytes are preserved and detected on recovery; no false-valid Recording is created.
+If start fails, the prepared staging directory is removed and no Recording is published. If recording is unexpectedly interrupted or final publication fails, staging bytes are preserved and detected on recovery; no false-valid Recording is created.
 
 Normal application termination while recording uses the AppKit terminate-later/reply lifecycle to attempt safe stop/finalization before exit. Crash/SIGKILL recovery is not faked: leftover staging bytes are preserved and reported on next launch, but Bardo does not promise recovery of a container the OS/framework cannot decode.
 
@@ -95,7 +97,7 @@ Concurrency invariants:
 - orchestration rejects a second start while the same controller is busy;
 - a process-wide capture lease rejects simultaneous capture from separate controllers;
 - the staging actor independently rejects a second active prepared capture;
-- the app uses a single main SwiftUI `Window`, so another window cannot visually claim an idle recorder while capture is active elsewhere;
+- the app uses one main SwiftUI `Window`, so another Bardo window cannot visually claim an idle recorder while capture is active elsewhere;
 - repeated `stop` after completion is controlled/idempotent from the application perspective.
 
 ## Mission 3.4 — Recording UI
@@ -158,7 +160,7 @@ A simulated `currentTime = 3600.75` verifies long-duration state without sleepin
 
 ## Tests and CI evidence
 
-Final code-bearing GitHub Actions run `32300431536` validated commit `05469b069f9b9d4345a47aebaa5b923f33213808` on:
+Final code/configuration GitHub Actions run `32301264335` validated commit `5a0a53ccd844471c077dd362e39a343a33857bce` on:
 
 - macOS 15.7.7 Apple Silicon;
 - Xcode 16.4 (16F6);
@@ -168,6 +170,10 @@ Final code-bearing GitHub Actions run `32300431536` validated commit `05469b069f
 Observed results:
 
 - XcodeGen install/generation: passed;
+- microphone build configuration verification: passed;
+- `CODE_SIGN_ENTITLEMENTS = Bardo/Bardo.entitlements`: passed;
+- `ENABLE_HARDENED_RUNTIME = YES`: passed;
+- `com.apple.security.device.audio-input = true`: passed;
 - Debug build: **BUILD SUCCEEDED**;
 - app bundle/executable verification: passed;
 - generated `NSMicrophoneUsageDescription`: passed;
@@ -176,19 +182,22 @@ Observed results:
 
 The 47-test suite includes all inherited Foundation/Phase 1/Phase 2 regressions plus permission lifecycle, production recorder configuration, staging/recovery, concurrency, direct-to-disk evidence, long-duration clock behavior, interruption/error paths, termination behavior, and the full Phase 3 restart/playback gate.
 
-No material Swift compiler warning attributable to Phase 3 appears in the inspected CI log. Non-material runner/framework diagnostics remain unrelated Homebrew tap-trust noise, AppIntents metadata skips because Bardo does not use AppIntents, deliberately corrupt Phase 2 audio diagnostics, and virtual-runner playback-device messages.
+CI intentionally uses `CODE_SIGNING_ALLOWED=NO`, so it cannot prove the entitlements embedded in a production-signed/distribution build; Xcode logs that Hardened Runtime is disabled for that unsigned CI artifact. The XcodeGen configuration and entitlement source are automated and green, while a signed physical-microphone build remains part of the manual smoke evidence below.
 
-This documentation-only certification head must pass the same PR workflow before PR #4 is marked ready for external review.
+No material Swift compiler warning attributable to Phase 3 appears in the inspected CI log. Non-material runner/framework diagnostics remain unrelated Homebrew tap-trust noise, AppIntents metadata skips because Bardo does not use AppIntents, deliberately corrupt Phase 2 audio diagnostics, virtual-runner playback-device messages, and the expected unsigned-CI Hardened Runtime note.
+
+This documentation-only certification head must pass the same PR workflow before PR #4 is considered final PHASE_READY evidence.
 
 ## Reviewer findings and repairs
 
 The global reviewer loop found and resolved material issues before certification:
 
-1. Rejected an unnecessary proposed schema 3/device-label persistence design. Phase 3 now reuses schema 2 and existing `AudioSource.microphone` instead of duplicating persistence contracts.
-2. Found that termination could wait indefinitely while a microphone permission prompt was pending. Termination is now delayed only for actual recording/finalization; a dedicated suspended-permission test covers the regression.
+1. Rejected an unnecessary proposed schema 3/device-label persistence design. Phase 3 reuses schema 2 and existing `AudioSource.microphone` instead of duplicating persistence contracts.
+2. Found that termination could wait indefinitely while a microphone permission prompt was pending. Termination is delayed only for actual recording/finalization; a suspended-permission regression test covers the case.
 3. Found that `WindowGroup` could allow another window to appear idle while a different window owned the microphone. The main scene is now a single `Window`; the process-wide capture lease remains defense in depth.
+4. Final verification against current Apple documentation found the missing macOS Audio Input entitlement requirement. Added `Bardo.entitlements`, XcodeGen Hardened Runtime/entitlements settings, and an explicit CI configuration gate.
 
-After each material repair the full CI gate was rerun. A third reviewer pass found no further material issue. The final code diff is ahead of `main` only, introduces no runtime dependency, leaves persistence/schema code untouched, and contains no Phase 4 implementation.
+After every material repair the full CI gate was rerun. The final code/configuration diff introduces no runtime dependency, leaves persistence/schema code unchanged, and contains no Phase 4 implementation.
 
 ## Recovery and safety invariants
 
@@ -205,7 +214,7 @@ After each material repair the full CI gate was rerun. A third reviewer pass fou
 ## Known minor debt / evidence pending
 
 - **PARTIAL — interactive microphone smoke test pending:** CI cannot grant the real macOS TCC microphone prompt, speak into physical hardware, listen to the production M4A capture, or visually inspect the running recording UX. No physical microphone success is claimed.
-- The production `AVAudioRecorder` implementation/configuration compiles on Xcode 16.4; lifecycle/media integration in CI uses a real AVFoundation-generated WAV backend because the runner does not provide an interactive microphone permission/device test.
+- **PARTIAL — signed entitlement smoke:** CI verifies XcodeGen's entitlement/Hardened Runtime configuration but uses an unsigned build; embedding of the entitlement in a normally signed application should be confirmed with the physical-microphone smoke test.
 - The System Settings microphone deep link is best-effort; denial handling remains correct even if macOS changes that navigation route.
 - Pause/resume is intentionally absent.
 - Advanced device-route monitoring/reselection is not implemented; recorder delegate failures are surfaced and staged bytes preserved.

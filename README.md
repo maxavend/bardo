@@ -28,6 +28,7 @@ Bardo provides:
 - native file picker and drag & drop import for `.m4a`, `.mp3`, `.wav`, `.flac`, `.aac`, `.aiff` when AVFoundation can actually read the content;
 - Bardo-managed copies of successfully imported audio;
 - native microphone permission lifecycle initiated only by explicit recording intent;
+- XcodeGen-managed `NSMicrophoneUsageDescription`, Hardened Runtime, and macOS Audio Input entitlement configuration;
 - native `AVAudioRecorder` microphone capture directly to disk;
 - production microphone format: AAC/M4A, mono, 48 kHz, 96 kbps;
 - visible recording duration and input-device name while capture is active;
@@ -68,9 +69,19 @@ If capture is interrupted or final publication fails, Bardo does not publish a f
 
 Only one microphone capture can own Bardo at a time. The application uses a single main window, the recording controller keeps a process-wide capture lease, and the staging actor independently rejects a second active prepared capture.
 
-## Permissions and app termination
+## Permissions and macOS configuration
 
 `NSMicrophoneUsageDescription` is generated from `project.yml`, and CI verifies that it exists in the built application bundle. Bardo requests microphone access only after Record is chosen. Denied or restricted access never starts the recorder.
+
+The macOS target also declares:
+
+```text
+CODE_SIGN_ENTITLEMENTS = Bardo/Bardo.entitlements
+ENABLE_HARDENED_RUNTIME = YES
+com.apple.security.device.audio-input = true
+```
+
+CI verifies those generated settings and entitlement source. CI intentionally builds with code signing disabled, so the final embedded entitlement in a normally signed app remains part of the physical/signed smoke test rather than being falsely claimed as automated evidence.
 
 When Bardo is closed during a real active recording, the AppKit termination lifecycle attempts to stop and safely finalize the capture before exit. A pending permission prompt is not treated as recorded data and does not hold application termination open indefinitely.
 
@@ -92,11 +103,11 @@ This covers corrupt/incomplete manifests, missing/corrupt managed audio, import 
 
 ## Tests
 
-The Phase 3 code-bearing CI gate contains **47 XCTest cases with 0 failures**, including all Foundation/Phase 1/Phase 2 regressions.
+The final Phase 3 code/configuration gate contains **47 XCTest cases with 0 failures**, including all Foundation/Phase 1/Phase 2 regressions.
 
 Hardware-independent microphone integration uses a deterministic AVFoundation backend that writes a real WAV file incrementally to disk. Tests demonstrate bytes written before stop, metadata extraction, publication through the real `RecordingStore`, Library reconstruction, playback through `AVAudioPlayer`, restart persistence, concurrent-start rejection, interruption recovery, and normal termination finalization.
 
-The production `AVAudioRecorder` backend and M4A/AAC configuration compile under Xcode 16.4. A real physical-microphone/TCC/visual smoke test remains intentionally documented as pending because GitHub Actions cannot perform that interactive validation.
+The production `AVAudioRecorder` backend and M4A/AAC configuration compile under Xcode 16.4. A real physical-microphone/TCC/listening/visual smoke test — including a normally signed build with the entitlement embedded — remains intentionally documented as pending because GitHub Actions cannot perform that interactive validation.
 
 ## Project configuration
 
