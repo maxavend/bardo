@@ -54,9 +54,8 @@ struct AVFoundationConversationMixer: ConversationMixing {
             at: CMTime(seconds: max(0, microphoneOffset), preferredTimescale: 48_000)
         )
 
-        // Two full-scale sources can clip when summed. A fixed -6 dB-ish safety gain
-        // (0.5 linear) is deterministic, preserves relative dynamics, and avoids inventing
-        // loudness normalization before Bardo actually needs it.
+        // Two full-scale sources can clip when summed. A fixed 0.5 linear gain on each
+        // source provides deterministic headroom without inventing loudness processing.
         let systemParameters = AVMutableAudioMixInputParameters(track: systemTrack)
         systemParameters.setVolume(0.5, at: .zero)
         let microphoneParameters = AVMutableAudioMixInputParameters(track: microphoneTrack)
@@ -70,22 +69,13 @@ struct AVFoundationConversationMixer: ConversationMixing {
         ) else {
             throw ConversationMixError.couldNotCreateExporter
         }
-
-        try? FileManager.default.removeItem(at: outputURL)
-        exporter.outputURL = outputURL
-        exporter.outputFileType = .m4a
         exporter.audioMix = audioMix
 
-        await withCheckedContinuation { continuation in
-            exporter.exportAsynchronously {
-                continuation.resume()
-            }
-        }
-
-        guard exporter.status == .completed else {
-            throw ConversationMixError.exportFailed(
-                exporter.error?.localizedDescription ?? "AVAssetExportSession did not complete."
-            )
+        try? FileManager.default.removeItem(at: outputURL)
+        do {
+            try await exporter.export(to: outputURL, as: .m4a)
+        } catch {
+            throw ConversationMixError.exportFailed(error.localizedDescription)
         }
 
         return try metadataReader.read(from: outputURL)
