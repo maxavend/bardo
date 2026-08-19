@@ -21,6 +21,7 @@ final class SystemAudioRecordingController: ObservableObject {
     @Published private(set) var recoveryIssues: [RecordingStoreIssue] = []
 
     var isRecording: Bool { phase == .recording || phase == .changingSelection }
+
     var isBusy: Bool {
         switch phase {
         case .requestingMicrophonePermission, .selectingContent, .preparing, .recording, .changingSelection, .finalizing:
@@ -29,6 +30,7 @@ final class SystemAudioRecordingController: ObservableObject {
             return false
         }
     }
+
     var requiresTerminationFinalization: Bool {
         phase == .recording || phase == .changingSelection || phase == .finalizing
     }
@@ -132,6 +134,12 @@ final class SystemAudioRecordingController: ObservableObject {
         }
     }
 
+    func changeSelection() {
+        guard phase == .recording else { return }
+        phase = .changingSelection
+        picker.present()
+    }
+
     @discardableResult
     func stop() async -> Recording? {
         guard isRecording, session != nil else { return nil }
@@ -175,7 +183,7 @@ final class SystemAudioRecordingController: ObservableObject {
     private func handlePickerEvent(_ event: SystemContentSelectionEvent) async {
         switch event {
         case .selected(let selection, let isUpdate):
-            if isUpdate, isRecording {
+            if phase == .changingSelection || (isUpdate && isRecording) {
                 phase = .changingSelection
                 do {
                     try await backend.update(selection: selection)
@@ -191,7 +199,7 @@ final class SystemAudioRecordingController: ObservableObject {
             await beginCapture(selection: selection)
 
         case .cancelled(let isUpdate):
-            if isUpdate, isRecording {
+            if phase == .changingSelection || (isUpdate && isRecording) {
                 phase = .recording
                 return
             }
@@ -199,8 +207,9 @@ final class SystemAudioRecordingController: ObservableObject {
             finishWithoutCapture(message: nil)
 
         case .failed(let message):
-            if isRecording {
+            if phase == .changingSelection || isRecording {
                 errorMessage = "The system sharing picker could not update the selection: \(message)"
+                phase = .recording
             } else if phase == .selectingContent {
                 finishWithoutCapture(message: "The system sharing picker could not start: \(message)")
             }
@@ -334,8 +343,8 @@ final class SystemAudioRecordingController: ObservableObject {
                 throw SystemAudioCaptureError.noAudioSamples("system or microphone")
             }
 
-            // Normalize the two first sample PTS values onto a durable recording-relative
-            // timeline. Absolute host-clock values never enter Domain or persistence.
+            // Normalize first-sample PTS values onto a durable recording-relative timeline.
+            // Absolute host-clock values never enter Domain or persistence.
             let firstPTSValues = [result.systemTrack?.firstPresentationTime, result.microphoneTrack?.firstPresentationTime]
                 .compactMap { $0 }
                 .filter(\.isFinite)
@@ -343,9 +352,12 @@ final class SystemAudioRecordingController: ObservableObject {
             sourceAssets = sourceAssets.map { asset in
                 let firstPTS: TimeInterval?
                 switch asset.role {
-                case .systemOriginal: firstPTS = result.systemTrack?.firstPresentationTime
-                case .microphoneOriginal: firstPTS = result.microphoneTrack?.firstPresentationTime
-                default: firstPTS = nil
+                case .systemOriginal:
+                    firstPTS = result.systemTrack?.firstPresentationTime
+                case .microphoneOriginal:
+                    firstPTS = result.microphoneTrack?.firstPresentationTime
+                default:
+                    firstPTS = nil
                 }
                 return AudioAsset(
                     id: asset.id,

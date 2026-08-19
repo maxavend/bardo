@@ -140,10 +140,11 @@ struct RootView: View {
             activeRecordingBar(
                 title: "Recording Microphone",
                 detail: microphone.inputDisplayName ?? "Default microphone",
-                duration: microphone.elapsedTime
-            ) {
-                Task { await stopMicrophoneRecording() }
-            }
+                duration: microphone.elapsedTime,
+                stopAction: {
+                    Task { await stopMicrophoneRecording() }
+                }
+            )
         case .finalizing:
             transitionBar(
                 title: "Finishing Recording",
@@ -180,18 +181,23 @@ struct RootView: View {
                 detail: systemAudio.includesMicrophone
                     ? "Both original sources are being preserved separately."
                     : "Audio from the selected macOS content is being captured.",
-                duration: systemAudio.elapsedTime
-            ) {
-                Task { await stopSystemRecording() }
-            }
+                duration: systemAudio.elapsedTime,
+                changeSourceAction: {
+                    systemAudio.changeSelection()
+                },
+                stopAction: {
+                    Task { await stopSystemRecording() }
+                }
+            )
         case .changingSelection:
             activeRecordingBar(
-                title: "Recording — Updating Selection",
-                detail: "Capture continues while macOS applies the new shared content.",
-                duration: systemAudio.elapsedTime
-            ) {
-                Task { await stopSystemRecording() }
-            }
+                title: "Recording — Choose New Source",
+                detail: "Capture continues while the macOS sharing picker is open.",
+                duration: systemAudio.elapsedTime,
+                stopAction: {
+                    Task { await stopSystemRecording() }
+                }
+            )
         case .finalizing:
             transitionBar(
                 title: "Finishing System Audio",
@@ -229,6 +235,7 @@ struct RootView: View {
         title: String,
         detail: String,
         duration: TimeInterval,
+        changeSourceAction: (() -> Void)? = nil,
         stopAction: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 12) {
@@ -248,6 +255,11 @@ struct RootView: View {
             }
 
             Spacer()
+
+            if let changeSourceAction {
+                Button("Change Source…", action: changeSourceAction)
+                    .help("Choose different macOS content without restarting the recording")
+            }
 
             Button("Stop", role: .destructive, action: stopAction)
                 .keyboardShortcut(.escape, modifiers: [])
