@@ -34,6 +34,14 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Verify microphone build configuration
+        run: |
+          test -f Bardo/Bardo.entitlements
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' Bardo/Bardo.entitlements)" = "true"
+          BUILD_SETTINGS="$(xcodebuild -project Bardo.xcodeproj -scheme Bardo -configuration Debug -showBuildSettings)"
+          grep -Fq 'CODE_SIGN_ENTITLEMENTS = Bardo/Bardo.entitlements' <<< "$BUILD_SETTINGS"
+          grep -Fq 'ENABLE_HARDENED_RUNTIME = YES' <<< "$BUILD_SETTINGS"
+
       - name: Build Bardo
         run: |
           xcodebuild \
@@ -47,8 +55,10 @@ jobs:
 
       - name: Verify application bundle
         run: |
-          test -f .derived-data/Build/Products/Debug/Bardo.app/Contents/Info.plist
-          test -x .derived-data/Build/Products/Debug/Bardo.app/Contents/MacOS/Bardo
+          BUNDLE=.derived-data/Build/Products/Debug/Bardo.app
+          test -f "$BUNDLE/Contents/Info.plist"
+          test -x "$BUNDLE/Contents/MacOS/Bardo"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
 
       - name: Run unit tests
         run: |

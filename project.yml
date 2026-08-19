@@ -33,6 +33,9 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Bardo
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Bardo records microphone audio only when you choose to start a local recording.
+        CODE_SIGN_ENTITLEMENTS: Bardo/Bardo.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
 
   BardoTests:
     type: bundle.unit-test

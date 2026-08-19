@@ -3,6 +3,8 @@ import SwiftUI
 
 @main
 struct BardoApp: App {
+    @NSApplicationDelegateAdaptor(BardoAppDelegate.self) private var appDelegate
+
     private static let logger = Logger(
         subsystem: "com.maxavend.bardo",
         category: "application"
@@ -13,7 +15,7 @@ struct BardoApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        Window("Bardo", id: "main") {
             RootView()
                 .frame(minWidth: 640, minHeight: 420)
         }
