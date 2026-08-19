@@ -1,20 +1,9 @@
 import SwiftUI
 
 struct RootView: View {
+    @StateObject private var model = LibraryViewModel()
+
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "waveform")
-                .font(.system(size: 40))
-                .foregroundStyle(.secondary)
-
-            Text("Bardo")
-                .font(.largeTitle)
-                .fontWeight(.semibold)
-
-            Text("Private, on-device transcription for macOS.")
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(40)
+        LibraryView(model: model)
     }
 }
