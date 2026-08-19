@@ -15,7 +15,7 @@ struct BardoApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        Window("Bardo", id: "main") {
             RootView()
                 .frame(minWidth: 640, minHeight: 420)
         }
