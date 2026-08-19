@@ -7,6 +7,7 @@ import Foundation
 
 actor RecordingStore {
     static let manifestFileName = "manifest.json"
+    static let audioDirectoryName = "audio"
 
     private let rootURL: URL
 
@@ -45,6 +46,67 @@ actor RecordingStore {
         try save(recording)
     }
 
+    func importRecording(
+        _ recording: Recording,
+        audioAsset: AudioAsset,
+        from sourceURL: URL
+    ) throws {
+        guard recording.audioAssets.contains(where: { $0.id == audioAsset.id }) else {
+            throw RecordingStoreError.audioAssetNotFound(
+                recordingID: recording.id,
+                audioAssetID: audioAsset.id
+            )
+        }
+
+        let data = try encode(recording)
+        try ensureDirectoryExists(rootURL)
+
+        let recordingDirectory = recordingDirectoryURL(for: recording.id)
+        guard !FileManager.default.fileExists(atPath: recordingDirectory.path) else {
+            throw RecordingStoreError.recordingAlreadyExists(recording.id)
+        }
+
+        do {
+            try ensureDirectoryExists(recordingDirectory)
+            let audioDirectory = audioDirectoryURL(for: recording.id)
+            try ensureDirectoryExists(audioDirectory)
+
+            let temporaryAudioURL = audioDirectory
+                .appendingPathComponent(".audio-\(audioAsset.id.uuidString).tmp")
+            let destinationAudioURL = managedAudioURL(
+                recordingID: recording.id,
+                asset: audioAsset
+            )
+
+            do {
+                try FileManager.default.copyItem(at: sourceURL, to: temporaryAudioURL)
+            } catch {
+                throw RecordingStoreError.fileSystem(
+                    operation: "copy imported audio",
+                    entry: sourceURL.lastPathComponent,
+                    description: error.localizedDescription
+                )
+            }
+
+            try atomicallyMove(
+                from: temporaryAudioURL,
+                to: destinationAudioURL,
+                operation: "finalize imported audio"
+            )
+            try atomicallyWrite(
+                data,
+                to: manifestURL(for: recording.id),
+                in: recordingDirectory
+            )
+        } catch {
+            // This directory was created exclusively for this failed import. Removing it
+            // cannot affect pre-existing Bardo data or the user's original source file.
+            // If cleanup itself fails, the residue is intentionally left for recovery.
+            try? FileManager.default.removeItem(at: recordingDirectory)
+            throw error
+        }
+    }
+
     func read(id: Recording.ID) throws -> Recording {
         let url = manifestURL(for: id)
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -67,6 +129,25 @@ actor RecordingStore {
                 description: error.localizedDescription
             )
         }
+    }
+
+    func managedAudioURL(recordingID: Recording.ID, audioAssetID: AudioAsset.ID) throws -> URL {
+        let recording = try read(id: recordingID)
+        guard let asset = recording.audioAssets.first(where: { $0.id == audioAssetID }) else {
+            throw RecordingStoreError.audioAssetNotFound(
+                recordingID: recordingID,
+                audioAssetID: audioAssetID
+            )
+        }
+
+        let url = managedAudioURL(recordingID: recordingID, asset: asset)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw RecordingStoreError.managedAudioMissing(
+                recordingID: recordingID,
+                audioAssetID: audioAssetID
+            )
+        }
+        return url
     }
 
     func loadLibrary() throws -> LibrarySnapshot {
@@ -115,7 +196,8 @@ actor RecordingStore {
                 continue
             }
 
-            issues.append(contentsOf: temporaryArtifactIssues(in: entry, recordingID: id))
+            issues.append(contentsOf: temporaryManifestArtifactIssues(in: entry, recordingID: id))
+            issues.append(contentsOf: temporaryAudioArtifactIssues(in: entry, recordingID: id))
 
             let manifestURL = entry.appendingPathComponent(Self.manifestFileName)
             guard FileManager.default.fileExists(atPath: manifestURL.path) else {
@@ -141,6 +223,7 @@ actor RecordingStore {
                     continue
                 }
                 recordings.append(recording)
+                issues.append(contentsOf: managedAudioIssues(for: recording))
             } catch RecordingStoreError.unsupportedSchemaVersion(let version) {
                 issues.append(issue(
                     kind: .unsupportedSchemaVersion,
@@ -188,7 +271,7 @@ actor RecordingStore {
     private func encode(_ recording: Recording) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(RecordingManifestV1(recording: recording))
+        return try encoder.encode(RecordingManifestV2(recording: recording))
     }
 
     private func decode(_ data: Data) throws -> Recording {
@@ -200,12 +283,17 @@ actor RecordingStore {
             throw RecordingStoreError.invalidManifest(error.localizedDescription)
         }
 
-        guard header.schemaVersion == RecordingManifestV1.currentSchemaVersion else {
-            throw RecordingStoreError.unsupportedSchemaVersion(header.schemaVersion)
-        }
-
         do {
-            return try decoder.decode(RecordingManifestV1.self, from: data).recording
+            switch header.schemaVersion {
+            case RecordingManifestV1.schemaVersion:
+                return try decoder.decode(RecordingManifestV1.self, from: data).recording
+            case RecordingManifestV2.currentSchemaVersion:
+                return try decoder.decode(RecordingManifestV2.self, from: data).recording
+            default:
+                throw RecordingStoreError.unsupportedSchemaVersion(header.schemaVersion)
+            }
+        } catch let error as RecordingStoreError {
+            throw error
         } catch {
             throw RecordingStoreError.invalidManifest(error.localizedDescription)
         }
@@ -217,6 +305,16 @@ actor RecordingStore {
 
     private func manifestURL(for id: Recording.ID) -> URL {
         recordingDirectoryURL(for: id).appendingPathComponent(Self.manifestFileName)
+    }
+
+    private func audioDirectoryURL(for id: Recording.ID) -> URL {
+        recordingDirectoryURL(for: id)
+            .appendingPathComponent(Self.audioDirectoryName, isDirectory: true)
+    }
+
+    private func managedAudioURL(recordingID: Recording.ID, asset: AudioAsset) -> URL {
+        audioDirectoryURL(for: recordingID)
+            .appendingPathComponent("\(asset.id.uuidString).\(asset.fileExtension)")
     }
 
     private func ensureDirectoryExists(_ url: URL) throws {
@@ -247,25 +345,36 @@ actor RecordingStore {
             )
         }
 
-        let result = temporaryURL.path.withCString { temporaryPath in
+        do {
+            try atomicallyMove(
+                from: temporaryURL,
+                to: destinationURL,
+                operation: "atomically replace manifest"
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        }
+    }
+
+    private func atomicallyMove(from sourceURL: URL, to destinationURL: URL, operation: String) throws {
+        let result = sourceURL.path.withCString { sourcePath in
             destinationURL.path.withCString { destinationPath in
-                rename(temporaryPath, destinationPath)
+                rename(sourcePath, destinationPath)
             }
         }
 
         guard result == 0 else {
             let code = errno
-            let description = String(cString: strerror(code))
-            try? FileManager.default.removeItem(at: temporaryURL)
             throw RecordingStoreError.fileSystem(
-                operation: "atomically replace",
+                operation: operation,
                 entry: destinationURL.lastPathComponent,
-                description: description
+                description: String(cString: strerror(code))
             )
         }
     }
 
-    private func temporaryArtifactIssues(in directoryURL: URL, recordingID: UUID) -> [RecordingStoreIssue] {
+    private func temporaryManifestArtifactIssues(in directoryURL: URL, recordingID: UUID) -> [RecordingStoreIssue] {
         let entries = (try? FileManager.default.contentsOfDirectory(
             at: directoryURL,
             includingPropertiesForKeys: nil,
@@ -282,6 +391,40 @@ actor RecordingStore {
                     message: "An incomplete manifest write was detected for recording \(recordingID.uuidString) and was preserved."
                 )
             }
+    }
+
+    private func temporaryAudioArtifactIssues(in recordingDirectoryURL: URL, recordingID: UUID) -> [RecordingStoreIssue] {
+        let audioDirectory = recordingDirectoryURL
+            .appendingPathComponent(Self.audioDirectoryName, isDirectory: true)
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: audioDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )) ?? []
+
+        return entries
+            .filter { $0.lastPathComponent.hasPrefix(".audio-") && $0.pathExtension == "tmp" }
+            .map { temporaryURL in
+                issue(
+                    kind: .temporaryAudioArtifact,
+                    recordingID: recordingID,
+                    entryName: temporaryURL.lastPathComponent,
+                    message: "An incomplete audio import was detected for recording \(recordingID.uuidString) and was preserved."
+                )
+            }
+    }
+
+    private func managedAudioIssues(for recording: Recording) -> [RecordingStoreIssue] {
+        recording.audioAssets.compactMap { asset in
+            let url = managedAudioURL(recordingID: recording.id, asset: asset)
+            guard !FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return issue(
+                kind: .missingAudioFile,
+                recordingID: recording.id,
+                entryName: asset.id.uuidString,
+                message: "Managed audio for \(recording.title) is missing. Its manifest was preserved."
+            )
+        }
     }
 
     private func issue(

@@ -2,213 +2,218 @@
 
 ## Current phase
 
-1 — Library & Persistence
+2 — Audio Import
 
 **Status:** PHASE_READY
 
-Phase 0 is integrated and certified. Phase 1 is implemented and its code-bearing head passed the complete macOS build/test gate. This state-certification commit changes documentation only; the PR head is revalidated by CI after publication before the PR is marked ready for review.
+Phase 0 and Phase 1 remain integrated and certified. Phase 2 is fully implemented on `feat/phase-2-audio-import`; its code-bearing head `d4997ffea6ef88b3f11f9b714206967859264678` passed the complete macOS build/test gate before this documentation-only certification commit.
 
-## Integration status
+## Integrated baseline
 
-- Phase 0 PR: #1 — `Phase 0 — Foundation` — merged.
-- Phase 0 certified commit: `acbc8fe4584731b9c48fde2671226a91ee23d1af`.
-- Phase 0 merge commit on `main`: `f4eacd251608cb1f8ae339b826fe3371f464c20d`.
-- Phase 1 branch: `feat/phase-1-library-persistence`.
-- Phase 1 PR: #2 — `Phase 1 — Library & Persistence`.
+- Phase 0 — Foundation: certified and merged.
+- Phase 1 — Library & Persistence: certified and merged via PR #2.
+- Phase 1 merge commit on `main`: `8e6ad83377aa4ae75e47bea394a7a20516adf870`.
+- Phase 2 branch: `feat/phase-2-audio-import`, created exactly from that merge commit.
+- Phase 2 PR: #3 — `Phase 2 — Audio Import`.
+- Platform invariants remain: macOS 15+, Swift 6, SwiftUI, XcodeGen, no runtime third-party dependencies.
 
-Inherited Foundation invariants remain in force: XcodeGen is the project source of truth, Bardo targets macOS 15+ with Swift 6 and SwiftUI, existing XCTest/CI stays green, and no future audio/AI dependency is introduced in Phase 1.
-
-## Mission 1.1 — RecordingStore
+## Mission 2.1 — File Importer
 
 **Status:** COMPLETE.
 
-Demonstrated capabilities:
+- Native SwiftUI file importer and native drag & drop.
+- Accepted extensions: `.m4a`, `.mp3`, `.wav`, `.flac`, `.aac`, `.aiff`.
+- Extension is only a first gate; AVFoundation must successfully open the resource as audio before storage mutation begins.
+- CI positively exercises a real generated WAV fixture and negatively verifies that invalid `.mp3` contents are rejected. The remaining accepted extensions rely on AVFoundation readability at runtime rather than extension trust alone.
+- Successful imports create a fresh `Recording` and `AudioAsset`, then copy the source into Bardo-managed storage.
+- The original source is never moved or deleted and is not the durable playback dependency.
+- Importing the same source twice intentionally creates two independent recordings; no hash deduplication is implemented.
 
-- Real disk persistence for `Recording` using stable UUID identity.
-- Default live location: Application Support / Bardo / Library.
-- Per-recording directory with `manifest.json`.
-- Explicit operations for save, read, library reconstruction/list, update, and delete.
-- Library reconstruction reads disk on each load; process memory is not the source of truth.
-- Manifests are encoded before filesystem mutation begins.
-- Replacement writes use a completed temporary file in the same recording directory followed by POSIX `rename(2)` to atomically replace the destination namespace entry.
-- A failed encoding cannot replace an existing valid manifest.
-- Multiple recordings coexist and a fresh store instance reconstructs them from disk.
-
-### Persistent format — schemaVersion 1
-
-Conceptual layout:
+### Managed storage transaction
 
 ```text
 Library/
 └── <recording-uuid>/
-    └── manifest.json
+    ├── manifest.json
+    └── audio/
+        └── <audio-asset-uuid>.<ext>
 ```
 
-Current manifest fields:
+Successful import order:
 
 ```text
-schemaVersion: 1
-id: UUID
-title: String
-createdAtEpochSeconds: Double
-duration: Double?
-sources: [AudioSource]
-processingState: ProcessingState
+validate + read metadata
+→ encode manifest in memory
+→ create fresh recording directory
+→ copy to audio/.audio-<uuid>.tmp
+→ same-directory rename to final managed audio file
+→ atomically publish manifest
 ```
 
-`createdAtEpochSeconds` stores `Date.timeIntervalSince1970` without the second-rounding observed with standard ISO-8601 encoding, so normal `Date()` values survive a persistence round-trip without losing subsecond precision.
+A copy or publication failure does not expose a false-valid recording. Bardo attempts to remove only the directory created for that failed import; the external source remains untouched. If cleanup itself cannot complete, residue is preserved for recovery.
 
-The on-disk manifest is a dedicated persistence type, not direct `Recording` Codable output. Future domain changes therefore cannot silently redefine the disk schema.
-
-No migration framework exists yet. The loader reads `schemaVersion` first, accepts V1, and reports unsupported versions without modifying them.
-
-### Atomicity boundary
-
-The store guarantees atomic replacement of the manifest directory entry when the temporary file and destination are on the same filesystem, which they are by construction. Phase 1 does **not** claim power-loss durability or `fsync` semantics.
-
-## Mission 1.2 — Library
+## Mission 2.2 — Audio Metadata
 
 **Status:** COMPLETE.
 
-- `RootView` hosts the real recording Library.
-- Native `NavigationSplitView` implementation.
-- Sidebar displays title, date, duration, source, and processing state when available.
-- Detail view exposes persisted recording metadata and UUID.
-- Valid empty library is represented as an empty state, not an error.
-- Selection is reconciled against recordings freshly loaded from disk.
-- Global read failures are surfaced without silently discarding already-visible data.
-- Recovery issues are surfaced separately from healthy recordings.
-- If all stored entries are defective, the Library shows an explicit recovery state rather than a false empty state.
-- SwiftUI does not know internal paths, filenames, JSON, or filesystem operations.
-- No production sample recordings or fake audio pipeline exists; fixtures live only in tests.
+Technical metadata belongs to `AudioAsset` / `AudioMetadata`, not to AVFoundation-specific domain APIs:
 
-## Mission 1.3 — Recovery
+- duration;
+- codec/format label when a reliable Core Audio identifier is available;
+- sample rate;
+- channel count;
+- original file name as informational metadata;
+- normalized file extension for resolving the managed resource.
+
+For the single imported asset supported in Phase 2, `Recording.duration` mirrors the asset duration as the recording-level summary.
+
+### Manifest schema
+
+Current write schema: **2**.
+
+Schema 2 retains Phase 1 recording metadata and adds audio asset identity and technical metadata. Exact arbitrary `Date` values are reconstructed using the persisted IEEE-754 bit pattern of the epoch-seconds value after CI exposed that JSON floating-point round-trips can otherwise lose bit-level equality.
+
+Schema 1 remains readable and reconstructs with `audioAssets = []`; no destructive migration occurs. Unknown future schema versions continue to be detected, reported, and preserved.
+
+Absolute managed paths are not persisted in Domain. `RecordingStore` derives the resource location from recording UUID, audio asset UUID, and extension.
+
+## Mission 2.3 — Playback
 
 **Status:** COMPLETE.
 
-Recovery policy:
+`AudioPlaybackController` uses native `AVAudioPlayer` and supports:
 
-`preserve → detect → report → continue loading healthy data`
+- load managed audio;
+- play;
+- pause while retaining position;
+- seek/scrub;
+- resume;
+- current position and total duration;
+- coherent natural end state;
+- controlled missing/corrupt/unavailable audio errors.
 
-Controlled cases:
+The progress task exists only during active playback and is cancelled on pause, unload, natural completion, selection replacement, and Library disappearance. Loading another recording stops and resets the previous player.
 
-- corrupt/un-decodable `manifest.json`;
-- incomplete V1 manifest;
-- unsupported `schemaVersion`;
-- UUID directory / manifest identity mismatch;
-- missing final manifest;
-- residual `.manifest-*.tmp` interrupted-write artifacts;
-- unexpected library entries;
-- a normal `Recording` with no transcript.
+A macOS-specific behavior discovered by CI was repaired: `AVAudioPlayer` may rewind `currentTime` to zero after natural completion, so Bardo now preserves the UI end position as total duration when active playback transitions to stopped.
 
-Per-recording failures become `RecordingStoreIssue` values. They do not abort the whole library load and Bardo does not delete the defective entry automatically.
+A persisted recording with no managed audio remains a valid Library item; playback reports unavailable without destabilizing the Library.
 
-The integrated A-valid / B-corrupt / C-valid scenario demonstrates that A and C remain recoverable while B is detected and preserved and the Library stays stable.
+## Recovery
 
-## Tests
+Inherited policy remains:
 
-The macOS Phase 1 gate executes **16 XCTest cases with 0 failures**:
+`preserve → detect → inform → continue`
 
-- Phase 0 bootstrap regression: 1 test.
-- Phase 0 domain Codable regressions: 2 tests.
-- Library state/restart representation: 2 tests.
-- Phase 1 integrated restart/recovery flow: 1 test.
-- Recording recovery scenarios: 6 tests.
-- RecordingStore persistence/update/delete/atomic-failure behavior: 4 tests.
+Phase 2 covers:
 
-Key demonstrated scenarios include:
+- valid manifest + valid managed audio;
+- valid manifest + missing managed audio;
+- valid manifest + corrupt managed audio;
+- corrupt manifest + existing audio evidence;
+- interrupted `.audio-*.tmp` residue;
+- recordings without managed audio.
 
-- save/read preserves UUID and all persisted fields;
-- `schemaVersion == 1` is present;
-- fractional `createdAt` precision survives round-trip;
-- multiple recordings coexist;
-- fresh store reconstruction works;
-- update and delete have explicit semantics;
-- invalid JSON encoding does not overwrite a valid manifest;
-- empty Library is valid;
-- fresh store + fresh view model represent persisted state after simulated restart;
-- corrupt and incomplete manifests are isolated and preserved;
-- unsupported schema versions are preserved;
-- interrupted-write temporary residue is detected without replacing a valid manifest;
-- recording without transcript is valid;
-- A valid / B corrupt / C valid leaves A and C usable and B controlled.
+Missing managed audio is reported without hiding the recording. Corrupt managed audio leaves the Library stable and fails playback in a controlled way. Corrupt manifests do not cause existing audio evidence to be deleted. Temporary import residue is preserved and reported.
 
-## CI evidence
+## Integrated gate
 
-GitHub Actions run `32288468995` validated the code-bearing Phase 1 head on:
+Automated tests demonstrate the complete Phase 2 ownership flow:
 
-- macOS 15.7.7 Apple Silicon runner;
-- Xcode 16.4 (build 16F6);
+```text
+external valid WAV
+→ validate with AVFoundation
+→ extract metadata
+→ copy into Bardo-managed storage
+→ persist schema 2 manifest
+→ rebuild Library
+→ load managed playback
+→ play / pause / seek / resume / finish coherently
+```
+
+The critical independence scenario is also demonstrated:
+
+```text
+import external audio
+→ delete ORIGINAL
+→ create fresh RecordingStore
+→ create fresh LibraryViewModel
+→ recording reloads from disk
+→ managed audio remains available
+→ playback loads and plays from Bardo's internal copy ✅
+```
+
+Process memory and the external source path are therefore not the source of truth.
+
+## Tests and CI evidence
+
+Final code-bearing GitHub Actions run `32294495102` validated commit `d4997ffea6ef88b3f11f9b714206967859264678` on:
+
+- macOS 15.7.7 Apple Silicon;
+- Xcode 16.4 (16F6);
 - Apple Swift 6.1.2 targeting `arm64-apple-macosx15.0`;
 - XcodeGen 2.46.0.
 
 Observed results:
 
 - checkout: passed;
-- XcodeGen installation: passed;
+- XcodeGen install: passed;
 - `xcodegen generate`: passed;
-- Debug `xcodebuild ... build`: **BUILD SUCCEEDED**;
-- `Bardo.app` Info.plist and executable verification: passed;
-- `xcodebuild ... test`: **TEST SUCCEEDED**;
-- 16 tests executed, 0 failures.
+- Debug build: **BUILD SUCCEEDED**;
+- app bundle/executable verification: passed;
+- XCTest: **TEST SUCCEEDED**;
+- **32 tests executed, 0 failures**.
 
-No Swift compiler warning attributable to Phase 1 appeared in the inspected log. The remaining warnings are runner/toolchain noise already seen in Foundation: Homebrew reports an unrelated preinstalled untrusted tap, and Xcode's metadata processor reports that AppIntents extraction is skipped because Bardo does not depend on AppIntents.
+The suite includes all Foundation/Phase 1 regressions plus real generated-audio import, metadata, V1 compatibility, failed-copy isolation, missing/corrupt audio recovery, temp import residue, playback lifecycle, selection replacement, recording-without-audio behavior, and the full restart/original-deletion integrated gate.
 
-The documentation-only certification head is required to pass the same PR workflow before external review.
+No material Swift compiler warning attributable to Phase 2 appears in the inspected log. Non-material runner/framework diagnostics include the unrelated Homebrew tap-trust notice, AppIntents metadata-skip notices because Bardo does not use AppIntents, AVFoundation diagnostics intentionally emitted while opening corrupt test audio, and virtual-runner audio-device diagnostics.
 
-## Additional validation
-
-- Phase 0 integration and merge ancestry verified on GitHub.
-- Phase 1 branch originates from updated `main` at `f4eacd251608cb1f8ae339b826fe3371f464c20d`.
-- Persistence/domain sources pass `swiftc -swift-version 6 -typecheck` with Swift 6.2.1 on Linux.
-- RecordingStore and recovery XCTest sources typecheck against an `-enable-testing` Bardo module on Linux.
-- SwiftUI / view-model / integration test sources pass `swiftc -parse` outside macOS; full macOS compilation is demonstrated by CI.
-- A real command-line harness exercised save → update → read → corrupt-neighbor recovery successfully after the atomic-write repair.
-- Full diff against `main` reviewed: only Phase 1 feature, persistence, test, and documentation files changed; no Phase 2 implementation is present.
+This documentation-only certification head must pass the same PR workflow before PR #3 is marked ready for external review.
 
 ## Reviewer findings repaired
 
-- Replaced `FileManager.replaceItemAt` after a real execution exposed unreliable replacement behavior in the test environment; same-directory POSIX `rename(2)` now performs the atomic replacement.
-- Prevented loss of subsecond `createdAt` precision caused by standard ISO-8601 encoding.
-- Added explicit Library recovery state when every stored item is defective.
-- Added visible global reload error state when previously loaded recordings remain on screen.
-- Added explicit Foundation import for formatting helpers.
-- Removed unused `LibrarySnapshot.empty` state.
-- Re-reviewed after macOS CI; no additional material issue was found.
+The global reviewer / CI loop found and repaired:
 
-## Storage invariants
+- exact timestamp fidelity for arbitrary `Date()` values in schema 2;
+- AVAudioPlayer natural-completion rewind causing the UI position to return to zero;
+- an overly strict fixed playback timing assumption in the virtual runner while preserving the end-state assertion;
+- an invalid async XCTest autoclosure in the integration test;
+- opaque whole-`Recording` equality assertions replaced with an explicit persisted-field contract;
+- explicit coverage for corrupt managed audio;
+- explicit coverage for player replacement when selection changes;
+- explicit coverage for valid recordings with no managed audio.
 
-- UUID directory identity is stable and checked against manifest identity.
-- `manifest.json` V1 is the current persisted metadata source of truth.
-- In-memory Library state is derived from the store and may always be rebuilt from disk.
-- A per-recording failure cannot abort loading other recordings.
-- Defective or unknown data is preserved by default rather than silently deleted.
-- Temporary write artifacts never supersede a valid final manifest.
-- Schema versions unknown to this build are reported, not migrated or destroyed.
-- Domain/UI code does not depend on concrete storage paths or JSON structure.
+The full diff against `main` was re-reviewed after repairs: Phase 2 is ahead of its merge base only, introduces no new runtime dependency, and contains no Phase 3 implementation.
 
-## Data and migrations
+## Storage and import invariants
 
-Current persisted schema: **1**.
-
-There are no migrations. Unsupported versions are detected and preserved for future recovery/migration work.
-
-No transcript is required for a stored recording in Phase 1.
+- Process memory is not the source of truth.
+- The external source path is not the durable audio dependency.
+- Successful imports own a managed audio copy under the recording UUID.
+- Recording and audio asset UUIDs are stable persisted identities.
+- New writes use schema 2; schema 1 remains readable.
+- SwiftUI does not know JSON or concrete Application Support paths.
+- A single defective recording/audio resource cannot abort healthy neighbors.
+- Suspicious/corrupt evidence is preserved rather than silently deleted.
+- Temporary import artifacts never supersede a final managed resource.
+- Atomicity claims are limited to same-filesystem namespace replacement; no `fsync`/power-loss durability guarantee is claimed.
 
 ## Known minor debt / evidence pending
 
-- **PARTIAL — visual UI inspection:** an interactive human has not visually inspected the Library window in this execution. Xcode compiles the SwiftUI hierarchy, the app launches as the XCTest host, `RootView` constructs, and Library state behavior is covered by tests, so this does not block Phase 1.
-- Persistence does not claim crash/power-loss durability beyond same-filesystem atomic namespace replacement; explicit `fsync` durability is not part of Phase 1.
-- User-facing recovery actions beyond detection/reporting are intentionally deferred; Phase 1 never silently deletes defective evidence.
+- **PARTIAL — interactive visual inspection:** a human has not visually inspected picker, drag/drop, metadata and playback layout in this execution. macOS compilation, app-host launch, view construction and behavior tests are green, so this does not block Phase 2.
+- Positive CI media coverage uses a deterministic generated WAV fixture; the six accepted extensions are gated by AVFoundation readability, but CI does not contain a positive fixture for every codec/container combination.
+- Playback UI currently uses the first managed audio asset. Phase 2 imports exactly one asset per recording; generalized multi-source playback is intentionally deferred.
+- No hash-based duplicate detection exists by design.
+- Library reload checks managed-file existence but does not decode every audio resource on every launch; corrupt content is detected when AVFoundation opens it for playback.
+- No explicit `fsync` durability is claimed beyond same-filesystem atomic rename semantics.
 
-## Out of scope and absent
+## Explicitly out of scope
 
-Phase 1 contains no real audio import, microphone capture, ScreenCaptureKit, WhisperKit, SpeakerKit, transcription, diarization, AI processing, or audio-processing placeholder architecture.
+Phase 2 contains no microphone capture, ScreenCaptureKit, WhisperKit, SpeakerKit, transcription, diarization, VAD, AI processing, export, transcript editing, waveform editing, or Phase 3 implementation.
 
 ## Next phase
 
-After PR #2 is reviewed and merged, the next permitted phase is:
+After PR #3 is reviewed and merged, the next permitted phase is:
 
-- **2 — Importar audio**
+- **3 — Grabación de micrófono**
 
-Do not implement Phase 2 before Phase 1 integration.
+Do not implement Phase 3 before Phase 2 integration.

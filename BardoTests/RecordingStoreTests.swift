@@ -18,7 +18,7 @@ final class RecordingStoreTests: XCTestCase {
         rootURL = nil
     }
 
-    func testSaveAndReadPreserveRecordingAndSchemaVersion() async throws {
+    func testSaveAndReadPreserveRecordingAndCurrentSchemaVersion() async throws {
         let id = UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
         let recording = makeRecording(
             id: id,
@@ -38,7 +38,25 @@ final class RecordingStoreTests: XCTestCase {
         let json = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
         )
-        XCTAssertEqual(json["schemaVersion"] as? Int, RecordingManifestV1.currentSchemaVersion)
+        XCTAssertEqual(json["schemaVersion"] as? Int, RecordingManifestV2.currentSchemaVersion)
+    }
+
+    func testCurrentSchemaPreservesArbitraryCreatedAtExactly() async throws {
+        let recording = makeRecording(
+            id: UUID(),
+            title: "Arbitrary timestamp",
+            createdAt: Date()
+        )
+        let store = RecordingStore(rootURL: rootURL)
+
+        try await store.save(recording)
+        let loaded = try await RecordingStore(rootURL: rootURL).read(id: recording.id)
+
+        XCTAssertEqual(
+            loaded.createdAt.timeIntervalSince1970.bitPattern,
+            recording.createdAt.timeIntervalSince1970.bitPattern
+        )
+        XCTAssertRecordingPersistenceEqual(loaded, recording)
     }
 
     func testMultipleRecordingsCoexistAndFreshStoreRebuildsFromDisk() async throws {
