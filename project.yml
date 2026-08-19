@@ -1,0 +1,63 @@
+name: Bardo
+options:
+  minimumXcodeGenVersion: 2.46.0
+  xcodeVersion: "16.0"
+  projectFormat: xcode16_0
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+
+targets:
+  Bardo:
+    type: application
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: Bardo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.maxavend.bardo
+        PRODUCT_NAME: Bardo
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Bardo
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+
+  BardoTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: BardoTests
+    dependencies:
+      - target: Bardo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.maxavend.bardo.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Bardo:
+    build:
+      targets:
+        Bardo: all
+        BardoTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - BardoTests
+    archive:
+      config: Release
