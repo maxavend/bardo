@@ -1,8 +1,10 @@
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @ObservedObject var model: LibraryViewModel
+    @State private var isFileImporterPresented = false
 
     var body: some View {
         NavigationSplitView {
@@ -10,11 +12,18 @@ struct LibraryView: View {
                 .navigationTitle("Library")
                 .toolbar {
                     Button {
+                        isFileImporterPresented = true
+                    } label: {
+                        Label("Import Audio", systemImage: "plus")
+                    }
+                    .disabled(model.isImporting)
+
+                    Button {
                         Task { await model.reload() }
                     } label: {
                         Label("Reload Library", systemImage: "arrow.clockwise")
                     }
-                    .disabled(model.isLoading)
+                    .disabled(model.isLoading || model.isImporting)
                 }
         } detail: {
             detail
@@ -22,12 +31,49 @@ struct LibraryView: View {
         .task {
             await model.reload()
         }
+        .task(id: model.selection) {
+            await model.preparePlaybackForSelection()
+        }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.audio],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                Task { await model.importAudio(from: urls) }
+            case .failure(let error):
+                model.reportImportFailure(error)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard !model.isImporting, !urls.isEmpty else { return false }
+            Task { await model.importAudio(from: urls) }
+            return true
+        }
+        .alert(
+            "Audio Import Failed",
+            isPresented: Binding(
+                get: { model.importErrorMessage != nil },
+                set: { if !$0 { model.clearImportError() } }
+            )
+        ) {
+            Button("OK") { model.clearImportError() }
+        } message: {
+            Text(model.importErrorMessage ?? "The audio could not be imported.")
+        }
+        .onDisappear {
+            model.stopPlayback()
+        }
     }
 
     @ViewBuilder
     private var sidebar: some View {
         if model.isLoading && model.recordings.isEmpty {
             ProgressView("Loading Library…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if model.isImporting && model.recordings.isEmpty {
+            ProgressView("Importing Audio…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let errorMessage = model.errorMessage, model.recordings.isEmpty {
             ContentUnavailableView {
@@ -50,13 +96,29 @@ struct LibraryView: View {
                 }
             }
         } else if model.recordings.isEmpty {
-            ContentUnavailableView(
-                "No Recordings",
-                systemImage: "waveform",
-                description: Text("Recordings saved by Bardo will appear here.")
-            )
+            ContentUnavailableView {
+                Label("No Recordings", systemImage: "waveform")
+            } description: {
+                Text("Import a compatible audio file or drop one into this window.")
+            } actions: {
+                Button("Import Audio") {
+                    isFileImporterPresented = true
+                }
+            }
         } else {
             List(selection: $model.selection) {
+                if model.isImporting {
+                    Section {
+                        HStack {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Importing audio…")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
                 if let errorMessage = model.errorMessage {
                     Section("Library Error") {
                         Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -88,7 +150,7 @@ struct LibraryView: View {
     @ViewBuilder
     private var detail: some View {
         if let recording = model.selectedRecording {
-            RecordingDetail(recording: recording)
+            RecordingDetail(recording: recording, playback: model.playback)
         } else {
             ContentUnavailableView(
                 "Select a Recording",
@@ -129,6 +191,7 @@ private struct RecordingRow: View {
 
 private struct RecordingDetail: View {
     let recording: Recording
+    @ObservedObject var playback: AudioPlaybackController
 
     var body: some View {
         Form {
@@ -142,6 +205,55 @@ private struct RecordingDetail: View {
                 LabeledContent("State", value: stateText(recording.processingState))
                 LabeledContent("ID", value: recording.id.uuidString)
             }
+
+            if let asset = recording.audioAssets.first {
+                Section("Audio") {
+                    LabeledContent("Original file", value: asset.originalFileName)
+                    LabeledContent("Codec", value: asset.metadata.codec)
+                    LabeledContent("Sample rate", value: sampleRateText(asset.metadata.sampleRate))
+                    LabeledContent("Channels", value: String(asset.metadata.channelCount))
+                }
+
+                Section("Playback") {
+                    if let errorMessage = playback.errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button {
+                            playback.togglePlayback()
+                        } label: {
+                            Label(
+                                playback.isPlaying ? "Pause" : "Play",
+                                systemImage: playback.isPlaying ? "pause.fill" : "play.fill"
+                            )
+                        }
+                        .disabled(!playback.isLoaded)
+
+                        Slider(
+                            value: Binding(
+                                get: { playback.position },
+                                set: { playback.seek(to: $0) }
+                            ),
+                            in: 0...max(playback.duration, 0.01)
+                        )
+                        .disabled(!playback.isLoaded)
+
+                        Text("\(durationText(playback.position)) / \(durationText(playback.duration))")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Section("Audio") {
+                    ContentUnavailableView(
+                        "No Managed Audio",
+                        systemImage: "waveform.slash",
+                        description: Text("This recording predates audio import or has no managed audio resource.")
+                    )
+                }
+            }
         }
         .formStyle(.grouped)
         .navigationTitle(recording.title)
@@ -150,6 +262,10 @@ private struct RecordingDetail: View {
 
 private func durationText(_ duration: TimeInterval?) -> String {
     guard let duration else { return "Unknown" }
+    return durationText(duration)
+}
+
+private func durationText(_ duration: TimeInterval) -> String {
     let seconds = max(0, Int(duration.rounded()))
     let hours = seconds / 3_600
     let minutes = (seconds % 3_600) / 60
@@ -159,6 +275,13 @@ private func durationText(_ duration: TimeInterval?) -> String {
         return String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
     }
     return String(format: "%d:%02d", minutes, remainingSeconds)
+}
+
+private func sampleRateText(_ sampleRate: Double) -> String {
+    if sampleRate >= 1_000 {
+        return String(format: "%.1f kHz", sampleRate / 1_000)
+    }
+    return String(format: "%.0f Hz", sampleRate)
 }
 
 private func sourceText(_ sources: Set<AudioSource>) -> String {
