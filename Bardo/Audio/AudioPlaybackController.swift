@@ -49,7 +49,7 @@ final class AudioPlaybackController: ObservableObject {
             return false
         }
 
-        if player.currentTime >= player.duration {
+        if position >= player.duration || player.currentTime >= player.duration {
             player.currentTime = 0
             position = 0
         }
@@ -131,16 +131,19 @@ final class AudioPlaybackController: ObservableObject {
             return
         }
 
-        position = min(max(0, player.currentTime), player.duration)
         duration = player.duration
 
+        // AVAudioPlayer may reset currentTime to zero after natural completion on macOS.
+        // The transition from our active playing state to !player.isPlaying therefore
+        // represents completion even when the underlying clock has already rewound.
         if isPlaying && !player.isPlaying {
             isPlaying = false
-            if player.currentTime >= player.duration - 0.05 {
-                position = player.duration
-            }
+            position = player.duration
             stopProgressUpdates()
+            return
         }
+
+        position = min(max(0, player.currentTime), player.duration)
     }
 }
 

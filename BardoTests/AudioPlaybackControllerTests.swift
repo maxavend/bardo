@@ -59,6 +59,28 @@ final class AudioPlaybackControllerTests: XCTestCase {
         }
     }
 
+    func testLoadingAnotherRecordingStopsPreviousAndResetsPlaybackState() async throws {
+        let firstURL = directoryURL.appendingPathComponent("First.wav")
+        let secondURL = directoryURL.appendingPathComponent("Second.wav")
+        try AudioTestFixture.makeWAV(at: firstURL, duration: 0.8)
+        try AudioTestFixture.makeWAV(at: secondURL, duration: 0.3)
+        let controller = await MainActor.run { AudioPlaybackController() }
+
+        await MainActor.run {
+            controller.load(url: firstURL)
+            controller.seek(to: 0.2)
+            XCTAssertTrue(controller.play())
+            XCTAssertTrue(controller.isPlaying)
+
+            controller.load(url: secondURL)
+            XCTAssertTrue(controller.isLoaded)
+            XCTAssertFalse(controller.isPlaying)
+            XCTAssertEqual(controller.position, 0, accuracy: 0.001)
+            XCTAssertEqual(controller.duration, 0.3, accuracy: 0.03)
+            XCTAssertNil(controller.errorMessage)
+        }
+    }
+
     func testMissingAndCorruptFilesProduceControlledPlaybackErrors() async throws {
         let missingURL = directoryURL.appendingPathComponent("Missing.wav")
         let corruptURL = directoryURL.appendingPathComponent("Corrupt.wav")

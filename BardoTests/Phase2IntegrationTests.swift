@@ -33,8 +33,13 @@ final class Phase2IntegrationTests: XCTestCase {
         }
         await restartedModel.reload()
 
+        let restartedRecording = try XCTUnwrap(
+            await MainActor.run { restartedModel.recordings.first }
+        )
+        XCTAssertRecordingPersistenceEqual(restartedRecording, imported)
+
         await MainActor.run {
-            XCTAssertEqual(restartedModel.recordings, [imported])
+            XCTAssertEqual(restartedModel.recordings.count, 1)
             XCTAssertEqual(restartedModel.selection, imported.id)
             XCTAssertTrue(restartedModel.issues.isEmpty)
             XCTAssertTrue(restartedModel.playback.isLoaded)

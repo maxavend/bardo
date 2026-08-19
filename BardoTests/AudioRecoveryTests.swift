@@ -37,7 +37,8 @@ final class AudioRecoveryTests: XCTestCase {
 
         let snapshot = try await RecordingStore(rootURL: rootURL).loadLibrary()
 
-        XCTAssertEqual(snapshot.recordings, [recording])
+        XCTAssertEqual(snapshot.recordings.count, 1)
+        XCTAssertRecordingPersistenceEqual(try XCTUnwrap(snapshot.recordings.first), recording)
         XCTAssertEqual(snapshot.issues.map(\.kind), [.missingAudioFile])
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: rootURL
@@ -75,7 +76,8 @@ final class AudioRecoveryTests: XCTestCase {
 
         let snapshot = try await RecordingStore(rootURL: rootURL).loadLibrary()
 
-        XCTAssertEqual(snapshot.recordings, [recording])
+        XCTAssertEqual(snapshot.recordings.count, 1)
+        XCTAssertRecordingPersistenceEqual(try XCTUnwrap(snapshot.recordings.first), recording)
         XCTAssertEqual(Set(snapshot.issues.map(\.kind)), Set([.temporaryAudioArtifact, .missingAudioFile]))
         XCTAssertTrue(FileManager.default.fileExists(atPath: tempURL.path))
     }
@@ -101,5 +103,30 @@ final class AudioRecoveryTests: XCTestCase {
         XCTAssertEqual(snapshot.issues.map(\.kind), [.corruptManifest])
         XCTAssertTrue(FileManager.default.fileExists(atPath: managedURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: manifestURL.path))
+    }
+
+    func testCorruptManagedAudioLeavesLibraryStableAndPlaybackFailsControlled() async throws {
+        let sourceURL = externalURL.appendingPathComponent("CorruptLater.wav")
+        try AudioTestFixture.makeWAV(at: sourceURL)
+        let store = RecordingStore(rootURL: rootURL)
+        let recording = try await AudioImportService(store: store).importFile(at: sourceURL)
+        let asset = try XCTUnwrap(recording.audioAssets.first)
+        let managedURL = try await store.managedAudioURL(
+            recordingID: recording.id,
+            audioAssetID: asset.id
+        )
+        try Data("managed audio became corrupt".utf8).write(to: managedURL)
+
+        let snapshot = try await RecordingStore(rootURL: rootURL).loadLibrary()
+        XCTAssertEqual(snapshot.recordings.count, 1)
+        XCTAssertRecordingPersistenceEqual(try XCTUnwrap(snapshot.recordings.first), recording)
+
+        let playback = await MainActor.run { AudioPlaybackController() }
+        await MainActor.run {
+            playback.load(url: managedURL)
+            XCTAssertFalse(playback.isLoaded)
+            XCTAssertFalse(playback.isPlaying)
+            XCTAssertNotNil(playback.errorMessage)
+        }
     }
 }
