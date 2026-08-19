@@ -2,151 +2,163 @@
 
 ## Current phase
 
-2 — Audio Import
+3 — Microphone Recording
 
 **Status:** PHASE_READY
 
-Phase 0 and Phase 1 remain integrated and certified. Phase 2 is fully implemented on `feat/phase-2-audio-import`; its code-bearing head `d4997ffea6ef88b3f11f9b714206967859264678` passed the complete macOS build/test gate before this documentation-only certification commit.
+Phases 0–2 remain integrated and certified. Phase 3 is fully implemented on `feat/phase-3-microphone-recording`; code-bearing head `05469b069f9b9d4345a47aebaa5b923f33213808` passed the complete macOS build/test gate before this documentation-only certification commit.
 
 ## Integrated baseline
 
 - Phase 0 — Foundation: certified and merged.
 - Phase 1 — Library & Persistence: certified and merged via PR #2.
-- Phase 1 merge commit on `main`: `8e6ad83377aa4ae75e47bea394a7a20516adf870`.
-- Phase 2 branch: `feat/phase-2-audio-import`, created exactly from that merge commit.
-- Phase 2 PR: #3 — `Phase 2 — Audio Import`.
-- Platform invariants remain: macOS 15+, Swift 6, SwiftUI, XcodeGen, no runtime third-party dependencies.
+- Phase 2 — Audio Import: certified and merged via PR #3.
+- Phase 2 merge commit on `main`: `fea7ef6a291bd8d7acb4b25afd5705541672e96e`.
+- Phase 3 branch: `feat/phase-3-microphone-recording`, created exactly from that merge commit.
+- Phase 3 PR: #4 — `Phase 3 — Microphone Recording`.
+- Platform invariants: macOS 15+, Swift 6, SwiftUI, XcodeGen, no runtime third-party dependencies.
 
-## Mission 2.1 — File Importer
+## Mission 3.1 — Microphone Permissions
 
 **Status:** COMPLETE.
 
-- Native SwiftUI file importer and native drag & drop.
-- Accepted extensions: `.m4a`, `.mp3`, `.wav`, `.flac`, `.aac`, `.aiff`.
-- Extension is only a first gate; AVFoundation must successfully open the resource as audio before storage mutation begins.
-- CI positively exercises a real generated WAV fixture and negatively verifies that invalid `.mp3` contents are rejected. The remaining accepted extensions rely on AVFoundation readability at runtime rather than extension trust alone.
-- Successful imports create a fresh `Recording` and `AudioAsset`, then copy the source into Bardo-managed storage.
-- The original source is never moved or deleted and is not the durable playback dependency.
-- Importing the same source twice intentionally creates two independent recordings; no hash deduplication is implemented.
+- Uses native AVFoundation microphone authorization state/request APIs.
+- Explicit application states: `notDetermined`, `authorized`, `denied`, `restricted`, and unexpected error.
+- Permission is requested only after an explicit Record action; an empty launch does not request it.
+- Denied/restricted permission never starts the capture backend and produces controlled UI state.
+- Denied UI offers a best-effort route to the macOS microphone privacy settings.
+- `NSMicrophoneUsageDescription` is owned by `project.yml`; CI verifies the exact key/value in the generated `Bardo.app/Contents/Info.plist`.
+- A pending permission prompt does not hold application termination open indefinitely.
 
-### Managed storage transaction
+## Mission 3.2 — Recorder
+
+**Status:** COMPLETE.
+
+Production capture is implemented by `AVAudioRecorderCaptureBackend` behind the small Phase-3-specific `AudioCapturing` contract.
+
+Production format:
 
 ```text
-Library/
-└── <recording-uuid>/
-    ├── manifest.json
-    └── audio/
-        └── <audio-asset-uuid>.<ext>
+container: M4A
+codec: AAC
+sample rate: 48,000 Hz
+channels: 1 (mono)
+bit rate: 96 kbps
+encoder quality: high
 ```
 
-Successful import order:
+Rationale: direct native recording to a compact, broadly playable conversation format without conversion or future-Phase assumptions.
+
+`AVAudioRecorder` writes directly to the staging file while capture is active. Bardo does not retain the complete recording in RAM. Elapsed time is sampled from the recorder backend's `currentTime`; the UI timer only samples that clock every 250 ms and is cancelled when no longer needed.
+
+Pause/resume is intentionally not implemented in Phase 3. Start/active/stop/finalize/error are the certified lifecycle.
+
+The current microphone display name is shown as informational UI while recording. Durable recording origin uses the already-persisted `Recording.sources = [.microphone]`; no ephemeral hardware identifier/path was promoted into Domain.
+
+## Mission 3.3 — Recording Safety
+
+**Status:** COMPLETE.
+
+Active capture uses Bardo-owned temporary storage separate from final Library records:
 
 ```text
-validate + read metadata
-→ encode manifest in memory
-→ create fresh recording directory
-→ copy to audio/.audio-<uuid>.tmp
-→ same-directory rename to final managed audio file
-→ atomically publish manifest
+Application Support/Bardo/
+├── Library/
+│   └── <recording-uuid>/
+│       ├── manifest.json
+│       └── audio/<audio-asset-uuid>.<ext>
+└── .MicrophoneCaptureStaging/
+    └── <recording-uuid>/
+        └── <audio-asset-uuid>.m4a
 ```
 
-A copy or publication failure does not expose a false-valid recording. Bardo attempts to remove only the directory created for that failed import; the external source remains untouched. If cleanup itself cannot complete, residue is preserved for recovery.
+A staging capture is never a finalized Library Recording.
 
-## Mission 2.2 — Audio Metadata
+Successful stop order:
 
-**Status:** COMPLETE.
+```text
+stop/close AVAudioRecorder
+→ validate/read technical metadata with AVFoundation
+→ construct AudioAsset + Recording(source: microphone)
+→ reuse certified RecordingStore.importRecording transaction
+→ managed audio copied/finalized before manifest publication
+→ remove staging only after publication succeeds
+→ reload Library
+```
 
-Technical metadata belongs to `AudioAsset` / `AudioMetadata`, not to AVFoundation-specific domain APIs:
+If start fails, the prepared staging directory is removed and no Recording is published. If recording is unexpectedly interrupted or final publication fails, the staging bytes are preserved and detected on recovery; no false-valid Recording is created.
 
-- duration;
-- codec/format label when a reliable Core Audio identifier is available;
-- sample rate;
-- channel count;
-- original file name as informational metadata;
-- normalized file extension for resolving the managed resource.
+Normal application termination while recording uses the AppKit terminate-later/reply lifecycle to attempt safe stop/finalization before exit. Crash/SIGKILL recovery is not faked: leftover staging bytes are preserved and reported on next launch, but Bardo does not promise recovery of a container the OS/framework cannot decode.
 
-For the single imported asset supported in Phase 2, `Recording.duration` mirrors the asset duration as the recording-level summary.
+Concurrency invariants:
 
-### Manifest schema
+- orchestration rejects a second start while the same controller is busy;
+- a process-wide capture lease rejects simultaneous capture from separate controllers;
+- the staging actor independently rejects a second active prepared capture;
+- the app uses a single main SwiftUI `Window`, so another window cannot visually claim an idle recorder while capture is active elsewhere;
+- repeated `stop` after completion is controlled/idempotent from the application perspective.
 
-Current write schema: **2**.
+## Mission 3.4 — Recording UI
 
-Schema 2 retains Phase 1 recording metadata and adds audio asset identity and technical metadata. Exact arbitrary `Date` values are reconstructed using the persisted IEEE-754 bit pattern of the epoch-seconds value after CI exposed that JSON floating-point round-trips can otherwise lose bit-level equality.
+**Status:** COMPLETE for automated validation; interactive visual smoke remains PARTIAL.
 
-Schema 1 remains readable and reconstructs with `audioAssets = []`; no destructive migration occurs. Unknown future schema versions continue to be detected, reported, and preserved.
+The native macOS UI exposes:
 
-Absolute managed paths are not persisted in Domain. `RecordingStore` derives the resource location from recording UUID, audio asset UUID, and extension.
+- idle Record action in the toolbar;
+- permission-request state;
+- preparing state;
+- unmistakable active recording bar;
+- elapsed duration with monospaced digits;
+- current input display name when available;
+- Stop action;
+- finalizing state;
+- controlled error/permission-denied alert;
+- preserved incomplete-capture recovery notice.
 
-## Mission 2.3 — Playback
+After successful stop, the existing Library is reloaded, the new Recording is selected, and the existing Phase 2 playback path is prepared. No parallel microphone-only Library exists.
 
-**Status:** COMPLETE.
+## Schema
 
-`AudioPlaybackController` uses native `AVAudioPlayer` and supports:
+Current write schema remains **2**.
 
-- load managed audio;
-- play;
-- pause while retaining position;
-- seek/scrub;
-- resume;
-- current position and total duration;
-- coherent natural end state;
-- controlled missing/corrupt/unavailable audio errors.
-
-The progress task exists only during active playback and is cancelled on pause, unload, natural completion, selection replacement, and Library disappearance. Loading another recording stops and resets the previous player.
-
-A macOS-specific behavior discovered by CI was repaired: `AVAudioPlayer` may rewind `currentTime` to zero after natural completion, so Bardo now preserves the UI end position as total duration when active playback transitions to stopped.
-
-A persisted recording with no managed audio remains a valid Library item; playback reports unavailable without destabilizing the Library.
-
-## Recovery
-
-Inherited policy remains:
-
-`preserve → detect → inform → continue`
-
-Phase 2 covers:
-
-- valid manifest + valid managed audio;
-- valid manifest + missing managed audio;
-- valid manifest + corrupt managed audio;
-- corrupt manifest + existing audio evidence;
-- interrupted `.audio-*.tmp` residue;
-- recordings without managed audio.
-
-Missing managed audio is reported without hiding the recording. Corrupt managed audio leaves the Library stable and fails playback in a controlled way. Corrupt manifests do not cause existing audio evidence to be deleted. Temporary import residue is preserved and reported.
+Phase 3 does not require a manifest change: `AudioSource.microphone` already existed in the persisted Phase 2 contract. V1/V2 compatibility and all existing recovery behavior remain unchanged. No absolute capture paths or transient microphone identifiers are persisted in Domain.
 
 ## Integrated gate
 
-Automated tests demonstrate the complete Phase 2 ownership flow:
+CI uses a hardware-independent `AudioCapturing` backend that writes a real deterministic WAV with AVFoundation while capture is active; it is not an in-memory audio mock.
+
+Automated evidence demonstrates:
 
 ```text
-external valid WAV
-→ validate with AVFoundation
-→ extract metadata
-→ copy into Bardo-managed storage
-→ persist schema 2 manifest
-→ rebuild Library
-→ load managed playback
-→ play / pause / seek / resume / finish coherently
+authorized intent
+→ prepare Bardo staging
+→ real audio bytes exist on disk before stop
+→ stop/finalize
+→ AVFoundation metadata
+→ AudioAsset + Recording(.microphone)
+→ RecordingStore managed publication
+→ Library reload
+→ AVAudioPlayer load/play/pause
+→ fresh RecordingStore + fresh LibraryViewModel
+→ Recording reconstructs from disk
+→ playback remains available ✅
 ```
 
-The critical independence scenario is also demonstrated:
+Additional certified scenarios:
 
 ```text
-import external audio
-→ delete ORIGINAL
-→ create fresh RecordingStore
-→ create fresh LibraryViewModel
-→ recording reloads from disk
-→ managed audio remains available
-→ playback loads and plays from Bardo's internal copy ✅
+second simultaneous start → rejected ✅
+backend start failure → no false Recording + healthy Library ✅
+unexpected interruption → staging preserved + no false Recording ✅
+normal app termination during recording → finalized Recording ✅
+pending permission prompt + app termination → no termination deadlock ✅
 ```
 
-Process memory and the external source path are therefore not the source of truth.
+A simulated `currentTime = 3600.75` verifies long-duration state without sleeping CI for an hour. Production architecture remains direct-to-disk and does not scale RAM use with captured audio length by design.
 
 ## Tests and CI evidence
 
-Final code-bearing GitHub Actions run `32294495102` validated commit `d4997ffea6ef88b3f11f9b714206967859264678` on:
+Final code-bearing GitHub Actions run `32300431536` validated commit `05469b069f9b9d4345a47aebaa5b923f33213808` on:
 
 - macOS 15.7.7 Apple Silicon;
 - Xcode 16.4 (16F6);
@@ -155,65 +167,59 @@ Final code-bearing GitHub Actions run `32294495102` validated commit `d4997ffea6
 
 Observed results:
 
-- checkout: passed;
-- XcodeGen install: passed;
-- `xcodegen generate`: passed;
+- XcodeGen install/generation: passed;
 - Debug build: **BUILD SUCCEEDED**;
 - app bundle/executable verification: passed;
+- generated `NSMicrophoneUsageDescription`: passed;
 - XCTest: **TEST SUCCEEDED**;
-- **32 tests executed, 0 failures**.
+- **47 tests executed, 0 failures**.
 
-The suite includes all Foundation/Phase 1 regressions plus real generated-audio import, metadata, V1 compatibility, failed-copy isolation, missing/corrupt audio recovery, temp import residue, playback lifecycle, selection replacement, recording-without-audio behavior, and the full restart/original-deletion integrated gate.
+The 47-test suite includes all inherited Foundation/Phase 1/Phase 2 regressions plus permission lifecycle, production recorder configuration, staging/recovery, concurrency, direct-to-disk evidence, long-duration clock behavior, interruption/error paths, termination behavior, and the full Phase 3 restart/playback gate.
 
-No material Swift compiler warning attributable to Phase 2 appears in the inspected log. Non-material runner/framework diagnostics include the unrelated Homebrew tap-trust notice, AppIntents metadata-skip notices because Bardo does not use AppIntents, AVFoundation diagnostics intentionally emitted while opening corrupt test audio, and virtual-runner audio-device diagnostics.
+No material Swift compiler warning attributable to Phase 3 appears in the inspected CI log. Non-material runner/framework diagnostics remain unrelated Homebrew tap-trust noise, AppIntents metadata skips because Bardo does not use AppIntents, deliberately corrupt Phase 2 audio diagnostics, and virtual-runner playback-device messages.
 
-This documentation-only certification head must pass the same PR workflow before PR #3 is marked ready for external review.
+This documentation-only certification head must pass the same PR workflow before PR #4 is marked ready for external review.
 
-## Reviewer findings repaired
+## Reviewer findings and repairs
 
-The global reviewer / CI loop found and repaired:
+The global reviewer loop found and resolved material issues before certification:
 
-- exact timestamp fidelity for arbitrary `Date()` values in schema 2;
-- AVAudioPlayer natural-completion rewind causing the UI position to return to zero;
-- an overly strict fixed playback timing assumption in the virtual runner while preserving the end-state assertion;
-- an invalid async XCTest autoclosure in the integration test;
-- opaque whole-`Recording` equality assertions replaced with an explicit persisted-field contract;
-- explicit coverage for corrupt managed audio;
-- explicit coverage for player replacement when selection changes;
-- explicit coverage for valid recordings with no managed audio.
+1. Rejected an unnecessary proposed schema 3/device-label persistence design. Phase 3 now reuses schema 2 and existing `AudioSource.microphone` instead of duplicating persistence contracts.
+2. Found that termination could wait indefinitely while a microphone permission prompt was pending. Termination is now delayed only for actual recording/finalization; a dedicated suspended-permission test covers the regression.
+3. Found that `WindowGroup` could allow another window to appear idle while a different window owned the microphone. The main scene is now a single `Window`; the process-wide capture lease remains defense in depth.
 
-The full diff against `main` was re-reviewed after repairs: Phase 2 is ahead of its merge base only, introduces no new runtime dependency, and contains no Phase 3 implementation.
+After each material repair the full CI gate was rerun. A third reviewer pass found no further material issue. The final code diff is ahead of `main` only, introduces no runtime dependency, leaves persistence/schema code untouched, and contains no Phase 4 implementation.
 
-## Storage and import invariants
+## Recovery and safety invariants
 
-- Process memory is not the source of truth.
-- The external source path is not the durable audio dependency.
-- Successful imports own a managed audio copy under the recording UUID.
-- Recording and audio asset UUIDs are stable persisted identities.
-- New writes use schema 2; schema 1 remains readable.
-- SwiftUI does not know JSON or concrete Application Support paths.
-- A single defective recording/audio resource cannot abort healthy neighbors.
-- Suspicious/corrupt evidence is preserved rather than silently deleted.
-- Temporary import artifacts never supersede a final managed resource.
-- Atomicity claims are limited to same-filesystem namespace replacement; no `fsync`/power-loss durability guarantee is claimed.
+- An incomplete microphone capture is staging data, never a finalized Recording.
+- Final manifest publication occurs only after a closed/valid audio resource can be inspected and adopted by `RecordingStore`.
+- Recording finalization reuses the Phase 2 managed-audio transaction instead of creating a second persistence system.
+- Interrupted/finalization-failed bytes are preserved and reported, not silently deleted.
+- One broken/incomplete capture does not prevent Library from loading healthy recordings.
+- Only one microphone capture can own the process at a time.
+- Progress polling exists only while actively recording.
+- The complete conversation is never accumulated in Bardo memory by design.
+- Existing import, metadata, playback, schema compatibility, and recovery invariants remain green.
 
 ## Known minor debt / evidence pending
 
-- **PARTIAL — interactive visual inspection:** a human has not visually inspected picker, drag/drop, metadata and playback layout in this execution. macOS compilation, app-host launch, view construction and behavior tests are green, so this does not block Phase 2.
-- Positive CI media coverage uses a deterministic generated WAV fixture; the six accepted extensions are gated by AVFoundation readability, but CI does not contain a positive fixture for every codec/container combination.
-- Playback UI currently uses the first managed audio asset. Phase 2 imports exactly one asset per recording; generalized multi-source playback is intentionally deferred.
-- No hash-based duplicate detection exists by design.
-- Library reload checks managed-file existence but does not decode every audio resource on every launch; corrupt content is detected when AVFoundation opens it for playback.
-- No explicit `fsync` durability is claimed beyond same-filesystem atomic rename semantics.
+- **PARTIAL — interactive microphone smoke test pending:** CI cannot grant the real macOS TCC microphone prompt, speak into physical hardware, listen to the production M4A capture, or visually inspect the running recording UX. No physical microphone success is claimed.
+- The production `AVAudioRecorder` implementation/configuration compiles on Xcode 16.4; lifecycle/media integration in CI uses a real AVFoundation-generated WAV backend because the runner does not provide an interactive microphone permission/device test.
+- The System Settings microphone deep link is best-effort; denial handling remains correct even if macOS changes that navigation route.
+- Pause/resume is intentionally absent.
+- Advanced device-route monitoring/reselection is not implemented; recorder delegate failures are surfaced and staged bytes preserved.
+- No explicit disk-full hardware simulation exists; start/write/finalization failures use the same controlled failure/preservation path.
+- No waveform, system audio, source mixing, transcription, diarization, export, or AI processing exists.
 
 ## Explicitly out of scope
 
-Phase 2 contains no microphone capture, ScreenCaptureKit, WhisperKit, SpeakerKit, transcription, diarization, VAD, AI processing, export, transcript editing, waveform editing, or Phase 3 implementation.
+Phase 3 contains no ScreenCaptureKit, system-audio capture, microphone+system mixing, WhisperKit, SpeakerKit, transcription, diarization, VAD, waveform, export, or Phase 4 implementation.
 
 ## Next phase
 
-After PR #3 is reviewed and merged, the next permitted phase is:
+After PR #4 is reviewed and merged, the next permitted phase is:
 
-- **3 — Grabación de micrófono**
+- **4 — System Audio**
 
-Do not implement Phase 3 before Phase 2 integration.
+Do not implement Phase 4 before Phase 3 integration.
