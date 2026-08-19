@@ -45,7 +45,7 @@ final class ScreenCapturePickerCoordinator: NSObject, SystemContentSelecting, SC
         picker.isActive = true
     }
 
-    func contentSharingPicker(
+    nonisolated func contentSharingPicker(
         _ picker: SCContentSharingPicker,
         didUpdateWith filter: SCContentFilter,
         for stream: SCStream?
@@ -59,14 +59,17 @@ final class ScreenCapturePickerCoordinator: NSObject, SystemContentSelecting, SC
         }
     }
 
-    func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
+    nonisolated func contentSharingPicker(
+        _ picker: SCContentSharingPicker,
+        didCancelFor stream: SCStream?
+    ) {
         let event = SystemContentSelectionEvent.cancelled(isUpdate: stream != nil)
         Task { @MainActor [weak self] in
             self?.eventHandler?(event)
         }
     }
 
-    func contentSharingPickerStartDidFailWithError(_ error: any Error) {
+    nonisolated func contentSharingPickerStartDidFailWithError(_ error: any Error) {
         let message = error.localizedDescription
         Task { @MainActor [weak self] in
             self?.eventHandler?(.failed(message))
