@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreMedia
 import Foundation
 @preconcurrency import ScreenCaptureKit
@@ -23,6 +24,9 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
         configuration.channelCount = 2
         configuration.excludesCurrentProcessAudio = true
         configuration.captureMicrophone = includeMicrophone
+        if includeMicrophone {
+            configuration.microphoneCaptureDeviceID = AVCaptureDevice.default(for: .audio)?.uniqueID
+        }
 
         // ScreenCaptureKit still streams selected visual content internally, but Bardo does
         // not register a .screen output. Keep visual work minimal because no video is stored.
@@ -132,7 +136,7 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
 
     @MainActor
     private func startCapture(_ stream: SCStream) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             stream.startCapture { error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -145,7 +149,7 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
 
     @MainActor
     private func updateContentFilter(_ stream: SCStream, filter: SCContentFilter) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             stream.updateContentFilter(filter) { error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -158,7 +162,7 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
 
     @MainActor
     private func stopCapture(_ stream: SCStream) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             stream.stopCapture { error in
                 if let error {
                     continuation.resume(throwing: error)
