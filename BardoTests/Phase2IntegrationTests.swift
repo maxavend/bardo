@@ -33,9 +33,8 @@ final class Phase2IntegrationTests: XCTestCase {
         }
         await restartedModel.reload()
 
-        let restartedRecording = try XCTUnwrap(
-            await MainActor.run { restartedModel.recordings.first }
-        )
+        let firstRecording = await MainActor.run { restartedModel.recordings.first }
+        let restartedRecording = try XCTUnwrap(firstRecording)
         XCTAssertRecordingPersistenceEqual(restartedRecording, imported)
 
         await MainActor.run {
