@@ -1,5 +1,5 @@
 import Foundation
-import WhisperKit
+@preconcurrency import WhisperKit
 
 enum TranscriptionStage: String, Sendable {
     case preparingModel
@@ -55,7 +55,14 @@ enum TranscriptionChunkPlanner {
         chunkDuration: TimeInterval = defaultChunkDuration,
         overlap: TimeInterval = defaultOverlap
     ) -> [TranscriptionChunkPlan] {
-        guard duration > 0, chunkDuration > overlap, overlap >= 0 else { return [] }
+        guard duration.isFinite,
+              chunkDuration.isFinite,
+              overlap.isFinite,
+              duration > 0,
+              chunkDuration > overlap,
+              overlap >= 0 else {
+            return []
+        }
 
         var raw: [(start: TimeInterval, end: TimeInterval)] = []
         var start: TimeInterval = 0
@@ -218,13 +225,11 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         for (index, plan) in plans.enumerated() {
             try checkCancellation(cancellation)
 
-            let buffer = try AudioProcessor.loadAudio(
-                fromPath: audioURL.path,
-                channelMode: .sumChannels(nil),
+            let samples = try BoundedWhisperAudioLoader.loadSamples(
+                from: audioURL,
                 startTime: plan.startTime,
                 endTime: plan.endTime
             )
-            let samples = AudioProcessor.convertBufferToArray(buffer: buffer)
             guard !samples.isEmpty else { continue }
 
             let options = DecodingOptions(
@@ -309,7 +314,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                     audioAssetID: asset.id
                 )
                 let duration = asset.metadata.duration
-                if duration > 0 {
+                if duration.isFinite, duration > 0 {
                     return (url, duration)
                 }
             } catch {
