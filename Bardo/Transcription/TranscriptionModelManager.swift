@@ -21,18 +21,23 @@ actor TranscriptionModelManager {
     static let defaultModelID = "large-v3-v20240930_626MB"
     static let minimumFreeBytesForDownload: Int64 = 1_500_000_000
 
+    typealias CapacityProvider = @Sendable (URL) throws -> Int64?
+
     private let modelID: String
     private let downloadRoot: URL
     private let fileManager: FileManager
+    private let availableCapacity: CapacityProvider
 
     init(
         modelID: String = Self.defaultModelID,
         downloadRoot: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        availableCapacity: @escaping CapacityProvider = Self.systemAvailableCapacity
     ) {
         self.modelID = modelID
         self.downloadRoot = downloadRoot
         self.fileManager = fileManager
+        self.availableCapacity = availableCapacity
     }
 
     static func live() throws -> TranscriptionModelManager {
@@ -47,6 +52,14 @@ actor TranscriptionModelManager {
             .appendingPathComponent("Models", isDirectory: true)
             .appendingPathComponent("WhisperKit", isDirectory: true)
         return TranscriptionModelManager(downloadRoot: root)
+    }
+
+    nonisolated static func systemAvailableCapacity(at url: URL) throws -> Int64? {
+        let values = try url.resourceValues(
+            forKeys: [.volumeAvailableCapacityForImportantUsageKey]
+        )
+        guard let available = values.volumeAvailableCapacityForImportantUsage else { return nil }
+        return Int64(available)
     }
 
     func installedModelURL() throws -> URL? {
@@ -86,11 +99,7 @@ actor TranscriptionModelManager {
     }
 
     private func verifyFreeSpace() throws {
-        let values = try downloadRoot.resourceValues(
-            forKeys: [.volumeAvailableCapacityForImportantUsageKey]
-        )
-        guard let available = values.volumeAvailableCapacityForImportantUsage else { return }
-        let availableBytes = Int64(available)
+        guard let availableBytes = try availableCapacity(downloadRoot) else { return }
         guard availableBytes >= Self.minimumFreeBytesForDownload else {
             throw TranscriptionModelError.insufficientDiskSpace(
                 requiredBytes: Self.minimumFreeBytesForDownload,
