@@ -7,23 +7,34 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var issues: [RecordingStoreIssue] = []
     @Published private(set) var errorMessage: String?
     @Published private(set) var importErrorMessage: String?
+    @Published private(set) var transcript: Transcript?
+    @Published private(set) var transcriptErrorMessage: String?
+    @Published private(set) var transcriptionProgress: TranscriptionProgressSnapshot?
     @Published private(set) var isLoading = false
     @Published private(set) var isImporting = false
+    @Published private(set) var isTranscribing = false
     @Published var selection: Recording.ID?
 
     let playback: AudioPlaybackController
 
     private var store: RecordingStore?
     private var importer: AudioImportService?
+    private var transcriptStore: TranscriptStore?
+    private var transcriber: (any RecordingTranscribing)?
+    private var transcriptionTask: Task<Void, Never>?
 
     init(
         store: RecordingStore? = nil,
         importer: AudioImportService? = nil,
-        playback: AudioPlaybackController? = nil
+        playback: AudioPlaybackController? = nil,
+        transcriptStore: TranscriptStore? = nil,
+        transcriber: (any RecordingTranscribing)? = nil
     ) {
         self.store = store
         self.importer = importer
         self.playback = playback ?? AudioPlaybackController()
+        self.transcriptStore = transcriptStore
+        self.transcriber = transcriber
     }
 
     func reload() async {
@@ -37,7 +48,7 @@ final class LibraryViewModel: ObservableObject {
             issues = snapshot.issues
             errorMessage = nil
             reconcileSelection()
-            await preparePlaybackForSelection()
+            await prepareSelection()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -78,6 +89,11 @@ final class LibraryViewModel: ObservableObject {
         importErrorMessage = nil
     }
 
+    func prepareSelection() async {
+        await preparePlaybackForSelection()
+        await loadTranscriptForSelection()
+    }
+
     func preparePlaybackForSelection() async {
         playback.unload()
         guard let recording = selectedRecording else { return }
@@ -110,6 +126,98 @@ final class LibraryViewModel: ObservableObject {
         playback.setUnavailable(lastError ?? "This recording has no playable managed audio.")
     }
 
+    func loadTranscriptForSelection() async {
+        transcriptErrorMessage = nil
+        guard let recordingID = selection else {
+            transcript = nil
+            return
+        }
+
+        do {
+            let activeStore = try resolveTranscriptStore()
+            let loaded = try await activeStore.read(recordingID: recordingID)
+            guard selection == recordingID else { return }
+            transcript = loaded
+        } catch {
+            guard selection == recordingID else { return }
+            transcript = nil
+            transcriptErrorMessage = error.localizedDescription
+        }
+    }
+
+    func beginTranscription() {
+        guard !isTranscribing, selectedRecording != nil else { return }
+        transcriptionTask = Task { [weak self] in
+            await self?.performSelectedTranscription()
+        }
+    }
+
+    func cancelTranscription() {
+        transcriptionTask?.cancel()
+    }
+
+    func clearTranscriptError() {
+        transcriptErrorMessage = nil
+    }
+
+    func performSelectedTranscription() async {
+        guard !isTranscribing, var recording = selectedRecording else { return }
+        let recordingID = recording.id
+        isTranscribing = true
+        transcriptErrorMessage = nil
+        transcriptionProgress = .init(stage: .preparingModel, fractionCompleted: 0)
+        defer {
+            isTranscribing = false
+            transcriptionProgress = nil
+            transcriptionTask = nil
+        }
+
+        do {
+            let activeRecordingStore = try resolveStore()
+            recording.processingState = .processing
+            try await activeRecordingStore.update(recording)
+            replaceRecording(recording)
+
+            let activeTranscriber = try resolveTranscriber()
+            let generated = try await activeTranscriber.transcribe(
+                recording: recording,
+                store: activeRecordingStore,
+                progress: { [weak self] snapshot in
+                    Task { @MainActor in
+                        guard let self, self.selection == recordingID else { return }
+                        self.transcriptionProgress = snapshot
+                    }
+                }
+            )
+            try Task.checkCancellation()
+
+            transcriptionProgress = .init(stage: .saving, fractionCompleted: 0)
+            let activeTranscriptStore = try resolveTranscriptStore()
+            try await activeTranscriptStore.save(generated)
+
+            recording.processingState = .completed
+            try await activeRecordingStore.update(recording)
+            replaceRecording(recording)
+            if selection == recordingID {
+                transcript = generated
+            }
+            transcriptionProgress = .init(stage: .saving, fractionCompleted: 1)
+        } catch is CancellationError {
+            recording.processingState = .pending
+            if let activeStore = try? resolveStore() {
+                try? await activeStore.update(recording)
+            }
+            replaceRecording(recording)
+        } catch {
+            recording.processingState = .failed
+            if let activeStore = try? resolveStore() {
+                try? await activeStore.update(recording)
+            }
+            replaceRecording(recording)
+            transcriptErrorMessage = error.localizedDescription
+        }
+    }
+
     func stopPlayback() {
         playback.unload()
     }
@@ -139,10 +247,33 @@ final class LibraryViewModel: ObservableObject {
         return importer
     }
 
+    private func resolveTranscriptStore() throws -> TranscriptStore {
+        if let transcriptStore {
+            return transcriptStore
+        }
+        let store = try TranscriptStore.live()
+        transcriptStore = store
+        return store
+    }
+
+    private func resolveTranscriber() throws -> any RecordingTranscribing {
+        if let transcriber {
+            return transcriber
+        }
+        let service = try WhisperTranscriptionService.live()
+        transcriber = service
+        return service
+    }
+
     private func reconcileSelection() {
         if let selection, recordings.contains(where: { $0.id == selection }) {
             return
         }
         selection = recordings.first?.id
+    }
+
+    private func replaceRecording(_ recording: Recording) {
+        guard let index = recordings.firstIndex(where: { $0.id == recording.id }) else { return }
+        recordings[index] = recording
     }
 }
