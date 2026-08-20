@@ -32,7 +32,7 @@ struct LibraryView: View {
             await model.reload()
         }
         .task(id: model.selection) {
-            await model.preparePlaybackForSelection()
+            await model.prepareSelection()
         }
         .fileImporter(
             isPresented: $isFileImporterPresented,
@@ -63,6 +63,7 @@ struct LibraryView: View {
             Text(model.importErrorMessage ?? "The audio could not be imported.")
         }
         .onDisappear {
+            model.cancelTranscription()
             model.stopPlayback()
         }
     }
@@ -150,7 +151,11 @@ struct LibraryView: View {
     @ViewBuilder
     private var detail: some View {
         if let recording = model.selectedRecording {
-            RecordingDetail(recording: recording, playback: model.playback)
+            RecordingDetail(
+                recording: recording,
+                model: model,
+                playback: model.playback
+            )
         } else {
             ContentUnavailableView(
                 "Select a Recording",
@@ -191,6 +196,7 @@ private struct RecordingRow: View {
 
 private struct RecordingDetail: View {
     let recording: Recording
+    @ObservedObject var model: LibraryViewModel
     @ObservedObject var playback: AudioPlaybackController
 
     var body: some View {
@@ -254,9 +260,68 @@ private struct RecordingDetail: View {
                     )
                 }
             }
+
+            Section("Transcript") {
+                transcriptSection
+            }
         }
         .formStyle(.grouped)
         .navigationTitle(recording.title)
+    }
+
+    @ViewBuilder
+    private var transcriptSection: some View {
+        if model.isTranscribing {
+            let progress = model.transcriptionProgress
+            VStack(alignment: .leading, spacing: 8) {
+                Text(transcriptionStageText(progress?.stage))
+                    .font(.headline)
+                ProgressView(value: progress?.fractionCompleted ?? 0)
+                Text("Audio stays on this Mac while WhisperKit processes it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Cancel", role: .cancel) {
+                    model.cancelTranscription()
+                }
+            }
+        } else if let transcript = model.transcript,
+                  transcript.recordingID == recording.id {
+            LabeledContent("Language", value: transcript.languageCode ?? "Auto-detected")
+            LabeledContent("Model", value: transcript.metadata.modelID)
+            LabeledContent("Engine", value: "\(transcript.metadata.engine) \(transcript.metadata.engineVersion)")
+
+            Text(transcript.text)
+                .textSelection(.enabled)
+
+            Button("Transcribe Again") {
+                model.beginTranscription()
+            }
+            .disabled(recording.audioAssets.isEmpty)
+        } else {
+            if let error = model.transcriptErrorMessage {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Create an on-device transcript with WhisperKit. The model downloads separately the first time you use transcription.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Button(recording.processingState == .failed ? "Retry Transcription" : "Transcribe") {
+                model.beginTranscription()
+            }
+            .disabled(recording.audioAssets.isEmpty)
+        }
+    }
+}
+
+private func transcriptionStageText(_ stage: TranscriptionStage?) -> String {
+    switch stage {
+    case .preparingModel: "Preparing Whisper Model…"
+    case .loadingModel: "Loading Whisper Model…"
+    case .transcribing: "Transcribing…"
+    case .saving: "Saving Transcript…"
+    case nil: "Preparing Transcription…"
     }
 }
 
