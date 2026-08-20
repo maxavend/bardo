@@ -29,4 +29,15 @@ final class ScreenCaptureKitAudioBackendTests: XCTestCase {
             AVCaptureDevice.default(for: .audio)?.uniqueID
         )
     }
+
+    func testCompletionBridgeCanResumeFromFrameworkOwnedQueue() async throws {
+        let frameworkQueue = DispatchQueue(label: "com.maxavend.bardo.tests.screencapturekit-callback")
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let handler = ScreenCaptureKitCompletionBridge.handler(for: continuation)
+            frameworkQueue.async {
+                handler(nil)
+            }
+        }
+    }
 }
