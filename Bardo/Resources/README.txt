@@ -1,0 +1,1 @@
+Bardo app icon resources are generated from the official Bardo artwork supplied by the project owner.
