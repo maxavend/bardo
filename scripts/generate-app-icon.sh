@@ -2,42 +2,50 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SOURCE="$ROOT/Brand/BardoAppIcon.png"
+SOURCE_DIR="$ROOT/Brand/BardoAppIcon.base64"
 OUTPUT="$ROOT/Bardo/Resources/BardoAppIcon.icns"
 WORKDIR="$(mktemp -d)"
 ICONSET="$WORKDIR/BardoAppIcon.iconset"
-NORMALIZED_SOURCE="$WORKDIR/BardoAppIcon.png"
+SOURCE="$WORKDIR/BardoAppIcon.png"
+EXPECTED_SHA256="63323c53fa5e52481713cae34f883fb905e16c266fbb531ecdf0efcaee923abd"
 
 cleanup() {
   rm -rf "$WORKDIR"
 }
 trap cleanup EXIT
 
-if [[ ! -f "$SOURCE" ]]; then
-  echo "Missing app icon source: $SOURCE" >&2
+for part in part-00 part-01 part-02 part-03; do
+  if [[ ! -s "$SOURCE_DIR/$part" ]]; then
+    echo "Missing app icon source fragment: $SOURCE_DIR/$part" >&2
+    exit 1
+  fi
+done
+
+cat \
+  "$SOURCE_DIR/part-00" \
+  "$SOURCE_DIR/part-01" \
+  "$SOURCE_DIR/part-02" \
+  "$SOURCE_DIR/part-03" \
+  | /usr/bin/base64 -D > "$SOURCE"
+
+ACTUAL_SHA256="$(shasum -a 256 "$SOURCE" | awk '{print $1}')"
+if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
+  echo "Bardo app icon checksum mismatch: $ACTUAL_SHA256" >&2
   exit 1
 fi
 
-# GitHub connector uploads may preserve binary artwork as its base64 text.
-# Normalize either representation back to the exact PNG bytes before using sips.
-if [[ "$(xxd -p -l 8 "$SOURCE")" == "89504e470d0a1a0a" ]]; then
-  cp "$SOURCE" "$NORMALIZED_SOURCE"
-else
-  /usr/bin/base64 -D < "$SOURCE" > "$NORMALIZED_SOURCE"
-fi
-
-if [[ "$(xxd -p -l 8 "$NORMALIZED_SOURCE")" != "89504e470d0a1a0a" ]]; then
-  echo "Bardo app icon source did not decode to a PNG." >&2
+if [[ "$(xxd -p -l 8 "$SOURCE")" != "89504e470d0a1a0a" ]]; then
+  echo "Bardo app icon did not reconstruct to a PNG." >&2
   exit 1
 fi
 
-sips -g pixelWidth -g pixelHeight "$NORMALIZED_SOURCE" >/dev/null
+sips -g pixelWidth -g pixelHeight "$SOURCE" >/dev/null
 mkdir -p "$ICONSET" "$(dirname "$OUTPUT")"
 
 make_icon() {
   local size="$1"
   local filename="$2"
-  sips -s format png -z "$size" "$size" "$NORMALIZED_SOURCE" --out "$ICONSET/$filename" >/dev/null
+  sips -s format png -z "$size" "$size" "$SOURCE" --out "$ICONSET/$filename" >/dev/null
 }
 
 make_icon 16 icon_16x16.png
@@ -52,4 +60,4 @@ make_icon 512 icon_512x512.png
 make_icon 1024 icon_512x512@2x.png
 
 iconutil -c icns "$ICONSET" -o "$OUTPUT"
-echo "Generated $OUTPUT"
+echo "Generated $OUTPUT from verified Bardo artwork ($ACTUAL_SHA256)"
