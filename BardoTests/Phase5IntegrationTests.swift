@@ -197,4 +197,73 @@ final class Phase5IntegrationTests: XCTestCase {
         let persistedTranscript = try await transcriptStore.read(recordingID: recordingID)
         XCTAssertNil(persistedTranscript)
     }
+
+    func testRestartRecoversInterruptedProcessingWithoutTranscriptAsFailedAndRetryable() async throws {
+        let store = RecordingStore(rootURL: rootURL)
+        var recording = try await AudioImportService(store: store).importFile(at: sourceURL)
+        recording.processingState = .processing
+        try await store.update(recording)
+
+        let restartedStore = RecordingStore(rootURL: rootURL)
+        let model = LibraryViewModel(
+            store: restartedStore,
+            transcriptStore: TranscriptStore(rootURL: rootURL),
+            transcriber: StubRecordingTranscriber(shouldFail: false)
+        )
+        await model.reload()
+
+        XCTAssertEqual(model.selectedRecording?.processingState, .failed)
+        let persisted = try await restartedStore.read(id: recording.id)
+        XCTAssertEqual(persisted.processingState, .failed)
+        let asset = try XCTUnwrap(persisted.audioAssets.first)
+        _ = try await restartedStore.managedAudioURL(recordingID: recording.id, audioAssetID: asset.id)
+    }
+
+    func testRestartCompletesProcessingWhenTranscriptWasAtomicallySavedBeforeInterruption() async throws {
+        let store = RecordingStore(rootURL: rootURL)
+        var recording = try await AudioImportService(store: store).importFile(at: sourceURL)
+        recording.processingState = .processing
+        try await store.update(recording)
+
+        let transcript = try await StubRecordingTranscriber(shouldFail: false).transcribe(
+            recording: recording,
+            store: store,
+            progress: { _ in }
+        )
+        try await TranscriptStore(rootURL: rootURL).save(transcript)
+
+        let restartedStore = RecordingStore(rootURL: rootURL)
+        let model = LibraryViewModel(
+            store: restartedStore,
+            transcriptStore: TranscriptStore(rootURL: rootURL),
+            transcriber: StubRecordingTranscriber(shouldFail: true)
+        )
+        await model.reload()
+
+        XCTAssertEqual(model.selectedRecording?.processingState, .completed)
+        XCTAssertEqual(model.transcript?.text, "Phase five works.")
+        let persisted = try await restartedStore.read(id: recording.id)
+        XCTAssertEqual(persisted.processingState, .completed)
+    }
+
+    func testInterruptedTranscriptResidueIsPreservedAndSurfacedWithoutBreakingLibrary() async throws {
+        let store = RecordingStore(rootURL: rootURL)
+        let recording = try await AudioImportService(store: store).importFile(at: sourceURL)
+        let residue = rootURL
+            .appendingPathComponent(recording.id.uuidString, isDirectory: true)
+            .appendingPathComponent(".transcript-crash.tmp")
+        try Data("partial transcript".utf8).write(to: residue)
+
+        let model = LibraryViewModel(
+            store: RecordingStore(rootURL: rootURL),
+            transcriptStore: TranscriptStore(rootURL: rootURL),
+            transcriber: StubRecordingTranscriber(shouldFail: false)
+        )
+        await model.reload()
+
+        XCTAssertEqual(model.selectedRecording?.id, recording.id)
+        XCTAssertNil(model.transcript)
+        XCTAssertTrue(model.transcriptErrorMessage?.contains("interrupted transcription") == true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: residue.path))
+    }
 }
