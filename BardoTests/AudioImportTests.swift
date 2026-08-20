@@ -43,6 +43,9 @@ final class AudioImportTests: XCTestCase {
         XCTAssertEqual(recording.sources, [.importedFile])
         XCTAssertEqual(asset.originalFileName, "Meeting.wav")
         XCTAssertEqual(asset.fileExtension, "wav")
+        XCTAssertEqual(asset.role, .importedOriginal)
+        XCTAssertEqual(asset.timelineOffset, 0)
+        XCTAssertTrue(asset.derivedFromAssetIDs.isEmpty)
         XCTAssertEqual(asset.metadata.sampleRate, 8_000, accuracy: 0.1)
         XCTAssertEqual(asset.metadata.channelCount, 1)
         XCTAssertEqual(asset.metadata.duration, 0.5, accuracy: 0.02)
@@ -61,7 +64,7 @@ final class AudioImportTests: XCTestCase {
         let json = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
         )
-        XCTAssertEqual(json["schemaVersion"] as? Int, RecordingManifestV2.currentSchemaVersion)
+        XCTAssertEqual(json["schemaVersion"] as? Int, RecordingManifestV3.currentSchemaVersion)
 
         try FileManager.default.removeItem(at: sourceURL)
         XCTAssertFalse(FileManager.default.fileExists(atPath: sourceURL.path))

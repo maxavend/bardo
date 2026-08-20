@@ -2,165 +2,257 @@
 
 ## Current phase
 
-3 — Microphone Recording
+4 — System Audio
 
 **Status:** PHASE_READY
 
-Phases 0–2 remain integrated and certified. Phase 3 is fully implemented on `feat/phase-3-microphone-recording`. The final code/configuration head `5a0a53ccd844471c077dd362e39a343a33857bce` passed the complete macOS CI gate before this documentation-only certification update.
+Phases 0–3 are integrated and certified. Phase 4 is fully implemented on `feat/phase-4-system-audio` and contains no Phase 5 functionality.
+
+An interactive smoke test on a real Apple Silicon Mac running macOS 27 exposed a Swift 6 executor-isolation crash when ScreenCaptureKit invoked its `startCapture` completion on `com.screenCaptureKit.streamQueue`. The crash report showed `_swift_task_checkIsolatedSwift` / `_dispatch_assert_queue_fail` inside the completion thunk. The production fix is commit `287f01424db4d24b0a2b8e63335e8105349eb325`: ScreenCaptureKit start/update/stop completions are now created by a nonisolated `@Sendable` bridge while `SCStream` itself remains MainActor-confined. Commit `305b26af30851106b8c4734dc9782c9809a0bfe8` adds a regression that invokes that bridge from a framework-style background dispatch queue.
+
+GitHub Actions run `32325966054` (CI #63) validated the repaired code head with XcodeGen generation, capture/privacy configuration, Debug build, application bundle verification, and **71 XCTest cases with 0 failures**.
 
 ## Integrated baseline
 
 - Phase 0 — Foundation: certified and merged.
 - Phase 1 — Library & Persistence: certified and merged via PR #2.
 - Phase 2 — Audio Import: certified and merged via PR #3.
-- Phase 2 merge commit on `main`: `fea7ef6a291bd8d7acb4b25afd5705541672e96e`.
-- Phase 3 branch: `feat/phase-3-microphone-recording`, created exactly from that merge commit.
-- Phase 3 PR: #4 — `Phase 3 — Microphone Recording`.
+- Phase 3 — Microphone Recording: certified and merged via PR #4.
+- Phase 3 merge commit on `main`: `76146d1459606bff1b0a177a2a4d96c1e4264df9`.
+- Phase 4 branch: `feat/phase-4-system-audio`, created exactly from that merge commit.
+- Phase 4 PR: #5 — `Phase 4 — System Audio`.
 - Platform invariants: macOS 15+, Swift 6, SwiftUI, XcodeGen, no runtime third-party dependencies.
 
-## Mission 3.1 — Microphone Permissions
+## Mission 4.1 — ScreenCaptureKit + native picker
+
+**Status:** COMPLETE for automated validation; corrected interactive System Audio smoke remains PARTIAL.
+
+- Uses `SCContentSharingPicker.shared`; no custom content browser or privacy bypass.
+- Picker supports display, application, and window selection.
+- Bardo excludes its own bundle from picker choices where the system API permits it.
+- Initial cancellation or picker error creates no Recording and releases the process-wide capture lease.
+- `Change Source…` reopens the native picker during an active recording and applies the returned `SCContentFilter` to the existing stream.
+- Cancelling reselection leaves the current recording active.
+- No `.screen` output is registered and no video frame is persisted.
+- `NSScreenCaptureUsageDescription` is generated from XcodeGen-owned configuration and CI verifies the built bundle.
+- ScreenCaptureKit completion handlers are explicitly nonisolated `@Sendable` closures because the framework calls them on framework-owned queues. Application state mutations still hop to MainActor.
+
+## Mission 4.2 — System Audio Capture
 
 **Status:** COMPLETE.
 
-- Uses native AVFoundation microphone authorization state/request APIs.
-- Explicit application states: `notDetermined`, `authorized`, `denied`, `restricted`, and unexpected error.
-- Permission is requested only after an explicit Record action; an empty launch does not request it.
-- Denied/restricted permission never starts the capture backend and produces controlled UI state.
-- Denied UI offers a best-effort route to macOS microphone privacy settings.
-- `NSMicrophoneUsageDescription` is owned by `project.yml`; CI verifies the exact value in the generated `Bardo.app/Contents/Info.plist`.
-- macOS Audio Input entitlement configuration is owned by XcodeGen: `CODE_SIGN_ENTITLEMENTS = Bardo/Bardo.entitlements`, `ENABLE_HARDENED_RUNTIME = YES`, and `com.apple.security.device.audio-input = true`.
-- CI verifies those generated build settings and the entitlement source file.
-- A pending permission prompt does not hold application termination open indefinitely.
+Production system audio uses ScreenCaptureKit behind the Phase-4-specific `SystemAudioCapturing` boundary.
 
-## Mission 3.2 — Recorder
+`SCStreamConfiguration` uses:
 
-**Status:** COMPLETE.
+```text
+capturesAudio: true
+sampleRate: 48,000 Hz
+channelCount: 2
+excludesCurrentProcessAudio: true
+captureMicrophone: false for system-only
+minimal visual stream configuration; no screen output registered
+```
 
-Production capture is implemented by `AVAudioRecorderCaptureBackend` behind the small Phase-3-specific `AudioCapturing` contract.
+System samples arrive through `.audio` and are written incrementally by `CMSampleBufferAudioWriter` using `AVAssetWriter`.
 
-Production format:
+Production system source format:
 
 ```text
 container: M4A
 codec: AAC
 sample rate: 48,000 Hz
-channels: 1 (mono)
-bit rate: 96 kbps
-encoder quality: high
+channels: 2 (stereo)
+bit rate: 128 kbps
 ```
 
-Rationale: direct native recording to a compact, broadly playable conversation format without conversion or assumptions about future phases.
+Bardo does not retain the complete session in memory. Append/backpressure failures are surfaced as controlled capture failures. `excludesCurrentProcessAudio = true` prevents Bardo playback from intentionally feeding back into the captured system track.
 
-`AVAudioRecorder` writes directly to the staging file while capture is active. Bardo does not retain the complete recording in RAM. Elapsed time is sampled from the recorder backend's `currentTime`; the UI task only samples that clock every 250 ms and is cancelled when no longer needed.
-
-Pause/resume is intentionally not implemented in Phase 3. Start/active/stop/finalize/error are the certified lifecycle.
-
-The current microphone display name is shown as informational UI while recording. Durable recording origin uses the already-persisted `Recording.sources = [.microphone]`; no ephemeral hardware identifier/path is promoted into Domain.
-
-## Mission 3.3 — Recording Safety
+## Mission 4.3 — System + Microphone
 
 **Status:** COMPLETE.
 
-Active capture uses Bardo-owned temporary storage separate from final Library records:
+Dual capture uses a single `SCStream`:
+
+```text
+same SCStream
+├── .audio       → system original
+└── .microphone  → microphone original
+```
+
+Dual-mode configuration:
+
+- `captureMicrophone = true`;
+- `microphoneCaptureDeviceID` uses the current default audio capture device when available;
+- system and microphone outputs are written to separate M4A files;
+- microphone source format is AAC/M4A, 48 kHz, mono, 96 kbps;
+- Phase 3 microphone-only recording remains on its certified `AVAudioRecorder` implementation.
+
+Synchronization contract:
+
+- first/last `CMSampleBuffer` presentation timestamps are tracked independently for each source;
+- both source outputs come from the same `SCStream` clock domain;
+- the earliest first PTS defines recording-relative time zero;
+- every original persists a normalized `timelineOffset` relative to that origin;
+- absolute host timestamps and ephemeral ScreenCaptureKit identifiers are not persisted.
+
+A failure of one requested source does not silently destroy a healthy source. A valid remaining original can be published while incomplete staging is preserved and the degradation is surfaced.
+
+## Mission 4.4 — Derived conversation mix
+
+**Status:** COMPLETE.
+
+When both originals are valid Bardo creates a derived playback representation:
+
+```text
+system original
++
+microphone original
+↓
+AVMutableComposition at persisted timeline offsets
+↓
+0.5 linear gain per source
+↓
+AVAssetExportSession.export(to:as:)
+↓
+conversation mix M4A
+```
+
+The fixed 0.5 gain is deterministic summing headroom, not perceptual loudness normalization.
+
+The derived mix:
+
+- never replaces or mutates source originals;
+- persists `derivedFromAssetIDs` identifying its inputs;
+- is reproducible from the originals and their persisted offsets;
+- is preferred for Library playback;
+- falls back to a healthy original when missing or unreadable;
+- cannot make source originals invalid merely because it is missing/corrupt.
+
+Real AVFoundation fixtures verify mix generation and loading through the existing playback controller.
+
+## Durable asset model and schema
+
+Current write schema is **3**.
+
+Phase 4 introduced the first durable need to distinguish audio-file semantics. `AudioAsset` now persists:
+
+- `role`: `importedOriginal`, `microphoneOriginal`, `systemOriginal`, or `conversationMix`;
+- recording-relative `timelineOffset`;
+- `derivedFromAssetIDs` for derived assets.
+
+Compatibility remains non-destructive:
+
+- V1 remains readable;
+- V2 remains readable;
+- V2 microphone-only assets infer `microphoneOriginal`;
+- V2 system-only assets infer `systemOriginal` when encountered;
+- other legacy V2 assets infer `importedOriginal`;
+- V3 is the current write format.
+
+No `SCContentFilter`, content identifier, absolute host timestamp, transient microphone device ID, staging path, or managed absolute path is persisted in Domain.
+
+## Publication and recovery
+
+Active system capture uses Bardo-owned staging separate from finalized Library state:
 
 ```text
 Application Support/Bardo/
-├── Library/
-│   └── <recording-uuid>/
-│       ├── manifest.json
-│       └── audio/<audio-asset-uuid>.<ext>
-└── .MicrophoneCaptureStaging/
-    └── <recording-uuid>/
-        └── <audio-asset-uuid>.m4a
+├── Library/<recording-uuid>/
+│   ├── manifest.json
+│   └── audio/<audio-asset-uuid>.<ext>
+└── .SystemAudioCaptureStaging/<recording-uuid>/
+    ├── system original
+    ├── microphone original   (dual mode)
+    └── conversation mix      (derived when generated)
 ```
 
-A staging capture is never a finalized Library Recording.
-
-Successful stop order:
+Successful publication order:
 
 ```text
-stop/close AVAudioRecorder
-→ validate/read technical metadata with AVFoundation
-→ construct AudioAsset + Recording(source: microphone)
-→ reuse certified RecordingStore.importRecording transaction
-→ managed audio copied/finalized before manifest publication
-→ remove staging only after publication succeeds
+stop SCStream
+→ drain queued sample callbacks
+→ finalize writers
+→ validate readable originals + metadata
+→ normalize timeline offsets
+→ create derived mix when both originals are valid
+→ RecordingStore.importRecording(all valid assets)
+→ finalize managed audio before manifest publication
+→ remove staging only when requested originals are healthy
 → reload Library
 ```
 
-If start fails, the prepared staging directory is removed and no Recording is published. If recording is unexpectedly interrupted or final publication fails, staging bytes are preserved and detected on recovery; no false-valid Recording is created.
+Recovery philosophy remains:
 
-Normal application termination while recording uses the AppKit terminate-later/reply lifecycle to attempt safe stop/finalization before exit. Crash/SIGKILL recovery is not faked: leftover staging bytes are preserved and reported on next launch, but Bardo does not promise recovery of a container the OS/framework cannot decode.
+`preserve → detect → inform → continue`
 
-Concurrency invariants:
+Certified scenarios include:
 
-- orchestration rejects a second start while the same controller is busy;
-- a process-wide capture lease rejects simultaneous capture from separate controllers;
-- the staging actor independently rejects a second active prepared capture;
-- the app uses one main SwiftUI `Window`, so another Bardo window cannot visually claim an idle recorder while capture is active elsewhere;
-- repeated `stop` after completion is controlled/idempotent from the application perspective.
+- system + microphone both valid;
+- microphone failure with system preserved/published;
+- system failure with microphone preserved/published;
+- no valid source → no false Recording;
+- missing mix → originals intact + playback fallback;
+- corrupt mix → originals intact + playback fallback;
+- mix generation failure → originals published intact;
+- residual system-capture staging detected after restart;
+- stream stopped by macOS → available finalized source preserved/published with warning;
+- picker cancelled/failed → no Recording;
+- normal app termination during active system capture → safe finalization attempted.
 
-## Mission 3.4 — Recording UI
+## Concurrency and lifecycle invariants
 
-**Status:** COMPLETE for automated validation; interactive visual smoke remains PARTIAL.
+- Phase 3 microphone-only and Phase 4 system capture share one process-wide `RecordingCaptureLease`.
+- Picker selection reserves that lease before system capture begins.
+- A concurrent Phase 3 microphone start while system capture owns the lease is rejected.
+- System staging independently rejects a second prepared system capture.
+- The app remains a single SwiftUI `Window`.
+- Progress polling exists only during active capture and is cancelled during stop/finalization.
+- `SCStream` remains MainActor-confined under Swift 6 strict concurrency.
+- `SCStreamDelegate` / picker callbacks explicitly hop to MainActor when mutating application state.
+- `SCStream.startCapture`, `updateContentFilter`, and `stopCapture` completion handlers are created outside MainActor isolation through `ScreenCaptureKitCompletionBridge`; this is required because ScreenCaptureKit may invoke them on framework-owned dispatch queues.
+- A dedicated regression executes the completion bridge on a non-main dispatch queue and verifies clean continuation resumption.
+- Normal app termination delays exit only while an actual recording/finalization must safely finish.
 
-The native macOS UI exposes:
+## Integrated automated gate
 
-- idle Record action in the toolbar;
-- permission-request state;
-- preparing state;
-- unmistakable active recording bar;
-- elapsed duration with monospaced digits;
-- current input display name when available;
-- Stop action;
-- finalizing state;
-- controlled error/permission-denied alert;
-- preserved incomplete-capture recovery notice.
+Hardware-independent integration uses deterministic `SystemAudioCapturing` test backends that write real managed audio fixtures rather than retaining a fake full-session byte array. Mix tests use real AVFoundation composition/export and final playback uses the existing `AVAudioPlayer` path.
 
-After successful stop, the existing Library is reloaded, the new Recording is selected, and the existing Phase 2 playback path is prepared. No parallel microphone-only Library exists.
-
-## Schema
-
-Current write schema remains **2**.
-
-Phase 3 does not require a manifest change: `AudioSource.microphone` already existed in the persisted Phase 2 contract. V1/V2 compatibility and all existing recovery behavior remain unchanged. No absolute capture paths or transient microphone identifiers are persisted in Domain.
-
-## Integrated gate
-
-CI uses a hardware-independent `AudioCapturing` backend that writes a real deterministic WAV with AVFoundation while capture is active; it is not an in-memory audio mock.
-
-Automated evidence demonstrates:
+Automated evidence covers:
 
 ```text
-authorized intent
-→ prepare Bardo staging
-→ real audio bytes exist on disk before stop
-→ stop/finalize
-→ AVFoundation metadata
-→ AudioAsset + Recording(.microphone)
+selection
+→ system + microphone lifecycle
+→ independent original assets
+→ shared-stream PTS alignment
+→ AVFoundation validation + metadata
+→ derived conversation mix
+→ schema V3 Recording + AudioAssets
 → RecordingStore managed publication
-→ Library reload
-→ AVAudioPlayer load/play/pause
-→ fresh RecordingStore + fresh LibraryViewModel
-→ Recording reconstructs from disk
-→ playback remains available ✅
+→ Library
+→ playback
+→ fresh RecordingStore + LibraryViewModel
+→ Recording + originals + mix reconstruct ✅
 ```
 
-Additional certified scenarios:
+Additional gates:
 
 ```text
-second simultaneous start → rejected ✅
-backend start failure → no false Recording + healthy Library ✅
-unexpected interruption → staging preserved + no false Recording ✅
-normal app termination during recording → finalized Recording ✅
-pending permission prompt + app termination → no termination deadlock ✅
+picker cancel/failure → no Recording ✅
+Change Source → existing stream updated ✅
+one dual source fails → healthy source preserved ✅
+stream invalidation → controlled finalization ✅
+missing/corrupt mix → originals intact + playback fallback ✅
+Phase 3 mic vs Phase 4 system capture → shared lease rejects overlap ✅
+normal termination → finalized system Recording ✅
+ScreenCaptureKit completion invoked off-main → continuation resumes without executor trap ✅
 ```
 
-A simulated `currentTime = 3600.75` verifies long-duration state without sleeping CI for an hour. Production architecture remains direct-to-disk and does not scale RAM use with captured audio length by design.
+A simulated capture clock of `3600.75` validates long-duration lifecycle without sleeping CI. Production writers remain direct-to-disk, so memory does not scale with full recording length by design.
 
 ## Tests and CI evidence
 
-Final code/configuration GitHub Actions run `32301264335` validated commit `5a0a53ccd844471c077dd362e39a343a33857bce` on:
+Crash-repair GitHub Actions run `32325966054` (CI #63) validated commit `305b26af30851106b8c4734dc9782c9809a0bfe8` on:
 
 - macOS 15.7.7 Apple Silicon;
 - Xcode 16.4 (16F6);
@@ -169,66 +261,61 @@ Final code/configuration GitHub Actions run `32301264335` validated commit `5a0a
 
 Observed results:
 
-- XcodeGen install/generation: passed;
-- microphone build configuration verification: passed;
-- `CODE_SIGN_ENTITLEMENTS = Bardo/Bardo.entitlements`: passed;
-- `ENABLE_HARDENED_RUNTIME = YES`: passed;
-- `com.apple.security.device.audio-input = true`: passed;
+- XcodeGen generation: passed;
+- capture build configuration verification: passed;
+- microphone Audio Input entitlement source/settings: passed;
 - Debug build: **BUILD SUCCEEDED**;
-- app bundle/executable verification: passed;
+- generated app bundle/executable verification: passed;
 - generated `NSMicrophoneUsageDescription`: passed;
+- generated `NSScreenCaptureUsageDescription`: passed;
 - XCTest: **TEST SUCCEEDED**;
-- **47 tests executed, 0 failures**.
+- **71 tests executed, 0 failures**;
+- new off-main ScreenCaptureKit completion regression: passed;
+- all inherited Phase 0–3 regressions remain green.
 
-The 47-test suite includes all inherited Foundation/Phase 1/Phase 2 regressions plus permission lifecycle, production recorder configuration, staging/recovery, concurrency, direct-to-disk evidence, long-duration clock behavior, interruption/error paths, termination behavior, and the full Phase 3 restart/playback gate.
-
-CI intentionally uses `CODE_SIGNING_ALLOWED=NO`, so it cannot prove the entitlements embedded in a production-signed/distribution build; Xcode logs that Hardened Runtime is disabled for that unsigned CI artifact. The XcodeGen configuration and entitlement source are automated and green, while a signed physical-microphone build remains part of the manual smoke evidence below.
-
-No material Swift compiler warning attributable to Phase 3 appears in the inspected CI log. Non-material runner/framework diagnostics remain unrelated Homebrew tap-trust noise, AppIntents metadata skips because Bardo does not use AppIntents, deliberately corrupt Phase 2 audio diagnostics, virtual-runner playback-device messages, and the expected unsigned-CI Hardened Runtime note.
-
-This documentation-only certification head must pass the same PR workflow before PR #4 is considered final PHASE_READY evidence.
+CI builds with `CODE_SIGNING_ALLOWED=NO`, so it cannot prove real production signing or interactive TCC behavior. The built configuration and privacy declarations are automated and green.
 
 ## Reviewer findings and repairs
 
-The global reviewer loop found and resolved material issues before certification:
+The adversarial reviewer and physical smoke testing caused multiple material repairs before certification:
 
-1. Rejected an unnecessary proposed schema 3/device-label persistence design. Phase 3 reuses schema 2 and existing `AudioSource.microphone` instead of duplicating persistence contracts.
-2. Found that termination could wait indefinitely while a microphone permission prompt was pending. Termination is delayed only for actual recording/finalization; a suspended-permission regression test covers the case.
-3. Found that `WindowGroup` could allow another window to appear idle while a different window owned the microphone. The main scene is now a single `Window`; the process-wide capture lease remains defense in depth.
-4. Final verification against current Apple documentation found the missing macOS Audio Input entitlement requirement. Added `Bardo.entitlements`, XcodeGen Hardened Runtime/entitlements settings, and an explicit CI configuration gate.
+1. Required schema V3 only for the real durable requirements of source/derived roles and alignment; ephemeral ScreenCaptureKit/device identifiers were rejected from Domain.
+2. Repaired inherited schema-2 test assumptions after the justified schema V3 bump.
+3. Fixed `SCContentSharingPickerObserver` isolation for Swift 6 with nonisolated callbacks hopping explicitly to MainActor.
+4. Rejected weakening strict concurrency when `SCStream` async overloads exposed non-Sendable diagnostics; retained MainActor confinement and wrapped framework completion callbacks.
+5. Added `microphoneCaptureDeviceID` for dual same-stream microphone capture without persisting that ephemeral ID.
+6. Found that a build-setting-style `NSScreenCaptureUsageDescription` did not reach the generated plist; moved it to XcodeGen's explicit generated Info.plist contract and added CI verification.
+7. Removed macOS-15-deprecated AVAssetExportSession callback APIs in favor of `export(to:as:)`.
+8. Fixed Swift 6 XCTest actor/autoclosure problems rather than weakening compiler settings.
+9. Added missing/corrupt derived-mix fallback and normal-termination tests.
+10. Found native picker reselection can return a new filter without an associated stream; added explicit `Change Source…` UX and application of that filter to the existing stream.
+11. Added focused CI XCTest failure summaries so runtime failures are not hidden by full `xcodebuild` logs.
+12. Replaced fragile synthesized `Recording ==` persistence assertions with the persistence-specific contract, extended to verify Phase 4 roles, offsets and derivation.
+13. Added adversarial recovery gates for system-source loss, stream invalidation, and initial picker failure/lease release.
+14. The documentation-head CI exposed one remaining V3 persistence test still using synthesized `Recording ==`; it was corrected to the explicit persistence contract and the full suite reran green.
+15. **Physical macOS 27 smoke test:** microphone-only capture succeeded, but starting System Audio crashed on `com.screenCaptureKit.streamQueue` with `_swift_task_checkIsolatedSwift`. Root cause was a ScreenCaptureKit completion closure inheriting `MainActor`; start/update/stop now use a nonisolated `@Sendable` completion bridge and CI includes an off-main regression.
 
-After every material repair the full CI gate was rerun. The final code/configuration diff introduces no runtime dependency, leaves persistence/schema code unchanged, and contains no Phase 4 implementation.
-
-## Recovery and safety invariants
-
-- An incomplete microphone capture is staging data, never a finalized Recording.
-- Final manifest publication occurs only after a closed/valid audio resource can be inspected and adopted by `RecordingStore`.
-- Recording finalization reuses the Phase 2 managed-audio transaction instead of creating a second persistence system.
-- Interrupted/finalization-failed bytes are preserved and reported, not silently deleted.
-- One broken/incomplete capture does not prevent Library from loading healthy recordings.
-- Only one microphone capture can own the process at a time.
-- Progress polling exists only while actively recording.
-- The complete conversation is never accumulated in Bardo memory by design.
-- Existing import, metadata, playback, schema compatibility, and recovery invariants remain green.
+Final automated reviewer pass found no remaining material issue, full-session audio accumulation, stored video, irreversible mix, ScreenCaptureKit leakage into Domain, Phase 5 implementation, or runtime third-party dependency.
 
 ## Known minor debt / evidence pending
 
-- **PARTIAL — interactive microphone smoke test pending:** CI cannot grant the real macOS TCC microphone prompt, speak into physical hardware, listen to the production M4A capture, or visually inspect the running recording UX. No physical microphone success is claimed.
-- **PARTIAL — signed entitlement smoke:** CI verifies XcodeGen's entitlement/Hardened Runtime configuration but uses an unsigned build; embedding of the entitlement in a normally signed application should be confirmed with the physical-microphone smoke test.
-- The System Settings microphone deep link is best-effort; denial handling remains correct even if macOS changes that navigation route.
-- Pause/resume is intentionally absent.
-- Advanced device-route monitoring/reselection is not implemented; recorder delegate failures are surfaced and staged bytes preserved.
-- No explicit disk-full hardware simulation exists; start/write/finalization failures use the same controlled failure/preservation path.
-- No waveform, system audio, source mixing, transcription, diarization, export, or AI processing exists.
+- **Physical microphone smoke: PASSED** on the development build used for interactive testing.
+- **PARTIAL — corrected system-audio smoke retest pending:** the original physical attempt found the executor-isolation crash described above; the repaired code is green in CI, but the corrected build has not yet been re-run interactively against real system audio on macOS 27.
+- **PARTIAL — interactive dual-source smoke test pending:** physical system+microphone capture and human listening/alignment remain to be repeated after the executor repair.
+- **PARTIAL — signed entitlement smoke:** CI builds unsigned; microphone Audio Input entitlement embedding in a normally signed app remains a physical smoke test.
+- Derived mix corruption is detected operationally by playback failure/fallback. Startup proactively detects a missing derived file but does not pre-decode every derived asset.
+- The 0.5+0.5 mix gain is deterministic anti-clipping headroom, not loudness normalization.
+- No physical disk-full test exists; writer/finalization errors follow the controlled preservation path.
+- Missing derived mix regeneration is not yet exposed as a user action; originals, derivation IDs and offsets preserve enough data to regenerate later.
 
 ## Explicitly out of scope
 
-Phase 3 contains no ScreenCaptureKit, system-audio capture, microphone+system mixing, WhisperKit, SpeakerKit, transcription, diarization, VAD, waveform, export, or Phase 4 implementation.
+Phase 4 contains no WhisperKit, SpeakerKit, transcription, diarization, VAD, summary, waveform, transcript editing, or other Phase 5+ functionality.
 
 ## Next phase
 
-After PR #4 is reviewed and merged, the next permitted phase is:
+After PR #5 is merged, the next permitted phase is:
 
-- **4 — System Audio**
+- **5 — Transcription**
 
-Do not implement Phase 4 before Phase 3 integration.
+Do not implement Phase 5 before Phase 4 integration.

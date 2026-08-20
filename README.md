@@ -1,8 +1,8 @@
 # Bardo
 
-Bardo is a privacy-first native macOS app for managing conversations locally. Phases 0–2 are integrated, and **Phase 3 — Microphone Recording** is implemented on its phase branch: Bardo can import existing audio or record a new local microphone conversation, keep the audio under Bardo-managed storage, reconstruct it after restart, and play it through the same Library.
+Bardo is a privacy-first native macOS app for capturing and managing conversations locally. Phases 0–3 are integrated, and **Phase 4 — System Audio** is implemented on its phase branch: Bardo can import audio, record microphone-only conversations, capture audio from macOS content selected with the native system picker, or capture system audio and microphone as independent originals with a derived playback mix.
 
-Bardo still contains **zero AI**. There is no transcription, diarization, system-audio capture, or cloud processing.
+Bardo still contains **zero AI**. There is no transcription, diarization, WhisperKit, SpeakerKit, cloud processing, or Phase 5 implementation.
 
 ## Development requirements
 
@@ -17,109 +17,135 @@ brew install xcodegen
 xcodegen generate
 ```
 
-`project.yml` remains the source of truth; `Bardo.xcodeproj` is generated and not committed.
+`project.yml` remains the source of truth; `Bardo.xcodeproj` and the generated `Bardo/Info.plist` are not committed.
 
 ## Current functionality
 
 Bardo provides:
 
 - native single-window SwiftUI macOS application;
-- `NavigationSplitView` Library with persistent per-recording recovery isolation;
-- native file picker and drag & drop import for `.m4a`, `.mp3`, `.wav`, `.flac`, `.aac`, `.aiff` when AVFoundation can actually read the content;
-- Bardo-managed copies of successfully imported audio;
-- native microphone permission lifecycle initiated only by explicit recording intent;
-- XcodeGen-managed `NSMicrophoneUsageDescription`, Hardened Runtime, and macOS Audio Input entitlement configuration;
-- native `AVAudioRecorder` microphone capture directly to disk;
-- production microphone format: AAC/M4A, mono, 48 kHz, 96 kbps;
-- visible recording duration and input-device name while capture is active;
-- safe staging/finalization before a microphone capture becomes a normal Library Recording;
-- persisted duration, codec label, sample rate, and channel count through the existing `AudioAsset` model;
-- native play, pause, seek, current-position, and total-duration controls;
-- schema-versioned persistence with current write schema **2**.
+- persistent Library with per-recording recovery isolation;
+- native audio import into Bardo-managed storage;
+- Phase 3 microphone-only capture through `AVAudioRecorder`;
+- native `SCContentSharingPicker` selection for display, application, or window;
+- ScreenCaptureKit system-audio capture without persisting video;
+- system-only recording and system + microphone dual-source recording;
+- same-`SCStream` `.audio` and `.microphone` outputs for dual mode;
+- direct-to-disk M4A/AAC writers rather than full-session audio buffering;
+- Bardo playback exclusion from system capture through `excludesCurrentProcessAudio`;
+- source-relative timeline alignment derived from ScreenCaptureKit presentation timestamps;
+- independent `systemOriginal` and `microphoneOriginal` assets plus a regenerable `conversationMix` derived asset;
+- native AVFoundation mix generation with deterministic headroom;
+- playback preference for the conversation mix with fallback to preserved originals if the mix is missing or unreadable;
+- safe staging, partial-source preservation, stream-invalidation handling, and normal-termination finalization;
+- a process-wide recording lease shared by microphone-only and system capture;
+- source reselection during system capture through the native picker;
+- schema-versioned persistence with current write schema **3**, while V1 and V2 remain readable.
 
-## Microphone capture lifecycle
+## System audio architecture
 
-Microphone recordings do not create a parallel persistence system. Active audio first lives in Bardo-owned staging storage:
-
-```text
-Application Support/Bardo/
-├── Library/
-│   └── <recording-uuid>/
-│       ├── manifest.json
-│       └── audio/<audio-asset-uuid>.<ext>
-└── .MicrophoneCaptureStaging/
-    └── <recording-uuid>/
-        └── <audio-asset-uuid>.m4a
-```
-
-Successful finalization is:
+System-only:
 
 ```text
-record directly to staging
-→ stop/close recorder
-→ AVFoundation validation + metadata
-→ Recording + AudioAsset(source: microphone)
-→ existing RecordingStore managed-audio transaction
-→ manifest publication
-→ remove staging
-→ Library + existing playback
+SCContentSharingPicker
+→ SCContentFilter
+→ SCStream (.audio)
+→ incremental M4A/AAC writer
+→ systemOriginal AudioAsset
+→ RecordingStore
+→ Library + Playback
 ```
 
-If capture is interrupted or final publication fails, Bardo does not publish a false Recording. Temporary bytes are preserved for recovery and healthy Library recordings continue loading.
-
-Only one microphone capture can own Bardo at a time. The application uses a single main window, the recording controller keeps a process-wide capture lease, and the staging actor independently rejects a second active prepared capture.
-
-## Permissions and macOS configuration
-
-`NSMicrophoneUsageDescription` is generated from `project.yml`, and CI verifies that it exists in the built application bundle. Bardo requests microphone access only after Record is chosen. Denied or restricted access never starts the recorder.
-
-The macOS target also declares:
+Dual source:
 
 ```text
-CODE_SIGN_ENTITLEMENTS = Bardo/Bardo.entitlements
-ENABLE_HARDENED_RUNTIME = YES
-com.apple.security.device.audio-input = true
+one SCStream
+├── .audio       → systemOriginal.m4a
+└── .microphone  → microphoneOriginal.m4a
+                         │
+source PTS offsets ──────┘
+          ↓
+AVFoundation composition/export
+          ↓
+conversationMix.m4a (derived)
 ```
 
-CI verifies those generated settings and entitlement source. CI intentionally builds with code signing disabled, so the final embedded entitlement in a normally signed app remains part of the physical/signed smoke test rather than being falsely claimed as automated evidence.
+The original source files are primary evidence and are never replaced by the mix. The mix persists its source asset IDs and can be reproduced from the originals and their normalized timeline offsets.
 
-When Bardo is closed during a real active recording, the AppKit termination lifecycle attempts to stop and safely finalize the capture before exit. A pending permission prompt is not treated as recorded data and does not hold application termination open indefinitely.
+## Formats
 
-## Managed audio and schemas
+Production microphone-only source:
 
-Imported audio and microphone recordings converge on the same `Recording + AudioAsset + RecordingStore + Library + Playback` model.
+```text
+M4A / AAC / 48 kHz / mono / 96 kbps
+```
 
-Schema 1 remains readable for Phase 1 recordings. Schema 2 remains the current write format and persists audio asset identity/metadata. Phase 3 did not bump the schema because `AudioSource.microphone` was already part of the persisted contract.
+Production ScreenCaptureKit system source:
 
-Absolute managed paths and transient microphone identifiers are not persisted in Domain.
+```text
+M4A / AAC / 48 kHz / stereo / 128 kbps
+```
+
+Dual ScreenCaptureKit microphone source:
+
+```text
+M4A / AAC / 48 kHz / mono / 96 kbps
+```
+
+The derived conversation mix is exported as M4A with AVFoundation. Each source receives 0.5 linear gain in the mix to provide deterministic summing headroom; this is not perceptual loudness normalization.
+
+## Persistence
+
+Schema 3 adds durable semantics to `AudioAsset`:
+
+- role (`importedOriginal`, `microphoneOriginal`, `systemOriginal`, `conversationMix`);
+- recording-relative `timelineOffset`;
+- `derivedFromAssetIDs` for derived assets.
+
+V1 and V2 manifests remain readable without destructive migration. ScreenCaptureKit objects, picker/content IDs, absolute host timestamps, microphone device IDs, temporary paths, and managed absolute paths are not persisted in Domain.
+
+All finalized files still use the same `Recording + AudioAsset + RecordingStore + Library + Playback` infrastructure. There is no parallel system-audio library.
+
+## Permissions and privacy
+
+The XcodeGen-generated application configuration includes:
+
+- `NSMicrophoneUsageDescription`;
+- `NSScreenCaptureUsageDescription`;
+- Hardened Runtime configuration;
+- the Phase 3 macOS Audio Input entitlement.
+
+CI verifies the generated application bundle privacy strings and build configuration. System content is selected through the native macOS sharing picker rather than a privacy-bypassing custom selector.
+
+CI intentionally builds unsigned, so real TCC interaction and production-signed entitlement behavior remain interactive smoke tests.
 
 ## Recovery semantics
 
 Bardo keeps the policy:
 
-`preserve → detect → inform → continue loading healthy data`
+`preserve → detect → inform → continue`
 
-This covers corrupt/incomplete manifests, missing/corrupt managed audio, import temporary residue, and interrupted microphone staging residue. An incomplete microphone file is never presented as a finalized recording merely because bytes exist.
+A staging file is not a finalized Recording. If one dual source fails, a healthy source can still be safely published while incomplete staging evidence is preserved. A missing or corrupt derived mix does not damage the originals and playback can fall back to a source asset.
 
 ## Tests
 
-The final Phase 3 code/configuration gate contains **47 XCTest cases with 0 failures**, including all Foundation/Phase 1/Phase 2 regressions.
+The final Phase 4 gate contains **70 XCTest cases with 0 failures**, including all Phase 0–3 regressions.
 
-Hardware-independent microphone integration uses a deterministic AVFoundation backend that writes a real WAV file incrementally to disk. Tests demonstrate bytes written before stop, metadata extraction, publication through the real `RecordingStore`, Library reconstruction, playback through `AVAudioPlayer`, restart persistence, concurrent-start rejection, interruption recovery, and normal termination finalization.
+Automated coverage includes system-only and dual-source lifecycle, picker cancellation/failure/reselection, ScreenCaptureKit configuration, real M4A fixture writing, shared-stream PTS alignment, schema V1/V2/V3 compatibility, multi-asset publication, AVFoundation mix generation and playback, missing/corrupt mix fallback, source-specific failures, stream invalidation, staging recovery, shared recording lease, normal application termination, long-duration clock behavior, Library reconstruction, and restart persistence.
 
-The production `AVAudioRecorder` backend and M4A/AAC configuration compile under Xcode 16.4. A real physical-microphone/TCC/listening/visual smoke test — including a normally signed build with the entitlement embedded — remains intentionally documented as pending because GitHub Actions cannot perform that interactive validation.
+Real `SCContentSharingPicker` interaction, real third-party application audio, physical microphone dual capture, human listening, and normally signed/TCC behavior remain intentionally documented as `PARTIAL` because GitHub Actions cannot provide that interactive evidence.
 
 ## Project configuration
 
 - Platform: macOS 15+
 - Language mode: Swift 6
-- UI framework: SwiftUI / AppKit lifecycle bridge
-- Audio frameworks: native AVFoundation / AVFAudio
+- UI: SwiftUI / AppKit lifecycle bridge
+- Audio/capture frameworks: AVFoundation / AVFAudio / ScreenCaptureKit
 - Project generator: XcodeGen
 - Runtime third-party dependencies: none
 
 ## Explicitly out of scope
 
-Phase 3 does not implement ScreenCaptureKit, system audio, microphone+system mixing, WhisperKit, SpeakerKit, transcription, diarization, VAD, waveform, export, transcript editing, or AI processing.
+Phase 4 does not implement WhisperKit, SpeakerKit, transcription, diarization, VAD, summaries, transcript editing, waveform, or other Phase 5+ functionality.
 
-See `PROJECT_STATE.md` for exact phase certification evidence, CI, reviewer repairs, recovery invariants, known debt, and the next permitted phase.
+See `PROJECT_STATE.md` for exact certification evidence, CI, reviewer repairs, recovery invariants, known debt, and the next permitted phase.

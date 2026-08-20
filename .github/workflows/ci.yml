@@ -34,7 +34,7 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Verify microphone build configuration
+      - name: Verify capture build configuration
         run: |
           test -f Bardo/Bardo.entitlements
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' Bardo/Bardo.entitlements)" = "true"
@@ -59,9 +59,11 @@ jobs:
           test -f "$BUNDLE/Contents/Info.plist"
           test -x "$BUNDLE/Contents/MacOS/Bardo"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
 
       - name: Run unit tests
         run: |
+          set +e
           xcodebuild \
             -project Bardo.xcodeproj \
             -scheme Bardo \
@@ -69,4 +71,12 @@ jobs:
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath .derived-data \
             CODE_SIGNING_ALLOWED=NO \
-            test
+            test > .xcode-test.log 2>&1
+          STATUS=$?
+          if [ "$STATUS" -ne 0 ]; then
+            echo "---- XCTest failure summary ----"
+            grep -E "Test Case .* failed|error:|XCTAssert|failed -|\*\* TEST FAILED \*\*" .xcode-test.log || tail -n 120 .xcode-test.log
+          else
+            grep -E "Executed [0-9]+ tests|\*\* TEST SUCCEEDED \*\*" .xcode-test.log || true
+          fi
+          exit "$STATUS"

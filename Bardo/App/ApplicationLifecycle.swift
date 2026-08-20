@@ -6,18 +6,34 @@ final class BardoAppDelegate: NSObject, NSApplicationDelegate {
     private var terminationInProgress = false
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let controller = MicrophoneRecordingController.activeForApplicationTermination,
-              controller.requiresTerminationFinalization else {
-            return .terminateNow
+        if let microphone = MicrophoneRecordingController.activeForApplicationTermination,
+           microphone.requiresTerminationFinalization {
+            return deferTermination(sender) {
+                await microphone.prepareForApplicationTermination()
+            }
         }
 
+        if let systemAudio = SystemAudioRecordingController.activeForApplicationTermination,
+           systemAudio.requiresTerminationFinalization {
+            return deferTermination(sender) {
+                await systemAudio.prepareForApplicationTermination()
+            }
+        }
+
+        return .terminateNow
+    }
+
+    private func deferTermination(
+        _ sender: NSApplication,
+        operation: @escaping @MainActor () async -> Void
+    ) -> NSApplication.TerminateReply {
         if terminationInProgress {
             return .terminateLater
         }
 
         terminationInProgress = true
-        Task {
-            await controller.prepareForApplicationTermination()
+        Task { @MainActor in
+            await operation()
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

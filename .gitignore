@@ -22,6 +22,7 @@ build/
 
 # XcodeGen output (project.yml is the source of truth)
 Bardo.xcodeproj/
+Bardo/Info.plist
 
 # Local editor/tooling
 .vscode/
