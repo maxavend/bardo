@@ -31,14 +31,30 @@ final class TranscriptionPipelineTests: XCTestCase {
         XCTAssertTrue(plans[0].isLast)
     }
 
-    func testInvalidDurationsDoNotProduceWork() {
+    func testInvalidDurationsAndBoundsDoNotProduceWork() {
         XCTAssertTrue(TranscriptionChunkPlanner.plans(duration: 0).isEmpty)
         XCTAssertTrue(TranscriptionChunkPlanner.plans(duration: -.infinity).isEmpty)
+        XCTAssertTrue(TranscriptionChunkPlanner.plans(duration: .infinity).isEmpty)
+        XCTAssertTrue(TranscriptionChunkPlanner.plans(duration: .nan).isEmpty)
+        XCTAssertTrue(
+            TranscriptionChunkPlanner.plans(
+                duration: 10,
+                chunkDuration: .infinity,
+                overlap: 1
+            ).isEmpty
+        )
         XCTAssertTrue(
             TranscriptionChunkPlanner.plans(
                 duration: 10,
                 chunkDuration: 1,
                 overlap: 1
+            ).isEmpty
+        )
+        XCTAssertTrue(
+            TranscriptionChunkPlanner.plans(
+                duration: 10,
+                chunkDuration: 5,
+                overlap: .nan
             ).isEmpty
         )
     }
