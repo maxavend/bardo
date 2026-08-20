@@ -30,6 +30,7 @@ targets:
       path: Bardo/Info.plist
       properties:
         CFBundleDisplayName: Bardo
+        CFBundleIconFile: BardoAppIcon
         LSApplicationCategoryType: public.app-category.productivity
         NSMicrophoneUsageDescription: Bardo records microphone audio only when you choose to start a local recording.
         NSScreenCaptureUsageDescription: Bardo captures audio from content you explicitly choose using the macOS system sharing picker.

@@ -1,0 +1,104 @@
+name: Build Development DMG
+
+"on":
+  push:
+    branches:
+      - chore/app-icon
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-dmg:
+    name: Build Bardo DMG
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Report toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate app icon
+        run: |
+          chmod +x scripts/generate-app-icon.sh
+          ./scripts/generate-app-icon.sh
+          test -s Bardo/Resources/BardoAppIcon.icns
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build Release app
+        run: |
+          xcodebuild \
+            -project Bardo.xcodeproj \
+            -scheme Bardo \
+            -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath .derived-data \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Verify icon and privacy configuration
+        run: |
+          APP=.derived-data/Build/Products/Release/Bardo.app
+          test -f "$APP/Contents/Info.plist"
+          test -x "$APP/Contents/MacOS/Bardo"
+          test -s "$APP/Contents/Resources/BardoAppIcon.icns"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Contents/Info.plist")" = "BardoAppIcon"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$APP/Contents/Info.plist")" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
+
+      - name: Ad-hoc sign development app
+        run: |
+          APP=.derived-data/Build/Products/Release/Bardo.app
+          codesign \
+            --force \
+            --deep \
+            --sign - \
+            --options runtime \
+            --entitlements Bardo/Bardo.entitlements \
+            "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -d --entitlements :- "$APP" > /tmp/bardo-entitlements.plist
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' /tmp/bardo-entitlements.plist)" = "true"
+
+      - name: Create DMG
+        run: |
+          APP=.derived-data/Build/Products/Release/Bardo.app
+          ROOT=.dmg-root
+          DMG=Bardo-Development.dmg
+          rm -rf "$ROOT" "$DMG"
+          mkdir -p "$ROOT"
+          ditto "$APP" "$ROOT/Bardo.app"
+          ln -s /Applications "$ROOT/Applications"
+          hdiutil create \
+            -volname Bardo \
+            -srcfolder "$ROOT" \
+            -ov \
+            -format UDZO \
+            "$DMG"
+          hdiutil verify "$DMG"
+          shasum -a 256 "$DMG" | tee Bardo-Development.dmg.sha256
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bardo-Development-DMG
+          path: |
+            Bardo-Development.dmg
+            Bardo-Development.dmg.sha256
+          if-no-files-found: error
+          retention-days: 14

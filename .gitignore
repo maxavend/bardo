@@ -24,6 +24,9 @@ build/
 Bardo.xcodeproj/
 Bardo/Info.plist
 
+# Generated app icon
+Bardo/Resources/BardoAppIcon.icns
+
 # Local editor/tooling
 .vscode/
 .idea/
