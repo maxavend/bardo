@@ -215,7 +215,7 @@ actor SpeakerDiarizationService: RecordingDiarizing {
 
         do {
             progress(.init(stage: .preparingModel, fractionCompleted: 0))
-            try await diarizer.downloadModels { downloadProgress in
+            let downloadProgressHandler: @Sendable (Progress) -> Void = { downloadProgress in
                 progress(
                     .init(
                         stage: .preparingModel,
@@ -223,6 +223,9 @@ actor SpeakerDiarizationService: RecordingDiarizing {
                     )
                 )
             }
+            let downloadModels: ((@Sendable (Progress) -> Void)?) async throws -> Void =
+                diarizer.downloadModels(progressCallback:)
+            try await downloadModels(downloadProgressHandler)
             try Task.checkCancellation()
             progress(.init(stage: .preparingModel, fractionCompleted: 1))
 
