@@ -4,6 +4,7 @@ name: Build Development DMG
   push:
     branches:
       - chore/app-icon
+  pull_request:
   workflow_dispatch:
 
 permissions:
