@@ -7,7 +7,7 @@ OUTPUT="$ROOT/Bardo/Resources/BardoAppIcon.icns"
 WORKDIR="$(mktemp -d)"
 ICONSET="$WORKDIR/BardoAppIcon.iconset"
 SOURCE="$WORKDIR/BardoAppIcon.png"
-EXPECTED_SHA256="63323c53fa5e52481713cae34f883fb905e16c266fbb531ecdf0efcaee923abd"
+EXPECTED_SHA256="c8b68428b6fb55d06f7a5986d51dd8e23e6c7327adf329c92013b1e9b88e38ad"
 
 cleanup() {
   rm -rf "$WORKDIR"
