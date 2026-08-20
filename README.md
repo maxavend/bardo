@@ -129,7 +129,7 @@ A staging file is not a finalized Recording. If one dual source fails, a healthy
 
 ## Tests
 
-The Phase 4 code/configuration gate currently contains **66 XCTest cases with 0 failures**, including all Phase 0–3 regressions.
+The final Phase 4 gate contains **70 XCTest cases with 0 failures**, including all Phase 0–3 regressions.
 
 Automated coverage includes system-only and dual-source lifecycle, picker cancellation/failure/reselection, ScreenCaptureKit configuration, real M4A fixture writing, shared-stream PTS alignment, schema V1/V2/V3 compatibility, multi-asset publication, AVFoundation mix generation and playback, missing/corrupt mix fallback, source-specific failures, stream invalidation, staging recovery, shared recording lease, normal application termination, long-duration clock behavior, Library reconstruction, and restart persistence.
 
