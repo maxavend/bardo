@@ -17,16 +17,23 @@ enum TranscriptionModelError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
+struct TranscriptionModelResources: Equatable, Sendable {
+    let modelFolder: URL
+    let tokenizerFolder: URL
+}
+
 actor TranscriptionModelManager {
     static let defaultModelID = "large-v3-v20240930_626MB"
     static let minimumFreeBytesForDownload: Int64 = 1_500_000_000
 
     typealias CapacityProvider = @Sendable (URL) throws -> Int64?
+    typealias TokenizerPreparer = @Sendable (URL) async throws -> Void
 
     private let modelID: String
     private let downloadRoot: URL
     private let fileManager: FileManager
     private let availableCapacity: CapacityProvider
+    private let prepareTokenizer: TokenizerPreparer
 
     init(
         modelID: String = TranscriptionModelManager.defaultModelID,
@@ -34,12 +41,16 @@ actor TranscriptionModelManager {
         fileManager: FileManager = .default,
         availableCapacity: @escaping CapacityProvider = { url in
             try TranscriptionModelManager.systemAvailableCapacity(at: url)
+        },
+        prepareTokenizer: @escaping TokenizerPreparer = { root in
+            try await TranscriptionModelManager.prepareLargeV3Tokenizer(in: root)
         }
     ) {
         self.modelID = modelID
         self.downloadRoot = downloadRoot
         self.fileManager = fileManager
         self.availableCapacity = availableCapacity
+        self.prepareTokenizer = prepareTokenizer
     }
 
     static func live() throws -> TranscriptionModelManager {
@@ -64,36 +75,58 @@ actor TranscriptionModelManager {
         return Int64(available)
     }
 
+    nonisolated static func prepareLargeV3Tokenizer(in root: URL) async throws {
+        _ = try await ModelUtilities.loadTokenizer(
+            for: .largev3,
+            tokenizerFolder: root,
+            useBackgroundSession: false
+        )
+    }
+
     func installedModelURL() throws -> URL? {
         try ensureDirectoryExists(downloadRoot)
         return findInstalledModel()
     }
 
-    func ensureModelAvailable(
+    func ensureResourcesAvailable(
         progress: @escaping @Sendable (Double) -> Void = { _ in }
-    ) async throws -> URL {
+    ) async throws -> TranscriptionModelResources {
         try ensureDirectoryExists(downloadRoot)
+
+        let modelFolder: URL
         if let installed = findInstalledModel() {
-            progress(1)
-            return installed
-        }
+            modelFolder = installed
+            progress(0.9)
+        } else {
+            try verifyFreeSpace()
+            progress(0)
 
-        try verifyFreeSpace()
-        progress(0)
+            let downloaded = try await WhisperKit.download(
+                variant: modelID,
+                downloadBase: downloadRoot,
+                progressCallback: { downloadProgress in
+                    let modelProgress = min(1, max(0, downloadProgress.fractionCompleted))
+                    progress(modelProgress * 0.9)
+                }
+            )
 
-        let downloaded = try await WhisperKit.download(
-            variant: modelID,
-            downloadBase: downloadRoot,
-            progressCallback: { downloadProgress in
-                progress(min(1, max(0, downloadProgress.fractionCompleted)))
+            guard verifyModelFolder(downloaded) else {
+                throw TranscriptionModelError.downloadedModelInvalid(modelID)
             }
-        )
-
-        guard verifyModelFolder(downloaded) else {
-            throw TranscriptionModelError.downloadedModelInvalid(modelID)
+            modelFolder = downloaded
+            progress(0.9)
         }
+
+        // WhisperKit's tokenizer is a separate Hub artifact in v1.0.0. Preparing it here
+        // makes "model setup complete" truthful and avoids a surprise network request when
+        // the first transcription begins. The same root is later supplied to WhisperKit.
+        try await prepareTokenizer(downloadRoot)
         progress(1)
-        return downloaded
+
+        return TranscriptionModelResources(
+            modelFolder: modelFolder,
+            tokenizerFolder: downloadRoot
+        )
     }
 
     func selectedModelID() -> String {
