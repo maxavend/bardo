@@ -10,9 +10,13 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var transcript: Transcript?
     @Published private(set) var transcriptErrorMessage: String?
     @Published private(set) var transcriptionProgress: TranscriptionProgressSnapshot?
+    @Published private(set) var diarizationErrorMessage: String?
+    @Published private(set) var diarizationProgress: DiarizationProgressSnapshot?
+    @Published private(set) var diarizationRecordingID: Recording.ID?
     @Published private(set) var isLoading = false
     @Published private(set) var isImporting = false
     @Published private(set) var isTranscribing = false
+    @Published private(set) var isDiarizing = false
     @Published var selection: Recording.ID?
 
     let playback: AudioPlaybackController
@@ -21,20 +25,24 @@ final class LibraryViewModel: ObservableObject {
     private var importer: AudioImportService?
     private var transcriptStore: TranscriptStore?
     private var transcriber: (any RecordingTranscribing)?
+    private var diarizer: (any RecordingDiarizing)?
     private var transcriptionTask: Task<Void, Never>?
+    private var diarizationTask: Task<Void, Never>?
 
     init(
         store: RecordingStore? = nil,
         importer: AudioImportService? = nil,
         playback: AudioPlaybackController? = nil,
         transcriptStore: TranscriptStore? = nil,
-        transcriber: (any RecordingTranscribing)? = nil
+        transcriber: (any RecordingTranscribing)? = nil,
+        diarizer: (any RecordingDiarizing)? = nil
     ) {
         self.store = store
         self.importer = importer
         self.playback = playback ?? AudioPlaybackController()
         self.transcriptStore = transcriptStore
         self.transcriber = transcriber
+        self.diarizer = diarizer
     }
 
     func reload() async {
@@ -133,6 +141,7 @@ final class LibraryViewModel: ObservableObject {
 
     func loadTranscriptForSelection() async {
         transcriptErrorMessage = nil
+        diarizationErrorMessage = nil
         guard let recordingID = selection else {
             transcript = nil
             return
@@ -158,7 +167,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func beginTranscription() {
-        guard !isTranscribing, selectedRecording != nil else { return }
+        guard !isTranscribing, !isDiarizing, selectedRecording != nil else { return }
         transcriptionTask = Task { [weak self] in
             await self?.performSelectedTranscription()
         }
@@ -173,10 +182,11 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func performSelectedTranscription() async {
-        guard !isTranscribing, var recording = selectedRecording else { return }
+        guard !isTranscribing, !isDiarizing, var recording = selectedRecording else { return }
         let recordingID = recording.id
         isTranscribing = true
         transcriptErrorMessage = nil
+        diarizationErrorMessage = nil
         transcriptionProgress = .init(stage: .preparingModel, fractionCompleted: 0)
         defer {
             isTranscribing = false
@@ -227,6 +237,77 @@ final class LibraryViewModel: ObservableObject {
             }
             replaceRecording(recording)
             transcriptErrorMessage = error.localizedDescription
+        }
+    }
+
+    func beginDiarization() {
+        guard !isTranscribing,
+              !isDiarizing,
+              let recording = selectedRecording,
+              let transcript,
+              transcript.recordingID == recording.id else {
+            return
+        }
+
+        diarizationTask = Task { [weak self] in
+            await self?.performSelectedDiarization()
+        }
+    }
+
+    func cancelDiarization() {
+        diarizationTask?.cancel()
+    }
+
+    func clearDiarizationError() {
+        diarizationErrorMessage = nil
+    }
+
+    func performSelectedDiarization() async {
+        guard !isTranscribing,
+              !isDiarizing,
+              let recording = selectedRecording,
+              let currentTranscript = transcript,
+              currentTranscript.recordingID == recording.id else {
+            return
+        }
+
+        let recordingID = recording.id
+        isDiarizing = true
+        diarizationRecordingID = recordingID
+        diarizationErrorMessage = nil
+        diarizationProgress = .init(stage: .preparingModel, fractionCompleted: 0)
+        defer {
+            isDiarizing = false
+            diarizationRecordingID = nil
+            diarizationProgress = nil
+            diarizationTask = nil
+        }
+
+        do {
+            let activeDiarizer = try resolveDiarizer()
+            let updated = try await activeDiarizer.diarize(
+                recording: recording,
+                transcript: currentTranscript,
+                store: try resolveStore(),
+                progress: { [weak self] snapshot in
+                    Task { @MainActor in
+                        guard let self, self.diarizationRecordingID == recordingID else { return }
+                        self.diarizationProgress = snapshot
+                    }
+                }
+            )
+            try Task.checkCancellation()
+
+            diarizationProgress = .init(stage: .saving, fractionCompleted: 0)
+            try await resolveTranscriptStore().save(updated)
+            if selection == recordingID {
+                transcript = updated
+            }
+            diarizationProgress = .init(stage: .saving, fractionCompleted: 1)
+        } catch is CancellationError {
+            // The previously persisted raw/diairized transcript remains authoritative.
+        } catch {
+            diarizationErrorMessage = error.localizedDescription
         }
     }
 
@@ -293,6 +374,15 @@ final class LibraryViewModel: ObservableObject {
         }
         let service = try WhisperTranscriptionService.live()
         transcriber = service
+        return service
+    }
+
+    private func resolveDiarizer() throws -> any RecordingDiarizing {
+        if let diarizer {
+            return diarizer
+        }
+        let service = try SpeakerDiarizationService.live()
+        diarizer = service
         return service
     }
 
