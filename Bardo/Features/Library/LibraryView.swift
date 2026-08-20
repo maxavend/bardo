@@ -16,14 +16,14 @@ struct LibraryView: View {
                     } label: {
                         Label("Import Audio", systemImage: "plus")
                     }
-                    .disabled(model.isImporting)
+                    .disabled(model.isImporting || model.isTranscribing)
 
                     Button {
                         Task { await model.reload() }
                     } label: {
                         Label("Reload Library", systemImage: "arrow.clockwise")
                     }
-                    .disabled(model.isLoading || model.isImporting)
+                    .disabled(model.isLoading || model.isImporting || model.isTranscribing)
                 }
         } detail: {
             detail
@@ -47,7 +47,7 @@ struct LibraryView: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            guard !model.isImporting, !urls.isEmpty else { return false }
+            guard !model.isImporting, !model.isTranscribing, !urls.isEmpty else { return false }
             Task { await model.importAudio(from: urls) }
             return true
         }
@@ -286,6 +286,11 @@ private struct RecordingDetail: View {
             }
         } else if let transcript = model.transcript,
                   transcript.recordingID == recording.id {
+            if let error = model.transcriptErrorMessage {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
+            }
+
             LabeledContent("Language", value: transcript.languageCode ?? "Auto-detected")
             LabeledContent("Model", value: transcript.metadata.modelID)
             LabeledContent("Engine", value: "\(transcript.metadata.engine) \(transcript.metadata.engineVersion)")
