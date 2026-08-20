@@ -41,7 +41,8 @@ final class TranscriptionModelManagerTests: XCTestCase {
         XCTAssertEqual(resources.modelFolder.standardizedFileURL, modelFolder.standardizedFileURL)
         XCTAssertEqual(resources.tokenizerFolder.standardizedFileURL, rootURL.standardizedFileURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: rootURL.appendingPathComponent("tokenizer-ready").path))
-        XCTAssertEqual(await manager.selectedModelID(), TranscriptionModelManager.defaultModelID)
+        let selectedModelID = await manager.selectedModelID()
+        XCTAssertEqual(selectedModelID, TranscriptionModelManager.defaultModelID)
     }
 
     func testInsufficientDiskSpaceFailsBeforeTokenizerPreparation() async throws {
@@ -80,7 +81,8 @@ final class TranscriptionModelManagerTests: XCTestCase {
             prepareTokenizer: { _ in }
         )
 
-        XCTAssertNil(try await manager.installedModelURL())
+        let detected = try await manager.installedModelURL()
+        XCTAssertNil(detected)
         do {
             _ = try await manager.ensureResourcesAvailable()
             XCTFail("Expected disk preflight after rejecting incomplete model")
@@ -106,7 +108,8 @@ final class TranscriptionModelManagerTests: XCTestCase {
             prepareTokenizer: { _ in }
         )
 
-        XCTAssertNil(try await manager.installedModelURL())
+        let detected = try await manager.installedModelURL()
+        XCTAssertNil(detected)
         do {
             _ = try await manager.ensureResourcesAvailable()
             XCTFail("Expected invalid model contents to be rejected")
