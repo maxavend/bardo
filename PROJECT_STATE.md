@@ -8,7 +8,9 @@
 
 Phases 0–3 are integrated and certified. Phase 4 is fully implemented on `feat/phase-4-system-audio` and contains no Phase 5 functionality.
 
-The final code/test head `3b86ca7de7ffeb8d300a6748971b7dbd112f89f3` passed the complete macOS automated gate in GitHub Actions run `32316778892` (CI #47): XcodeGen generation, capture/privacy configuration, Debug build, application bundle verification, and **70 XCTest cases with 0 failures**. This documentation-only certification head must pass the same PR workflow before PR #5 is marked ready for review.
+An interactive smoke test on a real Apple Silicon Mac running macOS 27 exposed a Swift 6 executor-isolation crash when ScreenCaptureKit invoked its `startCapture` completion on `com.screenCaptureKit.streamQueue`. The crash report showed `_swift_task_checkIsolatedSwift` / `_dispatch_assert_queue_fail` inside the completion thunk. The production fix is commit `287f01424db4d24b0a2b8e63335e8105349eb325`: ScreenCaptureKit start/update/stop completions are now created by a nonisolated `@Sendable` bridge while `SCStream` itself remains MainActor-confined. Commit `305b26af30851106b8c4734dc9782c9809a0bfe8` adds a regression that invokes that bridge from a framework-style background dispatch queue.
+
+GitHub Actions run `32325966054` (CI #63) validated the repaired code head with XcodeGen generation, capture/privacy configuration, Debug build, application bundle verification, and **71 XCTest cases with 0 failures**.
 
 ## Integrated baseline
 
@@ -23,7 +25,7 @@ The final code/test head `3b86ca7de7ffeb8d300a6748971b7dbd112f89f3` passed the c
 
 ## Mission 4.1 — ScreenCaptureKit + native picker
 
-**Status:** COMPLETE for automated validation; interactive picker smoke remains PARTIAL.
+**Status:** COMPLETE for automated validation; corrected interactive System Audio smoke remains PARTIAL.
 
 - Uses `SCContentSharingPicker.shared`; no custom content browser or privacy bypass.
 - Picker supports display, application, and window selection.
@@ -33,6 +35,7 @@ The final code/test head `3b86ca7de7ffeb8d300a6748971b7dbd112f89f3` passed the c
 - Cancelling reselection leaves the current recording active.
 - No `.screen` output is registered and no video frame is persisted.
 - `NSScreenCaptureUsageDescription` is generated from XcodeGen-owned configuration and CI verifies the built bundle.
+- ScreenCaptureKit completion handlers are explicitly nonisolated `@Sendable` closures because the framework calls them on framework-owned queues. Application state mutations still hop to MainActor.
 
 ## Mission 4.2 — System Audio Capture
 
@@ -206,7 +209,9 @@ Certified scenarios include:
 - The app remains a single SwiftUI `Window`.
 - Progress polling exists only during active capture and is cancelled during stop/finalization.
 - `SCStream` remains MainActor-confined under Swift 6 strict concurrency.
-- Nonisolated ScreenCaptureKit callbacks explicitly hop to MainActor to mutate application state.
+- `SCStreamDelegate` / picker callbacks explicitly hop to MainActor when mutating application state.
+- `SCStream.startCapture`, `updateContentFilter`, and `stopCapture` completion handlers are created outside MainActor isolation through `ScreenCaptureKitCompletionBridge`; this is required because ScreenCaptureKit may invoke them on framework-owned dispatch queues.
+- A dedicated regression executes the completion bridge on a non-main dispatch queue and verifies clean continuation resumption.
 - Normal app termination delays exit only while an actual recording/finalization must safely finish.
 
 ## Integrated automated gate
@@ -240,13 +245,14 @@ stream invalidation → controlled finalization ✅
 missing/corrupt mix → originals intact + playback fallback ✅
 Phase 3 mic vs Phase 4 system capture → shared lease rejects overlap ✅
 normal termination → finalized system Recording ✅
+ScreenCaptureKit completion invoked off-main → continuation resumes without executor trap ✅
 ```
 
 A simulated capture clock of `3600.75` validates long-duration lifecycle without sleeping CI. Production writers remain direct-to-disk, so memory does not scale with full recording length by design.
 
 ## Tests and CI evidence
 
-Final code/test GitHub Actions run `32316778892` (CI #47) validated commit `3b86ca7de7ffeb8d300a6748971b7dbd112f89f3` on:
+Crash-repair GitHub Actions run `32325966054` (CI #63) validated commit `305b26af30851106b8c4734dc9782c9809a0bfe8` on:
 
 - macOS 15.7.7 Apple Silicon;
 - Xcode 16.4 (16F6);
@@ -263,14 +269,15 @@ Observed results:
 - generated `NSMicrophoneUsageDescription`: passed;
 - generated `NSScreenCaptureUsageDescription`: passed;
 - XCTest: **TEST SUCCEEDED**;
-- **70 tests executed, 0 failures**;
+- **71 tests executed, 0 failures**;
+- new off-main ScreenCaptureKit completion regression: passed;
 - all inherited Phase 0–3 regressions remain green.
 
-CI builds with `CODE_SIGNING_ALLOWED=NO`, so it cannot prove real production signing or interactive TCC behavior. The built configuration and privacy declarations are automated and green; real picker/TCC/hardware behavior remains in manual smoke evidence.
+CI builds with `CODE_SIGNING_ALLOWED=NO`, so it cannot prove real production signing or interactive TCC behavior. The built configuration and privacy declarations are automated and green.
 
 ## Reviewer findings and repairs
 
-The adversarial reviewer caused multiple material repairs before certification:
+The adversarial reviewer and physical smoke testing caused multiple material repairs before certification:
 
 1. Required schema V3 only for the real durable requirements of source/derived roles and alignment; ephemeral ScreenCaptureKit/device identifiers were rejected from Domain.
 2. Repaired inherited schema-2 test assumptions after the justified schema V3 bump.
@@ -285,14 +292,16 @@ The adversarial reviewer caused multiple material repairs before certification:
 11. Added focused CI XCTest failure summaries so runtime failures are not hidden by full `xcodebuild` logs.
 12. Replaced fragile synthesized `Recording ==` persistence assertions with the persistence-specific contract, extended to verify Phase 4 roles, offsets and derivation.
 13. Added adversarial recovery gates for system-source loss, stream invalidation, and initial picker failure/lease release.
-14. The documentation-head CI exposed one remaining V3 persistence test still using synthesized `Recording ==`; it was corrected to the explicit persistence contract and the full suite reran green at 70/70.
+14. The documentation-head CI exposed one remaining V3 persistence test still using synthesized `Recording ==`; it was corrected to the explicit persistence contract and the full suite reran green.
+15. **Physical macOS 27 smoke test:** microphone-only capture succeeded, but starting System Audio crashed on `com.screenCaptureKit.streamQueue` with `_swift_task_checkIsolatedSwift`. Root cause was a ScreenCaptureKit completion closure inheriting `MainActor`; start/update/stop now use a nonisolated `@Sendable` completion bridge and CI includes an off-main regression.
 
-Final reviewer pass found no remaining material issue, full-session audio accumulation, stored video, irreversible mix, ScreenCaptureKit leakage into Domain, Phase 5 implementation, or runtime third-party dependency.
+Final automated reviewer pass found no remaining material issue, full-session audio accumulation, stored video, irreversible mix, ScreenCaptureKit leakage into Domain, Phase 5 implementation, or runtime third-party dependency.
 
 ## Known minor debt / evidence pending
 
-- **PARTIAL — interactive system-audio smoke test pending:** CI cannot operate the real `SCContentSharingPicker`, grant Screen Recording/TCC permission, capture real Meet/Teams/Discord/browser audio, or perform human listening.
-- **PARTIAL — interactive dual-source smoke test pending:** CI cannot combine a physical microphone with real third-party system audio and human-check long-session alignment/subjective levels.
+- **Physical microphone smoke: PASSED** on the development build used for interactive testing.
+- **PARTIAL — corrected system-audio smoke retest pending:** the original physical attempt found the executor-isolation crash described above; the repaired code is green in CI, but the corrected build has not yet been re-run interactively against real system audio on macOS 27.
+- **PARTIAL — interactive dual-source smoke test pending:** physical system+microphone capture and human listening/alignment remain to be repeated after the executor repair.
 - **PARTIAL — signed entitlement smoke:** CI builds unsigned; microphone Audio Input entitlement embedding in a normally signed app remains a physical smoke test.
 - Derived mix corruption is detected operationally by playback failure/fallback. Startup proactively detects a missing derived file but does not pre-decode every derived asset.
 - The 0.5+0.5 mix gain is deterministic anti-clipping headroom, not loudness normalization.
@@ -305,7 +314,7 @@ Phase 4 contains no WhisperKit, SpeakerKit, transcription, diarization, VAD, sum
 
 ## Next phase
 
-After PR #5 is reviewed and merged, the next permitted phase is:
+After PR #5 is merged, the next permitted phase is:
 
 - **5 — Transcription**
 
