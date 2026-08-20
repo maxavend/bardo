@@ -60,7 +60,6 @@ private struct SlowRecordingTranscriber: RecordingTranscribing {
     }
 }
 
-@MainActor
 final class Phase5IntegrationTests: XCTestCase {
     private var rootURL: URL!
     private var sourceURL: URL!
@@ -81,6 +80,7 @@ final class Phase5IntegrationTests: XCTestCase {
         sourceURL = nil
     }
 
+    @MainActor
     func testTranscriptPersistsAcrossFreshStoreAndOriginalSourceCanDisappear() async throws {
         let store = RecordingStore(rootURL: rootURL)
         let recording = try await AudioImportService(store: store).importFile(at: sourceURL)
@@ -121,6 +121,7 @@ final class Phase5IntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: managedURL.path))
     }
 
+    @MainActor
     func testTranscriptionFailurePreservesManagedAudioAndMarksRecordingRetryable() async throws {
         let store = RecordingStore(rootURL: rootURL)
         let recording = try await AudioImportService(store: store).importFile(at: sourceURL)
@@ -143,6 +144,7 @@ final class Phase5IntegrationTests: XCTestCase {
         _ = try await store.managedAudioURL(recordingID: recording.id, audioAssetID: asset.id)
     }
 
+    @MainActor
     func testFailedRecordingCanRetryAndPersistSuccessfulTranscript() async throws {
         let store = RecordingStore(rootURL: rootURL)
         let recording = try await AudioImportService(store: store).importFile(at: sourceURL)
@@ -170,6 +172,7 @@ final class Phase5IntegrationTests: XCTestCase {
         XCTAssertEqual(persistedTranscript?.text, "Phase five works.")
     }
 
+    @MainActor
     func testCancellationReturnsRecordingToPendingWithoutPublishingFalseTranscript() async throws {
         let store = RecordingStore(rootURL: rootURL)
         _ = try await AudioImportService(store: store).importFile(at: sourceURL)
@@ -198,6 +201,7 @@ final class Phase5IntegrationTests: XCTestCase {
         XCTAssertNil(persistedTranscript)
     }
 
+    @MainActor
     func testRestartRecoversInterruptedProcessingWithoutTranscriptAsFailedAndRetryable() async throws {
         let store = RecordingStore(rootURL: rootURL)
         var recording = try await AudioImportService(store: store).importFile(at: sourceURL)
@@ -219,6 +223,7 @@ final class Phase5IntegrationTests: XCTestCase {
         _ = try await restartedStore.managedAudioURL(recordingID: recording.id, audioAssetID: asset.id)
     }
 
+    @MainActor
     func testRestartCompletesProcessingWhenTranscriptWasAtomicallySavedBeforeInterruption() async throws {
         let store = RecordingStore(rootURL: rootURL)
         var recording = try await AudioImportService(store: store).importFile(at: sourceURL)
@@ -246,6 +251,7 @@ final class Phase5IntegrationTests: XCTestCase {
         XCTAssertEqual(persisted.processingState, .completed)
     }
 
+    @MainActor
     func testInterruptedTranscriptResidueIsPreservedAndSurfacedWithoutBreakingLibrary() async throws {
         let store = RecordingStore(rootURL: rootURL)
         let recording = try await AudioImportService(store: store).importFile(at: sourceURL)
