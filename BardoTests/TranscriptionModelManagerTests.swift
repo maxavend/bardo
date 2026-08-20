@@ -2,6 +2,10 @@ import Foundation
 import XCTest
 @testable import Bardo
 
+private enum TestTokenizerFailure: Error, Sendable {
+    case deliberate
+}
+
 final class TranscriptionModelManagerTests: XCTestCase {
     private var rootURL: URL!
 
@@ -16,7 +20,7 @@ final class TranscriptionModelManagerTests: XCTestCase {
         rootURL = nil
     }
 
-    func testInstalledModelIsDetectedWithoutDownload() async throws {
+    func testInstalledModelPreparesTokenizerAndReturnsCompleteResources() async throws {
         let modelFolder = rootURL
             .appendingPathComponent("cache", isDirectory: true)
             .appendingPathComponent("openai_whisper-large-v3-v20240930_626MB", isDirectory: true)
@@ -24,31 +28,41 @@ final class TranscriptionModelManagerTests: XCTestCase {
 
         let manager = TranscriptionModelManager(
             downloadRoot: rootURL,
-            availableCapacity: { _ in 0 }
+            availableCapacity: { _ in 0 },
+            prepareTokenizer: { root in
+                try Data("ready".utf8).write(to: root.appendingPathComponent("tokenizer-ready"))
+            }
         )
 
         let detected = try await manager.installedModelURL()
         XCTAssertEqual(detected?.standardizedFileURL, modelFolder.standardizedFileURL)
 
-        let ensured = try await manager.ensureModelAvailable()
-        XCTAssertEqual(ensured.standardizedFileURL, modelFolder.standardizedFileURL)
+        let resources = try await manager.ensureResourcesAvailable()
+        XCTAssertEqual(resources.modelFolder.standardizedFileURL, modelFolder.standardizedFileURL)
+        XCTAssertEqual(resources.tokenizerFolder.standardizedFileURL, rootURL.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rootURL.appendingPathComponent("tokenizer-ready").path))
         XCTAssertEqual(await manager.selectedModelID(), TranscriptionModelManager.defaultModelID)
     }
 
-    func testInsufficientDiskSpaceFailsBeforeAnyNetworkDownload() async throws {
+    func testInsufficientDiskSpaceFailsBeforeTokenizerPreparation() async throws {
         let available: Int64 = 100_000_000
+        let marker = rootURL.appendingPathComponent("tokenizer-ready")
         let manager = TranscriptionModelManager(
             downloadRoot: rootURL,
-            availableCapacity: { _ in available }
+            availableCapacity: { _ in available },
+            prepareTokenizer: { root in
+                try Data().write(to: root.appendingPathComponent("tokenizer-ready"))
+            }
         )
 
         do {
-            _ = try await manager.ensureModelAvailable()
-            XCTFail("Expected disk preflight to reject the download")
+            _ = try await manager.ensureResourcesAvailable()
+            XCTFail("Expected disk preflight to reject model setup")
         } catch TranscriptionModelError.insufficientDiskSpace(let required, let observedAvailable) {
             XCTAssertEqual(required, TranscriptionModelManager.minimumFreeBytesForDownload)
             XCTAssertEqual(observedAvailable, available)
         }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
     }
 
     func testIncompleteModelFolderIsNotTreatedAsInstalled() async throws {
@@ -62,15 +76,15 @@ final class TranscriptionModelManagerTests: XCTestCase {
 
         let manager = TranscriptionModelManager(
             downloadRoot: rootURL,
-            availableCapacity: { _ in 0 }
+            availableCapacity: { _ in 0 },
+            prepareTokenizer: { _ in }
         )
 
         XCTAssertNil(try await manager.installedModelURL())
         do {
-            _ = try await manager.ensureModelAvailable()
+            _ = try await manager.ensureResourcesAvailable()
             XCTFail("Expected disk preflight after rejecting incomplete model")
         } catch TranscriptionModelError.insufficientDiskSpace {
-            // The invalid partial folder is preserved, but it cannot masquerade as ready.
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: incomplete.path))
     }
@@ -88,16 +102,38 @@ final class TranscriptionModelManagerTests: XCTestCase {
 
         let manager = TranscriptionModelManager(
             downloadRoot: rootURL,
-            availableCapacity: { _ in 0 }
+            availableCapacity: { _ in 0 },
+            prepareTokenizer: { _ in }
         )
 
         XCTAssertNil(try await manager.installedModelURL())
         do {
-            _ = try await manager.ensureModelAvailable()
-            XCTFail("Expected invalid model contents to fall through to disk preflight")
+            _ = try await manager.ensureResourcesAvailable()
+            XCTFail("Expected invalid model contents to be rejected")
         } catch TranscriptionModelError.insufficientDiskSpace {
-            // Expected: unrelated packages are preserved but never considered a ready Whisper model.
         }
+    }
+
+    func testTokenizerFailurePreservesInstalledCoreModelForRetry() async throws {
+        let modelFolder = rootURL
+            .appendingPathComponent("openai_whisper-large-v3-v20240930_626MB", isDirectory: true)
+        try makeModelSkeleton(at: modelFolder)
+
+        let manager = TranscriptionModelManager(
+            downloadRoot: rootURL,
+            availableCapacity: { _ in 0 },
+            prepareTokenizer: { _ in throw TestTokenizerFailure.deliberate }
+        )
+
+        do {
+            _ = try await manager.ensureResourcesAvailable()
+            XCTFail("Expected tokenizer preparation failure")
+        } catch TestTokenizerFailure.deliberate {
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: modelFolder.path))
+        let detected = try await manager.installedModelURL()
+        XCTAssertEqual(detected?.standardizedFileURL, modelFolder.standardizedFileURL)
     }
 
     private func makeModelSkeleton(at folder: URL) throws {
