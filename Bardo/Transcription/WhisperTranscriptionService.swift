@@ -189,7 +189,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         guard !plans.isEmpty else { throw RecordingTranscriptionError.invalidDuration }
 
         progress(.init(stage: .preparingModel, fractionCompleted: 0))
-        let modelFolder = try await modelManager.ensureModelAvailable { fraction in
+        let resources = try await modelManager.ensureResourcesAvailable { fraction in
             progress(.init(stage: .preparingModel, fractionCompleted: fraction))
         }
         try checkCancellation(cancellation)
@@ -197,7 +197,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         progress(.init(stage: .loadingModel, fractionCompleted: 0))
         let config = WhisperKitConfig(
             model: nil,
-            modelFolder: modelFolder.path,
+            modelFolder: resources.modelFolder.path,
+            tokenizerFolder: resources.tokenizerFolder,
             verbose: false,
             prewarm: true,
             load: true,
