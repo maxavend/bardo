@@ -75,6 +75,31 @@ final class TranscriptionModelManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: incomplete.path))
     }
 
+    func testUnrelatedMLPackagesCannotMasqueradeAsInstalledWhisperModel() async throws {
+        let folder = rootURL
+            .appendingPathComponent("openai_whisper-large-v3-v20240930_626MB", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for name in ["UnrelatedOne", "UnrelatedTwo", "UnrelatedThree"] {
+            try FileManager.default.createDirectory(
+                at: folder.appendingPathComponent("\(name).mlpackage", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+
+        let manager = TranscriptionModelManager(
+            downloadRoot: rootURL,
+            availableCapacity: { _ in 0 }
+        )
+
+        XCTAssertNil(try await manager.installedModelURL())
+        do {
+            _ = try await manager.ensureModelAvailable()
+            XCTFail("Expected invalid model contents to fall through to disk preflight")
+        } catch TranscriptionModelError.insufficientDiskSpace {
+            // Expected: unrelated packages are preserved but never considered a ready Whisper model.
+        }
+    }
+
     private func makeModelSkeleton(at folder: URL) throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         for name in ["MelSpectrogram", "AudioEncoder", "TextDecoder"] {
