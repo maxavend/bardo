@@ -105,7 +105,7 @@ final class Phase4PersistenceTests: XCTestCase {
 
         let restarted = RecordingStore(rootURL: rootURL)
         let loaded = try await restarted.read(id: recording.id)
-        XCTAssertEqual(loaded, recording)
+        XCTAssertRecordingPersistenceEqual(loaded, recording)
         XCTAssertEqual(loaded.playbackAudioAssets.first?.role, .conversationMix)
 
         let manifestURL = rootURL
