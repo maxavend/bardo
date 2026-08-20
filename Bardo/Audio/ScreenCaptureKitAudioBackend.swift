@@ -137,38 +137,45 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
     @MainActor
     private func startCapture(_ stream: SCStream) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            stream.startCapture { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
+            stream.startCapture(
+                completionHandler: ScreenCaptureKitCompletionBridge.handler(for: continuation)
+            )
         }
     }
 
     @MainActor
     private func updateContentFilter(_ stream: SCStream, filter: SCContentFilter) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            stream.updateContentFilter(filter) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
+            stream.updateContentFilter(
+                filter,
+                completionHandler: ScreenCaptureKitCompletionBridge.handler(for: continuation)
+            )
         }
     }
 
     @MainActor
     private func stopCapture(_ stream: SCStream) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            stream.stopCapture { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
+            stream.stopCapture(
+                completionHandler: ScreenCaptureKitCompletionBridge.handler(for: continuation)
+            )
+        }
+    }
+}
+
+/// ScreenCaptureKit invokes its completion handlers on framework-owned queues. Creating
+/// these handlers outside MainActor isolation prevents Swift 6 runtime executor checks from
+/// trapping when the framework calls them off the main queue. The only value they touch is
+/// a Sendable continuation; SCStream itself remains confined to MainActor in the backend.
+enum ScreenCaptureKitCompletionBridge {
+    nonisolated static func handler(
+        for continuation: CheckedContinuation<Void, Error>
+    ) -> @Sendable ((any Error)?) -> Void {
+        { error in
+            if let error {
+                continuation.resume(throwing: error)
+            } else {
+                continuation.resume(returning: ())
             }
         }
     }
