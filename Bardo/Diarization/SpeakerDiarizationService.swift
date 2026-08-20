@@ -163,7 +163,7 @@ enum TranscriptSpeakerAligner {
 
 actor SpeakerDiarizationService: RecordingDiarizing {
     static let engineVersion = "1.0.0"
-    static let modelID = "pyannote-v3"
+    static let modelID = "pyannote-v3+plda-v4"
 
     private let modelRoot: URL
 
@@ -210,7 +210,18 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             verbose: false
         )
         let speakerKit = try await SpeakerKit(config)
-        try await speakerKit.diarizer.downloadModels()
+        if let modelManager = speakerKit.diarizer as? SpeakerKitDiarizer {
+            try await modelManager.downloadModels { downloadProgress in
+                progress(
+                    .init(
+                        stage: .preparingModel,
+                        fractionCompleted: Self.clamped(downloadProgress.fractionCompleted)
+                    )
+                )
+            }
+        } else {
+            try await speakerKit.diarizer.downloadModels()
+        }
         try Task.checkCancellation()
         progress(.init(stage: .preparingModel, fractionCompleted: 1))
 
@@ -221,20 +232,14 @@ actor SpeakerDiarizationService: RecordingDiarizing {
 
         do {
             progress(.init(stage: .diarizing, fractionCompleted: 0))
-            let samples = try BoundedWhisperAudioLoader.loadSamples(
-                from: audioURL,
-                startTime: 0,
-                endTime: duration
-            )
-            guard !samples.isEmpty else {
-                throw RecordingDiarizationError.noSpeakerActivity
-            }
-
-            let options = PyannoteDiarizationOptions(useExclusiveReconciliation: true)
-            let result = try await speakerKit.diarize(
-                audioArray: samples,
-                options: options,
-                progressCallback: nil
+            // SpeakerKit 1.0.0's public diarization API accepts one complete 16 kHz mono
+            // Float array. Keep that allocation scoped to inference so it can be released
+            // before transcript alignment and persistence; do not create another full copy here.
+            let result = try await runSpeakerKitDiarization(
+                speakerKit: speakerKit,
+                audioURL: audioURL,
+                duration: duration,
+                progress: progress
             )
             try Task.checkCancellation()
             progress(.init(stage: .diarizing, fractionCompleted: 1))
@@ -263,6 +268,37 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             await speakerKit.unloadModels()
             throw error
         }
+    }
+
+    private func runSpeakerKitDiarization(
+        speakerKit: SpeakerKit,
+        audioURL: URL,
+        duration: TimeInterval,
+        progress: @escaping @Sendable (DiarizationProgressSnapshot) -> Void
+    ) async throws -> DiarizationResult {
+        let samples = try BoundedWhisperAudioLoader.loadSamples(
+            from: audioURL,
+            startTime: 0,
+            endTime: duration
+        )
+        try Task.checkCancellation()
+        guard !samples.isEmpty else {
+            throw RecordingDiarizationError.noSpeakerActivity
+        }
+
+        let options = PyannoteDiarizationOptions(useExclusiveReconciliation: true)
+        return try await speakerKit.diarize(
+            audioArray: samples,
+            options: options,
+            progressCallback: { speakerProgress in
+                progress(
+                    .init(
+                        stage: .diarizing,
+                        fractionCompleted: Self.clamped(speakerProgress.fractionCompleted)
+                    )
+                )
+            }
+        )
     }
 
     private func resolveAudio(
@@ -296,5 +332,9 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             throw RecordingDiarizationError.combinedAudioUnavailable(recording.id)
         }
         throw RecordingDiarizationError.noManagedAudio(recording.id)
+    }
+
+    nonisolated private static func clamped(_ value: Double) -> Double {
+        min(1, max(0, value.isFinite ? value : 0))
     }
 }
