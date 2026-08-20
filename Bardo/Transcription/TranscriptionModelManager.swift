@@ -1,5 +1,5 @@
 import Foundation
-import WhisperKit
+@preconcurrency import WhisperKit
 
 enum TranscriptionModelError: Error, LocalizedError, Equatable, Sendable {
     case insufficientDiskSpace(requiredBytes: Int64, availableBytes: Int64)
@@ -141,8 +141,9 @@ actor TranscriptionModelManager {
         var found = Set<String>()
         for case let url as URL in enumerator {
             let baseName = url.deletingPathExtension().lastPathComponent
-            if requiredNames.contains(baseName),
-               url.pathExtension == "mlmodelc" || url.pathExtension == "mlpackage" {
+            let supportedModelExtension = url.pathExtension == "mlmodelc"
+                || url.pathExtension == "mlpackage"
+            if requiredNames.contains(baseName), supportedModelExtension {
                 found.insert(baseName)
             }
             if found.count == requiredNames.count { return true }
