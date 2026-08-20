@@ -1,8 +1,8 @@
 # Bardo
 
-Bardo is a privacy-first native macOS app for capturing, managing and transcribing conversations locally. Phases 0–4 are integrated on `main`; **Phase 5 — Transcription** is implemented on `feat/phase-5-transcription` in PR #7.
+Bardo is a privacy-first native macOS app for capturing, managing, transcribing and identifying speakers in conversations locally. Phases 0–5 are integrated on `main`; **Phase 6 — Diarization** is implemented on `feat/phase-6-diarization` in PR #8.
 
-Bardo can import audio, record microphone-only conversations, capture system audio through the native macOS picker, capture system + microphone as independent originals with a derived conversation mix, and create persistent on-device transcripts with WhisperKit.
+Bardo can import audio, record microphone-only conversations, capture system audio through the native macOS picker, capture system + microphone as independent originals with a derived conversation mix, create persistent on-device transcripts with WhisperKit, and enrich those transcripts with local SpeakerKit speaker labels.
 
 ## Development requirements
 
@@ -30,18 +30,17 @@ Bardo provides:
 - native `SCContentSharingPicker` selection for display, application or window;
 - ScreenCaptureKit system-audio capture without persisted video;
 - system-only and system + microphone dual-source recording;
-- same-`SCStream` `.audio` and `.microphone` outputs for dual capture;
-- independent `systemOriginal` and `microphoneOriginal` assets plus a regenerable `conversationMix`;
+- independent source originals plus a regenerable `conversationMix`;
 - playback preference for the mix with fallback to preserved originals;
-- safe staging, stream-invalidation handling and restart recovery;
-- a process-wide recording lease shared by microphone and system capture;
 - persistent on-device transcription with WhisperKit 1.0.0;
-- first-use Whisper model/tokenizer preparation with progress and disk-space preflight;
-- bounded long-recording transcription in overlapping intervals rather than full-session PCM buffering;
-- VAD, segment timestamps and word timestamps when supplied by WhisperKit;
-- persistent `transcript.json` with a schema independent from the recording manifest;
-- cancellation, retry and interrupted-processing recovery;
-- minimal transcript UI with text selection, language/model/engine metadata and re-transcription.
+- bounded long-recording transcription with VAD and word timestamps;
+- persistent `transcript.json` with atomic publication and restart recovery;
+- local speaker diarization through SpeakerKit 1.0.0;
+- Pyannote v3 segmenter/embedder + v4 PLDA clustering resources downloaded at runtime;
+- speaker assignment aligned onto existing transcript timestamps without re-transcribing or rewriting source audio;
+- durable speakers, per-segment `speakerID` and diarization metadata;
+- diarization retry/cancellation semantics that preserve the previous valid transcript;
+- minimal transcript UI with `Identify Speakers`, progress, cancel, re-run and `Speaker 1`, `Speaker 2`, ... labels.
 
 ## Transcription architecture
 
@@ -52,41 +51,72 @@ managed recording audio
 → load <= 300 s interval
 → 16 kHz mono Float samples
 → WhisperKit VAD + word timestamps
-→ map interval timestamps to recording time
-→ merge adjacent intervals using overlap acceptance boundaries
-→ transcript.json (atomic publication)
-→ Library transcript UI
+→ merge interval results
+→ transcript.json
 ```
 
-Adjacent intervals overlap by one second. Acceptance boundaries divide that overlap so the same boundary event is not intentionally retained twice. Invalid/non-finite durations are rejected before planning.
+For a System + Microphone recording, transcription requires the derived `conversationMix`. Bardo does not silently substitute a single original as the complete conversation.
 
-For a System + Microphone recording, transcription requires the derived `conversationMix`. Bardo does not silently transcribe only one original and label it as the complete conversation.
+## Diarization architecture
+
+```text
+existing transcript.json
++
+managed conversation audio
+→ resolve/download SpeakerKit models
+→ load Pyannote v3 + PLDA v4 pipeline
+→ local SpeakerKit diarization
+→ timestamped speaker intervals
+→ word/segment overlap alignment
+→ Speaker objects + TranscriptSegment.speakerID
+→ atomic transcript.json update
+```
+
+Diarization is additive over the Phase 5 transcript. It does not run Whisper again, alter transcript text, or modify managed audio. If diarization fails or is cancelled, the previously persisted transcript remains authoritative.
+
+Speaker labels are ordered by first appearance for the UI. A transcript segment with no temporal overlap remains unassigned. A segment containing multiple real speakers receives the dominant overlap speaker in Phase 6; transcript turn splitting/restructuring belongs to later transcript UX work.
+
+For System + Microphone recordings, diarization uses the same strict `conversationMix` requirement as transcription.
+
+## SpeakerKit memory contract
+
+Unlike the bounded Phase 5 transcription pipeline, SpeakerKit 1.0.0's public diarization API accepts one complete 16 kHz mono `[Float]` array and performs global clustering for one call. Bardo therefore does not independently diarize arbitrary chunks, because speaker cluster IDs would not be safely comparable between separate calls without a second reconciliation system.
+
+The raw Float allocation is approximately:
+
+```text
+64 KB/s
+≈ 230 MB for one hour of audio
+```
+
+plus model/tensor memory. Bardo scopes that full-session buffer to inference and does not intentionally retain a second full copy. Real long-session memory, thermal behavior and throughput remain physical `PARTIAL` evidence.
 
 ## Models and dependency boundary
 
-`project.yml` pins `argmaxinc/argmax-oss-swift` exactly to **1.0.0** and links only the `WhisperKit` product. Bardo does not link SpeakerKit, TTSKit or the ArgmaxOSS umbrella product in Phase 5.
+`project.yml` pins `argmaxinc/argmax-oss-swift` exactly to **1.0.0** and links the direct products:
 
-The default model is:
+- `WhisperKit`
+- `SpeakerKit`
 
-```text
-large-v3-v20240930_626MB
-```
+Bardo does not link the `ArgmaxOSS` umbrella product or `TTSKit` in Phase 6.
 
-Model resources live under:
+Whisper resources live under:
 
 ```text
 Application Support/Bardo/Models/WhisperKit/
 ```
 
-They are downloaded at runtime rather than bundled with the app. WhisperKit v1.0.0 obtains its tokenizer separately, so Bardo treats Core ML model + tokenizer preparation as one first-use setup operation.
+Speaker resources live under:
 
-See `THIRD_PARTY_NOTICES.md` for the preserved third-party license notice.
+```text
+Application Support/Bardo/Models/SpeakerKit/
+```
+
+Both are downloaded at runtime rather than bundled with the app. See `THIRD_PARTY_NOTICES.md` for the preserved source-code license notice and model-artifact distribution caveat.
 
 ## Persistence
 
-The recording manifest remains write schema **3** and V1/V2 remain readable.
-
-Phase 5 adds a separate transcript schema rather than changing the recording manifest:
+The recording manifest remains write schema **3**. Transcript write schema remains **1**.
 
 ```text
 Application Support/Bardo/Library/<recording-uuid>/
@@ -95,13 +125,13 @@ Application Support/Bardo/Library/<recording-uuid>/
 └── audio/...
 ```
 
-`transcript.json` contains recording identity, language when detected, segments, optional word timestamps/probabilities, and engine/model metadata. It is written to a same-directory temporary file and atomically renamed into place.
+Phase 6 reuses the existing durable `Speaker` / `TranscriptSegment.speakerID` structure and adds optional diarization metadata. Phase 5-style transcript V1 documents without that metadata remain readable.
 
 Bardo keeps the recovery policy:
 
 `preserve → detect → inform → continue`
 
-An interrupted `processing` state is reconciled on restart: a valid transcript becomes `completed`; a missing or corrupt transcript becomes retryable `failed`; managed audio remains untouched.
+A failed/cancelled diarization does not damage a valid transcript or recording. Successful speaker enrichment is published through the same atomic TranscriptStore replacement path.
 
 ## Permissions and privacy
 
@@ -111,19 +141,19 @@ The generated application configuration includes:
 - `NSScreenCaptureUsageDescription`;
 - Hardened Runtime configuration;
 - `com.apple.security.device.audio-input`;
-- `com.apple.security.network.client` for runtime model/tokenizer downloads.
+- `com.apple.security.network.client` for runtime model downloads.
 
-Transcription is performed locally by WhisperKit after model resources are present. Phase 5 adds no cloud transcription service and sends no recording audio to an application-owned backend.
+Transcription and diarization run locally after their model resources are present. Bardo does not send recording audio to an application-owned transcription or diarization backend.
 
-CI builds unsigned, so normally signed entitlement/TCC behavior and a real first model download remain interactive smoke evidence rather than automated claims.
+CI builds unsigned, so normally signed entitlement/TCC behavior and real model downloads remain interactive smoke evidence rather than automated claims.
 
 ## Tests
 
-The Phase 5 production/reviewer gate passed **93 XCTest cases with 0 failures** in GitHub Actions CI #96 on macOS 15.7.7 Apple Silicon, Xcode 16.4 and Swift 6.1.2.
+The Phase 6 production/reviewer head passed **103 XCTest cases with 0 failures** in GitHub Actions CI #106 on macOS 15.7.7 Apple Silicon, Xcode 16.4 and Swift 6.1.2.
 
-Automated coverage includes all inherited Phase 0–4 regressions plus bounded chunk planning, non-finite duration rejection, real AVFoundation interval loading, model discovery/preflight, tokenizer resource preparation, transcript schema/atomic persistence, restart recovery, retry/cancellation state, dual-source mix enforcement and full Library reconstruction after restart.
+Automated coverage includes all inherited Phase 0–5 regressions plus speaker alignment, first-appearance ordering, raw-transcript preservation, unassigned temporal gaps, Phase 5 transcript compatibility, speaker metadata persistence, failure/cancellation preservation, failed re-diarization preservation, fresh Library reconstruction and dual-source mix enforcement.
 
-CI intentionally does not download the 600+ MB production model or claim real Neural Engine throughput. First-use model download, real Whisper transcript quality and long-session performance remain documented as `PARTIAL` evidence in `PROJECT_STATE.md`.
+CI compiles the real SpeakerKit production boundary but intentionally does not download the production SpeakerKit models or claim real multi-speaker quality/performance. Those remain documented as `PARTIAL` in `PROJECT_STATE.md`.
 
 ## Project configuration
 
@@ -132,12 +162,13 @@ CI intentionally does not download the 600+ MB production model or claim real Ne
 - UI: SwiftUI / AppKit lifecycle bridge
 - Capture/audio: AVFoundation / AVFAudio / ScreenCaptureKit
 - Transcription: WhisperKit 1.0.0
+- Diarization: SpeakerKit 1.0.0
 - Project generator: XcodeGen
 - Recording manifest write schema: 3
 - Transcript write schema: 1
 
 ## Explicitly out of scope
 
-Phase 5 does not implement SpeakerKit, speaker diarization, speaker naming, summaries, live transcription, transcript editing, waveform work or any Phase 6+ functionality.
+Phase 6 does not implement speaker naming/editing, transcript turn restructuring, summaries, live transcription/diarization, waveform work, export work or other Phase 7+ functionality.
 
-See `PROJECT_STATE.md` for exact certification evidence, reviewer repairs, recovery invariants, known physical evidence debt and the next permitted phase.
+See `PROJECT_STATE.md` for exact certification evidence, reviewer repairs, memory limitations, recovery invariants, physical evidence debt and the next permitted phase.
