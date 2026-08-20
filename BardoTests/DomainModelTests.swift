@@ -36,7 +36,13 @@ final class DomainModelTests: XCTestCase {
             recordingID: recordingID,
             languageCode: "es",
             speakers: [speaker],
-            segments: [segment]
+            segments: [segment],
+            metadata: TranscriptMetadata(
+                engine: "WhisperKit",
+                engineVersion: "1.0.0",
+                modelID: "fixture",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_100)
+            )
         )
 
         let data = try JSONEncoder().encode(transcript)

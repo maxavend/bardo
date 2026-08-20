@@ -10,25 +10,69 @@ struct Speaker: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+struct TranscriptWord: Identifiable, Codable, Equatable, Sendable {
+    let id: UUID
+    let startTime: TimeInterval
+    let endTime: TimeInterval
+    let text: String
+    let probability: Float?
+
+    init(
+        id: UUID = UUID(),
+        startTime: TimeInterval,
+        endTime: TimeInterval,
+        text: String,
+        probability: Float? = nil
+    ) {
+        self.id = id
+        self.startTime = startTime
+        self.endTime = endTime
+        self.text = text
+        self.probability = probability
+    }
+}
+
 struct TranscriptSegment: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     let startTime: TimeInterval
     let endTime: TimeInterval
     var speakerID: Speaker.ID?
     var text: String
+    var words: [TranscriptWord]
 
     init(
         id: UUID = UUID(),
         startTime: TimeInterval,
         endTime: TimeInterval,
         speakerID: Speaker.ID? = nil,
-        text: String
+        text: String,
+        words: [TranscriptWord] = []
     ) {
         self.id = id
         self.startTime = startTime
         self.endTime = endTime
         self.speakerID = speakerID
         self.text = text
+        self.words = words
+    }
+}
+
+struct TranscriptMetadata: Codable, Equatable, Sendable {
+    let engine: String
+    let engineVersion: String
+    let modelID: String
+    let createdAt: Date
+
+    init(
+        engine: String,
+        engineVersion: String,
+        modelID: String,
+        createdAt: Date = Date()
+    ) {
+        self.engine = engine
+        self.engineVersion = engineVersion
+        self.modelID = modelID
+        self.createdAt = createdAt
     }
 }
 
@@ -37,16 +81,26 @@ struct Transcript: Codable, Equatable, Sendable {
     var languageCode: String?
     var speakers: [Speaker]
     var segments: [TranscriptSegment]
+    let metadata: TranscriptMetadata
 
     init(
         recordingID: Recording.ID,
         languageCode: String? = nil,
         speakers: [Speaker] = [],
-        segments: [TranscriptSegment] = []
+        segments: [TranscriptSegment] = [],
+        metadata: TranscriptMetadata
     ) {
         self.recordingID = recordingID
         self.languageCode = languageCode
         self.speakers = speakers
         self.segments = segments
+        self.metadata = metadata
+    }
+
+    var text: String {
+        segments
+            .map(\.text)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

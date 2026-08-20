@@ -19,6 +19,11 @@ settings:
     CURRENT_PROJECT_VERSION: 1
     MARKETING_VERSION: 0.1.0
 
+packages:
+  ArgmaxOSS:
+    url: https://github.com/argmaxinc/argmax-oss-swift
+    exactVersion: 1.0.0
+
 targets:
   Bardo:
     type: application
@@ -26,6 +31,9 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - path: Bardo
+    dependencies:
+      - package: ArgmaxOSS
+        product: WhisperKit
     info:
       path: Bardo/Info.plist
       properties:
