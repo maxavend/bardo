@@ -34,10 +34,11 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Verify capture build configuration
+      - name: Verify capture and model-download build configuration
         run: |
           test -f Bardo/Bardo.entitlements
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' Bardo/Bardo.entitlements)" = "true"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' Bardo/Bardo.entitlements)" = "true"
           BUILD_SETTINGS="$(xcodebuild -project Bardo.xcodeproj -scheme Bardo -configuration Debug -showBuildSettings)"
           grep -Fq 'CODE_SIGN_ENTITLEMENTS = Bardo/Bardo.entitlements' <<< "$BUILD_SETTINGS"
           grep -Fq 'ENABLE_HARDENED_RUNTIME = YES' <<< "$BUILD_SETTINGS"
