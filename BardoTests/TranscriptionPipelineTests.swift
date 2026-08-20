@@ -83,4 +83,54 @@ final class TranscriptionPipelineTests: XCTestCase {
         XCTAssertLessThan(samples.count, 16_100)
         XCTAssertLessThan(samples.count, 20_000, "The loader must not retain the four-second source when only one second is requested")
     }
+
+    func testDualCaptureUsesOnlyConversationMixForTranscription() {
+        let system = makeAsset(role: .systemOriginal, fileName: "system.m4a")
+        let microphone = makeAsset(role: .microphoneOriginal, fileName: "microphone.m4a")
+        let mix = makeAsset(
+            role: .conversationMix,
+            fileName: "conversation.m4a",
+            derivedFrom: [system.id, microphone.id]
+        )
+        let recording = Recording(
+            title: "Dual",
+            duration: 30,
+            sources: [.systemAudio, .microphone],
+            audioAssets: [system, microphone, mix]
+        )
+
+        XCTAssertEqual(TranscriptionAudioSelection.candidates(for: recording).map(\.id), [mix.id])
+    }
+
+    func testDualCaptureNeverSilentlyFallsBackToSingleOriginalWhenMixIsMissing() {
+        let system = makeAsset(role: .systemOriginal, fileName: "system.m4a")
+        let microphone = makeAsset(role: .microphoneOriginal, fileName: "microphone.m4a")
+        let recording = Recording(
+            title: "Dual without mix",
+            duration: 30,
+            sources: [.systemAudio, .microphone],
+            audioAssets: [system, microphone]
+        )
+
+        XCTAssertTrue(TranscriptionAudioSelection.candidates(for: recording).isEmpty)
+    }
+
+    private func makeAsset(
+        role: AudioAssetRole,
+        fileName: String,
+        derivedFrom: [UUID] = []
+    ) -> AudioAsset {
+        AudioAsset(
+            originalFileName: fileName,
+            fileExtension: "m4a",
+            metadata: AudioMetadata(
+                duration: 30,
+                codec: "AAC",
+                sampleRate: 48_000,
+                channelCount: role == .systemOriginal ? 2 : 1
+            ),
+            role: role,
+            derivedFromAssetIDs: derivedFrom
+        )
+    }
 }
