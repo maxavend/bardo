@@ -213,24 +213,24 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         )
         let diarizer = SpeakerKitDiarizer.pyannote(config: config)
 
-        progress(.init(stage: .preparingModel, fractionCompleted: 0))
-        try await diarizer.downloadModels { downloadProgress in
-            progress(
-                .init(
-                    stage: .preparingModel,
-                    fractionCompleted: Self.clamped(downloadProgress.fractionCompleted)
-                )
-            )
-        }
-        try Task.checkCancellation()
-        progress(.init(stage: .preparingModel, fractionCompleted: 1))
-
-        progress(.init(stage: .loadingModel, fractionCompleted: 0))
-        try await diarizer.loadModels()
-        try Task.checkCancellation()
-        progress(.init(stage: .loadingModel, fractionCompleted: 1))
-
         do {
+            progress(.init(stage: .preparingModel, fractionCompleted: 0))
+            try await diarizer.downloadModels { downloadProgress in
+                progress(
+                    .init(
+                        stage: .preparingModel,
+                        fractionCompleted: Self.clamped(downloadProgress.fractionCompleted)
+                    )
+                )
+            }
+            try Task.checkCancellation()
+            progress(.init(stage: .preparingModel, fractionCompleted: 1))
+
+            progress(.init(stage: .loadingModel, fractionCompleted: 0))
+            try await diarizer.loadModels()
+            try Task.checkCancellation()
+            progress(.init(stage: .loadingModel, fractionCompleted: 1))
+
             progress(.init(stage: .diarizing, fractionCompleted: 0))
             // SpeakerKit 1.0.0's public diarization API accepts one complete 16 kHz mono
             // Float array. Keep that allocation scoped to inference so it can be released
@@ -265,6 +265,8 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             await diarizer.unloadModels()
             return aligned
         } catch {
+            // Explicitly release Core ML weights on every exit after manager creation,
+            // including cancellation immediately after model loading.
             await diarizer.unloadModels()
             throw error
         }
