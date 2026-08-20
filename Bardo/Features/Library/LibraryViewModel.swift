@@ -47,6 +47,11 @@ final class LibraryViewModel: ObservableObject {
             recordings = snapshot.recordings
             issues = snapshot.issues
             errorMessage = nil
+
+            if !isTranscribing {
+                try await recoverInterruptedTranscriptions(using: activeStore)
+            }
+
             reconcileSelection()
             await prepareSelection()
         } catch {
@@ -138,6 +143,13 @@ final class LibraryViewModel: ObservableObject {
             let loaded = try await activeStore.read(recordingID: recordingID)
             guard selection == recordingID else { return }
             transcript = loaded
+
+            if loaded == nil {
+                let residues = await activeStore.temporaryArtifacts(recordingID: recordingID)
+                if !residues.isEmpty {
+                    transcriptErrorMessage = "An interrupted transcription artifact was found and preserved. Retry transcription when ready."
+                }
+            }
         } catch {
             guard selection == recordingID else { return }
             transcript = nil
@@ -225,6 +237,25 @@ final class LibraryViewModel: ObservableObject {
     var selectedRecording: Recording? {
         guard let selection else { return nil }
         return recordings.first { $0.id == selection }
+    }
+
+    private func recoverInterruptedTranscriptions(using recordingStore: RecordingStore) async throws {
+        guard recordings.contains(where: { $0.processingState == .processing }) else { return }
+        let activeTranscriptStore = try resolveTranscriptStore()
+
+        for index in recordings.indices where recordings[index].processingState == .processing {
+            var recovered = recordings[index]
+            do {
+                let persistedTranscript = try await activeTranscriptStore.read(recordingID: recovered.id)
+                recovered.processingState = persistedTranscript == nil ? .failed : .completed
+            } catch {
+                // A corrupt or incomplete transcript cannot be trusted as completed. Preserve it
+                // on disk and make the Recording retryable rather than leaving it stuck forever.
+                recovered.processingState = .failed
+            }
+            try await recordingStore.update(recovered)
+            recordings[index] = recovered
+        }
     }
 
     private func resolveStore() throws -> RecordingStore {
