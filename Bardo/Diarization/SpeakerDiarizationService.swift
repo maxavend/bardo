@@ -202,31 +202,31 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             withIntermediateDirectories: true
         )
 
-        progress(.init(stage: .preparingModel, fractionCompleted: 0))
+        // Build the public model manager directly instead of letting SpeakerKit's initializer
+        // perform an implicit download. `download: true` is required by PyannoteModelLoader for
+        // a clean install to fall through from local cache lookup to the network.
         let config = PyannoteConfig(
             downloadBase: modelRoot.path,
-            download: false,
+            download: true,
             load: false,
             verbose: false
         )
-        let speakerKit = try await SpeakerKit(config)
-        if let modelManager = speakerKit.diarizer as? SpeakerKitDiarizer {
-            try await modelManager.downloadModels { downloadProgress in
-                progress(
-                    .init(
-                        stage: .preparingModel,
-                        fractionCompleted: Self.clamped(downloadProgress.fractionCompleted)
-                    )
+        let diarizer = SpeakerKitDiarizer.pyannote(config: config)
+
+        progress(.init(stage: .preparingModel, fractionCompleted: 0))
+        try await diarizer.downloadModels { downloadProgress in
+            progress(
+                .init(
+                    stage: .preparingModel,
+                    fractionCompleted: Self.clamped(downloadProgress.fractionCompleted)
                 )
-            }
-        } else {
-            try await speakerKit.diarizer.downloadModels()
+            )
         }
         try Task.checkCancellation()
         progress(.init(stage: .preparingModel, fractionCompleted: 1))
 
         progress(.init(stage: .loadingModel, fractionCompleted: 0))
-        try await speakerKit.diarizer.loadModels()
+        try await diarizer.loadModels()
         try Task.checkCancellation()
         progress(.init(stage: .loadingModel, fractionCompleted: 1))
 
@@ -236,7 +236,7 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             // Float array. Keep that allocation scoped to inference so it can be released
             // before transcript alignment and persistence; do not create another full copy here.
             let result = try await runSpeakerKitDiarization(
-                speakerKit: speakerKit,
+                diarizer: diarizer,
                 audioURL: audioURL,
                 duration: duration,
                 progress: progress
@@ -262,16 +262,16 @@ actor SpeakerDiarizationService: RecordingDiarizing {
                     modelID: Self.modelID
                 )
             )
-            await speakerKit.unloadModels()
+            await diarizer.unloadModels()
             return aligned
         } catch {
-            await speakerKit.unloadModels()
+            await diarizer.unloadModels()
             throw error
         }
     }
 
     private func runSpeakerKitDiarization(
-        speakerKit: SpeakerKit,
+        diarizer: SpeakerKitDiarizer,
         audioURL: URL,
         duration: TimeInterval,
         progress: @escaping @Sendable (DiarizationProgressSnapshot) -> Void
@@ -287,7 +287,7 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         }
 
         let options = PyannoteDiarizationOptions(useExclusiveReconciliation: true)
-        return try await speakerKit.diarize(
+        return try await diarizer.diarize(
             audioArray: samples,
             options: options,
             progressCallback: { speakerProgress in
