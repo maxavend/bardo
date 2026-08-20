@@ -23,6 +23,7 @@ protocol RecordingTranscribing: Sendable {
 
 enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
     case noManagedAudio(Recording.ID)
+    case combinedAudioUnavailable(Recording.ID)
     case invalidDuration
     case emptyTranscription
 
@@ -30,6 +31,8 @@ enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
         switch self {
         case .noManagedAudio(let id):
             return "Recording \(id.uuidString) has no readable managed audio to transcribe."
+        case .combinedAudioUnavailable:
+            return "The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before transcribing."
         case .invalidDuration:
             return "Bardo could not determine a valid audio duration for transcription."
         case .emptyTranscription:
@@ -99,6 +102,17 @@ enum TranscriptionChunkPlanner {
                 isLast: isLast
             )
         }
+    }
+}
+
+enum TranscriptionAudioSelection {
+    static func candidates(for recording: Recording) -> [AudioAsset] {
+        let isDualCapture = recording.sources.contains(.systemAudio)
+            && recording.sources.contains(.microphone)
+        if isDualCapture {
+            return recording.audioAssets.filter { $0.role == .conversationMix }
+        }
+        return recording.playbackAudioAssets
     }
 }
 
@@ -307,7 +321,15 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         recording: Recording,
         store: RecordingStore
     ) async throws -> (URL, TimeInterval) {
-        for asset in recording.playbackAudioAssets {
+        let candidates = TranscriptionAudioSelection.candidates(for: recording)
+        let isDualCapture = recording.sources.contains(.systemAudio)
+            && recording.sources.contains(.microphone)
+
+        guard !isDualCapture || !candidates.isEmpty else {
+            throw RecordingTranscriptionError.combinedAudioUnavailable(recording.id)
+        }
+
+        for asset in candidates {
             do {
                 let url = try await store.managedAudioURL(
                     recordingID: recording.id,
@@ -320,6 +342,10 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             } catch {
                 continue
             }
+        }
+
+        if isDualCapture {
+            throw RecordingTranscriptionError.combinedAudioUnavailable(recording.id)
         }
         throw RecordingTranscriptionError.noManagedAudio(recording.id)
     }
