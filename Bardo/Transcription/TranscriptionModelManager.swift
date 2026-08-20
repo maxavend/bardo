@@ -29,10 +29,12 @@ actor TranscriptionModelManager {
     private let availableCapacity: CapacityProvider
 
     init(
-        modelID: String = Self.defaultModelID,
+        modelID: String = TranscriptionModelManager.defaultModelID,
         downloadRoot: URL,
         fileManager: FileManager = .default,
-        availableCapacity: @escaping CapacityProvider = Self.systemAvailableCapacity
+        availableCapacity: @escaping CapacityProvider = { url in
+            try TranscriptionModelManager.systemAvailableCapacity(at: url)
+        }
     ) {
         self.modelID = modelID
         self.downloadRoot = downloadRoot
