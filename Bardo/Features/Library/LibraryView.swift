@@ -208,6 +208,7 @@ private struct RecordingDetail: View {
 
     @State private var transcriptSearch = ""
     @State private var editor: TranscriptEditorState?
+    @State private var pendingReplacementAction: TranscriptReplacementAction?
 
     var body: some View {
         Form {
@@ -280,6 +281,7 @@ private struct RecordingDetail: View {
         .onChange(of: recording.id) { _, _ in
             transcriptSearch = ""
             editor = nil
+            pendingReplacementAction = nil
         }
         .sheet(item: $editor) { state in
             TranscriptEditorSheet(
@@ -301,6 +303,21 @@ private struct RecordingDetail: View {
                         Task { await model.restoreOriginalTranscriptSegment(segmentID) }
                     }
                 } : nil
+            )
+        }
+        .alert(item: $pendingReplacementAction) { action in
+            Alert(
+                title: Text(action.title),
+                message: Text(action.message),
+                primaryButton: .destructive(Text(action.confirmLabel)) {
+                    switch action {
+                    case .retranscribe:
+                        model.beginTranscription()
+                    case .rediariize:
+                        model.beginDiarization()
+                    }
+                },
+                secondaryButton: .cancel()
             )
         }
     }
@@ -429,12 +446,20 @@ private struct RecordingDetail: View {
 
             HStack {
                 Button(transcript.diarizationMetadata == nil ? "Identify Speakers" : "Identify Speakers Again") {
-                    model.beginDiarization()
+                    if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
+                        pendingReplacementAction = .rediariize
+                    } else {
+                        model.beginDiarization()
+                    }
                 }
                 .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
 
                 Button("Transcribe Again") {
-                    model.beginTranscription()
+                    if transcript.hasManualChanges {
+                        pendingReplacementAction = .retranscribe
+                    } else {
+                        model.beginTranscription()
+                    }
                 }
                 .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
             }
@@ -573,6 +598,40 @@ private struct RecordingDetail: View {
     private func copyTranscript(_ transcript: Transcript) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(transcript.text, forType: .string)
+    }
+}
+
+private enum TranscriptReplacementAction: String, Identifiable {
+    case retranscribe
+    case rediariize
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .retranscribe:
+            "Replace Manual Transcript Changes?"
+        case .rediariize:
+            "Replace Speaker Names?"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .retranscribe:
+            "Transcribing again creates a new transcript and removes manual text corrections and speaker names from the current transcript."
+        case .rediariize:
+            "Identifying speakers again creates new speaker clusters. Existing speaker names will be removed because the new clusters may represent different people. Manual text corrections are preserved."
+        }
+    }
+
+    var confirmLabel: String {
+        switch self {
+        case .retranscribe:
+            "Transcribe Again"
+        case .rediariize:
+            "Identify Speakers Again"
+        }
     }
 }
 
