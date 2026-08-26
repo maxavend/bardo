@@ -70,7 +70,8 @@ final class TranscriptUXTests: XCTestCase {
 
         let transcriptStore = TranscriptStore(rootURL: rootURL)
         try await transcriptStore.save(transcript)
-        let reloaded = try XCTUnwrap(await transcriptStore.read(recordingID: recording.id))
+        let reloadedValue = try await transcriptStore.read(recordingID: recording.id)
+        let reloaded = try XCTUnwrap(reloadedValue)
 
         XCTAssertEqual(reloaded.segments[0].text, "teh original")
         XCTAssertEqual(reloaded.segments[0].editedText, "the original")
@@ -193,7 +194,9 @@ final class TranscriptUXTests: XCTestCase {
         await model.restoreOriginalTranscriptSegment(segmentID)
         await model.renameSpeaker(speakerID, to: "   ")
 
-        let persisted = try XCTUnwrap(await TranscriptStore(rootURL: rootURL).read(recordingID: recordingID))
+        let persistedStore = TranscriptStore(rootURL: rootURL)
+        let persistedValue = try await persistedStore.read(recordingID: recordingID)
+        let persisted = try XCTUnwrap(persistedValue)
         XCTAssertNil(persisted.segments.first?.editedText)
         XCTAssertEqual(persisted.segments.first?.displayText, "raw words")
         XCTAssertNil(persisted.speakers.first?.name)
@@ -234,7 +237,8 @@ final class TranscriptUXTests: XCTestCase {
         XCTAssertEqual(model.transcriptEditErrorMessage, "Transcript text cannot be empty.")
         XCTAssertEqual(model.transcript?.segments.first?.displayText, "Keep me")
 
-        let persisted = try XCTUnwrap(await transcriptStore.read(recordingID: recordingID))
+        let persistedValue = try await transcriptStore.read(recordingID: recordingID)
+        let persisted = try XCTUnwrap(persistedValue)
         XCTAssertNil(persisted.segments.first?.editedText)
         XCTAssertEqual(persisted.segments.first?.displayText, "Keep me")
     }
