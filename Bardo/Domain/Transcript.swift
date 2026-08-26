@@ -39,6 +39,7 @@ struct TranscriptSegment: Identifiable, Codable, Equatable, Sendable {
     var speakerID: Speaker.ID?
     var text: String
     var words: [TranscriptWord]
+    var editedText: String?
 
     init(
         id: UUID = UUID(),
@@ -46,7 +47,8 @@ struct TranscriptSegment: Identifiable, Codable, Equatable, Sendable {
         endTime: TimeInterval,
         speakerID: Speaker.ID? = nil,
         text: String,
-        words: [TranscriptWord] = []
+        words: [TranscriptWord] = [],
+        editedText: String? = nil
     ) {
         self.id = id
         self.startTime = startTime
@@ -54,6 +56,11 @@ struct TranscriptSegment: Identifiable, Codable, Equatable, Sendable {
         self.speakerID = speakerID
         self.text = text
         self.words = words
+        self.editedText = editedText
+    }
+
+    var displayText: String {
+        editedText ?? text
     }
 }
 
@@ -121,7 +128,7 @@ struct Transcript: Codable, Equatable, Sendable {
 
     var text: String {
         segments
-            .map(\.text)
+            .map(\.displayText)
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
