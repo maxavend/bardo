@@ -3,6 +3,53 @@ import XCTest
 @testable import Bardo
 
 final class TranscriptUXTests: XCTestCase {
+    func testManualChangeFlagsDistinguishTextAndSpeakerNames() {
+        let recordingID = UUID(uuidString: "00000000-0000-0000-0000-000000000700")!
+        let speakerID = UUID(uuidString: "00000000-0000-0000-0000-000000000799")!
+        let metadata = TranscriptMetadata(
+            engine: "WhisperKit",
+            engineVersion: "1.0.0",
+            modelID: "test-model"
+        )
+
+        let untouched = Transcript(
+            recordingID: recordingID,
+            speakers: [Speaker(id: speakerID)],
+            segments: [TranscriptSegment(startTime: 0, endTime: 1, text: "Original")],
+            metadata: metadata
+        )
+        XCTAssertFalse(untouched.hasManualTextEdits)
+        XCTAssertFalse(untouched.hasNamedSpeakers)
+        XCTAssertFalse(untouched.hasManualChanges)
+
+        let textEdited = Transcript(
+            recordingID: recordingID,
+            speakers: [Speaker(id: speakerID)],
+            segments: [
+                TranscriptSegment(
+                    startTime: 0,
+                    endTime: 1,
+                    text: "Original",
+                    editedText: "Corrected"
+                )
+            ],
+            metadata: metadata
+        )
+        XCTAssertTrue(textEdited.hasManualTextEdits)
+        XCTAssertFalse(textEdited.hasNamedSpeakers)
+        XCTAssertTrue(textEdited.hasManualChanges)
+
+        let named = Transcript(
+            recordingID: recordingID,
+            speakers: [Speaker(id: speakerID, name: "  Maxi  ")],
+            segments: [TranscriptSegment(startTime: 0, endTime: 1, text: "Original")],
+            metadata: metadata
+        )
+        XCTAssertFalse(named.hasManualTextEdits)
+        XCTAssertTrue(named.hasNamedSpeakers)
+        XCTAssertTrue(named.hasManualChanges)
+    }
+
     func testTranscriptSegmentDecodesWithoutEditedTextAndUsesOriginalText() throws {
         let recordingID = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
         let segmentID = UUID(uuidString: "00000000-0000-0000-0000-000000000702")!
