@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -205,6 +206,10 @@ private struct RecordingDetail: View {
     @ObservedObject var model: LibraryViewModel
     @ObservedObject var playback: AudioPlaybackController
 
+    @State private var transcriptSearch = ""
+    @State private var editor: TranscriptEditorState?
+    @State private var pendingReplacementAction: TranscriptReplacementAction?
+
     var body: some View {
         Form {
             Section("Recording") {
@@ -273,6 +278,48 @@ private struct RecordingDetail: View {
         }
         .formStyle(.grouped)
         .navigationTitle(recording.title)
+        .onChange(of: recording.id) { _, _ in
+            transcriptSearch = ""
+            editor = nil
+            pendingReplacementAction = nil
+        }
+        .sheet(item: $editor) { state in
+            TranscriptEditorSheet(
+                state: state,
+                onSave: { value in
+                    editor = nil
+                    Task {
+                        switch state.kind {
+                        case .speaker(let speakerID):
+                            await model.renameSpeaker(speakerID, to: value)
+                        case .segment(let segmentID):
+                            await model.updateTranscriptSegment(segmentID, text: value)
+                        }
+                    }
+                },
+                onRestore: state.canRestore ? {
+                    editor = nil
+                    if case .segment(let segmentID) = state.kind {
+                        Task { await model.restoreOriginalTranscriptSegment(segmentID) }
+                    }
+                } : nil
+            )
+        }
+        .alert(item: $pendingReplacementAction) { action in
+            Alert(
+                title: Text(action.title),
+                message: Text(action.message),
+                primaryButton: .destructive(Text(action.confirmLabel)) {
+                    switch action {
+                    case .retranscribe:
+                        model.beginTranscription()
+                    case .rediariize:
+                        model.beginDiarization()
+                    }
+                },
+                secondaryButton: .cancel()
+            )
+        }
     }
 
     @ViewBuilder
@@ -292,55 +339,14 @@ private struct RecordingDetail: View {
             }
         } else if let transcript = model.transcript,
                   transcript.recordingID == recording.id {
-            if let error = model.transcriptErrorMessage {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.secondary)
-            }
-            if let error = model.diarizationErrorMessage {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.secondary)
-            }
-
-            LabeledContent("Language", value: transcript.languageCode ?? "Auto-detected")
-            LabeledContent("Model", value: transcript.metadata.modelID)
-            LabeledContent("Engine", value: "\(transcript.metadata.engine) \(transcript.metadata.engineVersion)")
+            transcriptErrors
 
             if model.isDiarizing, model.diarizationRecordingID == recording.id {
-                let progress = model.diarizationProgress
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(diarizationStageText(progress?.stage))
-                        .font(.headline)
-                    ProgressView(value: progress?.fractionCompleted ?? 0)
-                    Text("Speaker identification runs locally with SpeakerKit.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button("Cancel Speaker Identification", role: .cancel) {
-                        model.cancelDiarization()
-                    }
-                }
+                diarizationProgressView
             } else {
-                if let diarization = transcript.diarizationMetadata {
-                    LabeledContent("Speakers", value: String(transcript.speakers.count))
-                    LabeledContent(
-                        "Speaker engine",
-                        value: "\(diarization.engine) \(diarization.engineVersion)"
-                    )
-                    LabeledContent("Speaker model", value: diarization.modelID)
-                }
-
-                transcriptText(transcript)
-
-                HStack {
-                    Button(transcript.diarizationMetadata == nil ? "Identify Speakers" : "Identify Speakers Again") {
-                        model.beginDiarization()
-                    }
-                    .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
-
-                    Button("Transcribe Again") {
-                        model.beginTranscription()
-                    }
-                    .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
-                }
+                transcriptToolbar(transcript)
+                transcriptConversation(transcript)
+                transcriptDetails(transcript)
             }
         } else {
             if let error = model.transcriptErrorMessage {
@@ -360,30 +366,226 @@ private struct RecordingDetail: View {
     }
 
     @ViewBuilder
-    private func transcriptText(_ transcript: Transcript) -> some View {
-        if transcript.speakers.isEmpty {
-            Text(transcript.text)
-                .textSelection(.enabled)
-        } else {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(transcript.segments) { segment in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(speakerLabel(for: segment, in: transcript))
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                        Text(segment.text)
-                            .textSelection(.enabled)
+    private var transcriptErrors: some View {
+        if let error = model.transcriptErrorMessage {
+            Label(error, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.secondary)
+        }
+        if let error = model.diarizationErrorMessage {
+            Label(error, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.secondary)
+        }
+        if let error = model.transcriptEditErrorMessage {
+            HStack(alignment: .firstTextBaseline) {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Dismiss") {
+                    model.clearTranscriptEditError()
+                }
+                .buttonStyle(.link)
+            }
+        }
+    }
+
+    private var diarizationProgressView: some View {
+        let progress = model.diarizationProgress
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(diarizationStageText(progress?.stage))
+                .font(.headline)
+            ProgressView(value: progress?.fractionCompleted ?? 0)
+            Text("Speaker identification runs locally with SpeakerKit.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Cancel Speaker Identification", role: .cancel) {
+                model.cancelDiarization()
+            }
+        }
+    }
+
+    private func transcriptToolbar(_ transcript: Transcript) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Label(transcript.languageCode ?? "Auto", systemImage: "captions.bubble")
+                    .foregroundStyle(.secondary)
+
+                if transcript.diarizationMetadata != nil {
+                    Label(
+                        "\(transcript.speakers.count) speaker\(transcript.speakers.count == 1 ? "" : "s")",
+                        systemImage: "person.2"
+                    )
+                    .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    copyTranscript(transcript)
+                } label: {
+                    Label("Copy Transcript", systemImage: "doc.on.doc")
+                }
+                .disabled(transcript.text.isEmpty)
+            }
+            .font(.caption)
+
+            HStack(spacing: 8) {
+                TextField("Search transcript", text: $transcriptSearch)
+                    .textFieldStyle(.roundedBorder)
+
+                if !transcriptSearch.isEmpty {
+                    Button {
+                        transcriptSearch = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Clear transcript search")
+                }
+            }
+
+            HStack {
+                Button(transcript.diarizationMetadata == nil ? "Identify Speakers" : "Identify Speakers Again") {
+                    if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
+                        pendingReplacementAction = .rediariize
+                    } else {
+                        model.beginDiarization()
+                    }
+                }
+                .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
+
+                Button("Transcribe Again") {
+                    if transcript.hasManualChanges {
+                        pendingReplacementAction = .retranscribe
+                    } else {
+                        model.beginTranscription()
+                    }
+                }
+                .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func transcriptConversation(_ transcript: Transcript) -> some View {
+        let segments = filteredSegments(in: transcript)
+
+        if transcript.segments.isEmpty {
+            ContentUnavailableView(
+                "Empty Transcript",
+                systemImage: "text.bubble",
+                description: Text("WhisperKit produced no transcript segments for this recording.")
+            )
+        } else if segments.isEmpty {
+            ContentUnavailableView.search(text: transcriptSearch)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(segments) { segment in
+                    transcriptTurn(segment, in: transcript)
                 }
             }
         }
     }
 
+    private func transcriptTurn(_ segment: TranscriptSegment, in transcript: Transcript) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if let speakerID = segment.speakerID,
+                   transcript.speakers.contains(where: { $0.id == speakerID }) {
+                    Button(speakerLabel(for: segment, in: transcript)) {
+                        editor = speakerEditorState(speakerID: speakerID, transcript: transcript)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.callout.weight(.semibold))
+                    .help("Rename this speaker")
+                } else if transcript.speakers.isEmpty {
+                    Text("Transcript")
+                        .font(.callout.weight(.semibold))
+                } else {
+                    Text("Unassigned speaker")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    playback.seek(to: segment.startTime)
+                } label: {
+                    Label(durationText(segment.startTime), systemImage: "play.circle")
+                        .monospacedDigit()
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .disabled(!playback.isLoaded)
+                .help("Jump audio to this moment")
+
+                Button {
+                    editor = .segment(segment)
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .disabled(model.isTranscribing || model.isDiarizing)
+                .help("Edit transcript text")
+            }
+
+            Text(segment.displayText)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if segment.editedText != nil {
+                Label("Edited transcript text", systemImage: "pencil.line")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func transcriptDetails(_ transcript: Transcript) -> some View {
+        DisclosureGroup("Transcript details") {
+            VStack(alignment: .leading, spacing: 6) {
+                LabeledContent("Language", value: transcript.languageCode ?? "Auto-detected")
+                LabeledContent("Model", value: transcript.metadata.modelID)
+                LabeledContent("Engine", value: "\(transcript.metadata.engine) \(transcript.metadata.engineVersion)")
+
+                if let diarization = transcript.diarizationMetadata {
+                    LabeledContent("Speakers", value: String(transcript.speakers.count))
+                    LabeledContent(
+                        "Speaker engine",
+                        value: "\(diarization.engine) \(diarization.engineVersion)"
+                    )
+                    LabeledContent("Speaker model", value: diarization.modelID)
+                }
+            }
+            .padding(.top, 6)
+        }
+    }
+
+    private func filteredSegments(in transcript: Transcript) -> [TranscriptSegment] {
+        let query = transcriptSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return transcript.segments }
+
+        return transcript.segments.filter { segment in
+            segment.displayText.localizedCaseInsensitiveContains(query)
+                || speakerLabel(for: segment, in: transcript).localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private func speakerEditorState(speakerID: Speaker.ID, transcript: Transcript) -> TranscriptEditorState? {
+        guard let speaker = transcript.speakers.first(where: { $0.id == speakerID }) else { return nil }
+        let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) ?? 0
+        let fallback = "Speaker \(index + 1)"
+        return .speaker(speaker, fallbackName: fallback)
+    }
+
     private func speakerLabel(for segment: TranscriptSegment, in transcript: Transcript) -> String {
         guard let speakerID = segment.speakerID,
               let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) else {
-            return "Unassigned speaker"
+            return transcript.speakers.isEmpty ? "Transcript" : "Unassigned speaker"
         }
 
         let speaker = transcript.speakers[index]
@@ -391,6 +593,146 @@ private struct RecordingDetail: View {
             return name
         }
         return "Speaker \(index + 1)"
+    }
+
+    private func copyTranscript(_ transcript: Transcript) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(transcript.text, forType: .string)
+    }
+}
+
+private enum TranscriptReplacementAction: String, Identifiable {
+    case retranscribe
+    case rediariize
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .retranscribe:
+            "Replace Manual Transcript Changes?"
+        case .rediariize:
+            "Replace Speaker Names?"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .retranscribe:
+            "Transcribing again creates a new transcript and removes manual text corrections and speaker names from the current transcript."
+        case .rediariize:
+            "Identifying speakers again creates new speaker clusters. Existing speaker names will be removed because the new clusters may represent different people. Manual text corrections are preserved."
+        }
+    }
+
+    var confirmLabel: String {
+        switch self {
+        case .retranscribe:
+            "Transcribe Again"
+        case .rediariize:
+            "Identify Speakers Again"
+        }
+    }
+}
+
+private struct TranscriptEditorState: Identifiable {
+    enum Kind {
+        case speaker(Speaker.ID)
+        case segment(TranscriptSegment.ID)
+    }
+
+    let id = UUID()
+    let kind: Kind
+    let title: String
+    let initialValue: String
+    let prompt: String
+    let canRestore: Bool
+    let isMultiline: Bool
+
+    static func speaker(_ speaker: Speaker, fallbackName: String) -> TranscriptEditorState {
+        TranscriptEditorState(
+            kind: .speaker(speaker.id),
+            title: "Name Speaker",
+            initialValue: speaker.name ?? "",
+            prompt: "Give \(fallbackName) a name. Leave it blank to restore the automatic label.",
+            canRestore: false,
+            isMultiline: false
+        )
+    }
+
+    static func segment(_ segment: TranscriptSegment) -> TranscriptEditorState {
+        TranscriptEditorState(
+            kind: .segment(segment.id),
+            title: "Edit Transcript",
+            initialValue: segment.displayText,
+            prompt: "Correct the readable transcript without replacing WhisperKit's original timing evidence.",
+            canRestore: segment.editedText != nil,
+            isMultiline: true
+        )
+    }
+}
+
+private struct TranscriptEditorSheet: View {
+    let state: TranscriptEditorState
+    let onSave: (String) -> Void
+    let onRestore: (() -> Void)?
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var value: String
+
+    init(
+        state: TranscriptEditorState,
+        onSave: @escaping (String) -> Void,
+        onRestore: (() -> Void)?
+    ) {
+        self.state = state
+        self.onSave = onSave
+        self.onRestore = onRestore
+        _value = State(initialValue: state.initialValue)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(state.title)
+                .font(.title2.weight(.semibold))
+
+            Text(state.prompt)
+                .foregroundStyle(.secondary)
+
+            if state.isMultiline {
+                TextEditor(text: $value)
+                    .font(.body)
+                    .frame(minHeight: 150)
+                    .padding(6)
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+            } else {
+                TextField("Speaker name", text: $value)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            HStack {
+                if let onRestore {
+                    Button("Restore Original", role: .destructive) {
+                        onRestore()
+                    }
+                }
+
+                Spacer()
+
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Save") {
+                    onSave(value)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(state.isMultiline && value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 480, minHeight: state.isMultiline ? 300 : 180)
     }
 }
 

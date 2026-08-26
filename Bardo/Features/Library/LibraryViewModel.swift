@@ -9,6 +9,7 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var importErrorMessage: String?
     @Published private(set) var transcript: Transcript?
     @Published private(set) var transcriptErrorMessage: String?
+    @Published private(set) var transcriptEditErrorMessage: String?
     @Published private(set) var transcriptionProgress: TranscriptionProgressSnapshot?
     @Published private(set) var diarizationErrorMessage: String?
     @Published private(set) var diarizationProgress: DiarizationProgressSnapshot?
@@ -141,6 +142,7 @@ final class LibraryViewModel: ObservableObject {
 
     func loadTranscriptForSelection() async {
         transcriptErrorMessage = nil
+        transcriptEditErrorMessage = nil
         diarizationErrorMessage = nil
         guard let recordingID = selection else {
             transcript = nil
@@ -181,11 +183,16 @@ final class LibraryViewModel: ObservableObject {
         transcriptErrorMessage = nil
     }
 
+    func clearTranscriptEditError() {
+        transcriptEditErrorMessage = nil
+    }
+
     func performSelectedTranscription() async {
         guard !isTranscribing, !isDiarizing, var recording = selectedRecording else { return }
         let recordingID = recording.id
         isTranscribing = true
         transcriptErrorMessage = nil
+        transcriptEditErrorMessage = nil
         diarizationErrorMessage = nil
         transcriptionProgress = .init(stage: .preparingModel, fractionCompleted: 0)
         defer {
@@ -275,6 +282,7 @@ final class LibraryViewModel: ObservableObject {
         isDiarizing = true
         diarizationRecordingID = recordingID
         diarizationErrorMessage = nil
+        transcriptEditErrorMessage = nil
         diarizationProgress = .init(stage: .preparingModel, fractionCompleted: 0)
         defer {
             isDiarizing = false
@@ -305,10 +313,69 @@ final class LibraryViewModel: ObservableObject {
             }
             diarizationProgress = .init(stage: .saving, fractionCompleted: 1)
         } catch is CancellationError {
-            // The previously persisted raw/diairized transcript remains authoritative.
+            // The previously persisted raw/diarized transcript remains authoritative.
         } catch {
             diarizationErrorMessage = error.localizedDescription
         }
+    }
+
+    func renameSpeaker(_ speakerID: Speaker.ID, to proposedName: String) async {
+        guard !isTranscribing,
+              !isDiarizing,
+              var updated = transcript,
+              updated.recordingID == selection else {
+            return
+        }
+
+        guard let index = updated.speakers.firstIndex(where: { $0.id == speakerID }) else {
+            transcriptEditErrorMessage = "That speaker is no longer available in this transcript."
+            return
+        }
+
+        let trimmed = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.speakers[index].name = trimmed.isEmpty ? nil : trimmed
+        await persistEditedTranscript(updated)
+    }
+
+    func updateTranscriptSegment(_ segmentID: TranscriptSegment.ID, text proposedText: String) async {
+        guard !isTranscribing,
+              !isDiarizing,
+              var updated = transcript,
+              updated.recordingID == selection else {
+            return
+        }
+
+        guard let index = updated.segments.firstIndex(where: { $0.id == segmentID }) else {
+            transcriptEditErrorMessage = "That transcript segment is no longer available."
+            return
+        }
+
+        let trimmed = proposedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            transcriptEditErrorMessage = "Transcript text cannot be empty."
+            return
+        }
+
+        let original = updated.segments[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.segments[index].editedText = trimmed == original ? nil : trimmed
+        await persistEditedTranscript(updated)
+    }
+
+    func restoreOriginalTranscriptSegment(_ segmentID: TranscriptSegment.ID) async {
+        guard !isTranscribing,
+              !isDiarizing,
+              var updated = transcript,
+              updated.recordingID == selection else {
+            return
+        }
+
+        guard let index = updated.segments.firstIndex(where: { $0.id == segmentID }) else {
+            transcriptEditErrorMessage = "That transcript segment is no longer available."
+            return
+        }
+
+        updated.segments[index].editedText = nil
+        await persistEditedTranscript(updated)
     }
 
     func stopPlayback() {
@@ -318,6 +385,19 @@ final class LibraryViewModel: ObservableObject {
     var selectedRecording: Recording? {
         guard let selection else { return nil }
         return recordings.first { $0.id == selection }
+    }
+
+    private func persistEditedTranscript(_ updated: Transcript) async {
+        let recordingID = updated.recordingID
+        do {
+            try await resolveTranscriptStore().save(updated)
+            guard selection == recordingID else { return }
+            transcript = updated
+            transcriptEditErrorMessage = nil
+        } catch {
+            guard selection == recordingID else { return }
+            transcriptEditErrorMessage = error.localizedDescription
+        }
     }
 
     private func recoverInterruptedTranscriptions(using recordingStore: RecordingStore) async throws {

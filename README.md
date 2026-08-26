@@ -1,8 +1,8 @@
 # Bardo
 
-Bardo is a privacy-first native macOS app for capturing, managing, transcribing and identifying speakers in conversations locally. Phases 0–5 are integrated on `main`; **Phase 6 — Diarization** is implemented on `feat/phase-6-diarization` in PR #8.
+Bardo is a privacy-first native macOS app for capturing, managing, transcribing and understanding conversations locally. Phases 0–6 are integrated on `main`; **Phase 7 — Transcript UX** is implemented on `feat/phase-7-transcript-ux` in PR #9.
 
-Bardo can import audio, record microphone-only conversations, capture system audio through the native macOS picker, capture system + microphone as independent originals with a derived conversation mix, create persistent on-device transcripts with WhisperKit, and enrich those transcripts with local SpeakerKit speaker labels.
+Bardo can import audio, record microphone-only conversations, capture system audio through the native macOS picker, capture system + microphone as independent originals with a derived conversation mix, create persistent on-device transcripts with WhisperKit, identify speakers locally with SpeakerKit, and present the result as an editable timestamped conversation.
 
 ## Development requirements
 
@@ -39,8 +39,13 @@ Bardo provides:
 - Pyannote v3 segmenter/embedder + v4 PLDA clustering resources downloaded at runtime;
 - speaker assignment aligned onto existing transcript timestamps without re-transcribing or rewriting source audio;
 - durable speakers, per-segment `speakerID` and diarization metadata;
-- diarization retry/cancellation semantics that preserve the previous valid transcript;
-- minimal transcript UI with `Identify Speakers`, progress, cancel, re-run and `Speaker 1`, `Speaker 2`, ... labels.
+- conversational transcript turns with speaker labels and timestamp seek controls;
+- transcript search and copy-all;
+- persistent speaker naming;
+- non-destructive transcript text corrections that preserve Whisper's original text, word timestamps and timing evidence;
+- restore-original behavior for corrected transcript segments;
+- protective confirmation before re-transcription would replace manual edits/names;
+- protective confirmation before re-diarization would replace named speaker clusters.
 
 ## Transcription architecture
 
@@ -72,15 +77,35 @@ managed conversation audio
 → atomic transcript.json update
 ```
 
-Diarization is additive over the Phase 5 transcript. It does not run Whisper again, alter transcript text, or modify managed audio. If diarization fails or is cancelled, the previously persisted transcript remains authoritative.
-
-Speaker labels are ordered by first appearance for the UI. A transcript segment with no temporal overlap remains unassigned. A segment containing multiple real speakers receives the dominant overlap speaker in Phase 6; transcript turn splitting/restructuring belongs to later transcript UX work.
+Diarization does not run Whisper again or modify managed audio. If diarization fails or is cancelled, the previously persisted transcript remains authoritative. Manual text corrections survive re-diarization because speaker alignment mutates the existing transcript rather than rebuilding its text; manually assigned speaker names are intentionally not carried to newly clustered speakers because new cluster identities may represent different people.
 
 For System + Microphone recordings, diarization uses the same strict `conversationMix` requirement as transcription.
 
+## Transcript UX and editing contract
+
+Phase 7 keeps generated evidence separate from human corrections.
+
+Each `TranscriptSegment` retains its original Whisper text and optional word-level timestamps. A human correction is stored separately as optional `editedText`:
+
+```text
+Whisper text + word timings     # preserved evidence
+          +
+optional editedText             # human-readable override
+          ↓
+       displayText
+```
+
+`Transcript.text`, on-screen turns, search and copy use `displayText`. Clearing an edit restores the original generated text without reconstructing timestamps.
+
+Speaker naming uses the existing optional `Speaker.name`. Blank names restore the automatic `Speaker 1`, `Speaker 2`, ... presentation.
+
+Edits are persisted through the existing `TranscriptStore` same-directory temporary file + atomic rename boundary. UI state changes only after persistence succeeds.
+
+Re-transcription creates a new generated transcript, so Bardo requires confirmation when the current transcript contains manual corrections or named speakers. Re-diarization may produce different clusters, so Bardo requires confirmation before replacing manually named speakers instead of guessing that old and new cluster ordinals identify the same people.
+
 ## SpeakerKit memory contract
 
-Unlike the bounded Phase 5 transcription pipeline, SpeakerKit 1.0.0's public diarization API accepts one complete 16 kHz mono `[Float]` array and performs global clustering for one call. Bardo therefore does not independently diarize arbitrary chunks, because speaker cluster IDs would not be safely comparable between separate calls without a second reconciliation system.
+Unlike the bounded transcription pipeline, SpeakerKit 1.0.0's public diarization API accepts one complete 16 kHz mono `[Float]` array and performs global clustering for one call. Bardo therefore does not independently diarize arbitrary chunks, because speaker cluster IDs would not be safely comparable between separate calls without a second reconciliation system.
 
 The raw Float allocation is approximately:
 
@@ -98,7 +123,7 @@ plus model/tensor memory. Bardo scopes that full-session buffer to inference and
 - `WhisperKit`
 - `SpeakerKit`
 
-Bardo does not link the `ArgmaxOSS` umbrella product or `TTSKit` in Phase 6.
+Bardo does not link the `ArgmaxOSS` umbrella product or `TTSKit`.
 
 Whisper resources live under:
 
@@ -125,13 +150,13 @@ Application Support/Bardo/Library/<recording-uuid>/
 └── audio/...
 ```
 
-Phase 6 reuses the existing durable `Speaker` / `TranscriptSegment.speakerID` structure and adds optional diarization metadata. Phase 5-style transcript V1 documents without that metadata remain readable.
+Phase 7 adds optional `TranscriptSegment.editedText` and uses the already durable optional `Speaker.name`. The new field is additive/optional, so Phase 5/6 Transcript V1 documents remain readable and no schema bump is required.
 
 Bardo keeps the recovery policy:
 
 `preserve → detect → inform → continue`
 
-A failed/cancelled diarization does not damage a valid transcript or recording. Successful speaker enrichment is published through the same atomic TranscriptStore replacement path.
+Failed edit persistence leaves the previously valid transcript authoritative. Transcription/diarization and manual edit operations are mutually excluded in the Library view model.
 
 ## Permissions and privacy
 
@@ -149,11 +174,11 @@ CI builds unsigned, so normally signed entitlement/TCC behavior and real model d
 
 ## Tests
 
-The Phase 6 production/reviewer head passed **103 XCTest cases with 0 failures** in GitHub Actions CI #106 on macOS 15.7.7 Apple Silicon, Xcode 16.4 and Swift 6.1.2.
+The Phase 7 production/reviewer head `61021ef2413b8fe1b6503642d7a595526f775207` passed **109 XCTest cases with 0 failures** in GitHub Actions CI #114 on macOS 15.7.7 Apple Silicon, Xcode 16.4 and Swift 6.1.2.
 
-Automated coverage includes all inherited Phase 0–5 regressions plus speaker alignment, first-appearance ordering, raw-transcript preservation, unassigned temporal gaps, Phase 5 transcript compatibility, speaker metadata persistence, failure/cancellation preservation, failed re-diarization preservation, fresh Library reconstruction and dual-source mix enforcement.
+Phase 7 coverage includes all inherited Phase 0–6 regressions plus legacy transcript decoding without `editedText`, non-destructive edit round trips, original word/timing preservation, speaker-name persistence, fresh-view-model reconstruction, restore-original behavior, empty-edit rejection and manual-change detection used by replacement confirmation UX.
 
-CI compiles the real SpeakerKit production boundary but intentionally does not download the production SpeakerKit models or claim real multi-speaker quality/performance. Those remain documented as `PARTIAL` in `PROJECT_STATE.md`.
+CI compiles the real WhisperKit/SpeakerKit production boundaries but intentionally does not download production models or claim real transcription/diarization quality. Visual interaction quality, real model downloads, long-session resource behavior and inherited TCC/system-audio physical smoke remain documented as `PARTIAL` in `PROJECT_STATE.md`.
 
 ## Project configuration
 
@@ -169,6 +194,6 @@ CI compiles the real SpeakerKit production boundary but intentionally does not d
 
 ## Explicitly out of scope
 
-Phase 6 does not implement speaker naming/editing, transcript turn restructuring, summaries, live transcription/diarization, waveform work, export work or other Phase 7+ functionality.
+Phase 7 does not add summaries/LLM processing, waveform UI, live transcription/diarization, export, custom speaker-cluster reconciliation or other Phase 8+ functionality.
 
-See `PROJECT_STATE.md` for exact certification evidence, reviewer repairs, memory limitations, recovery invariants, physical evidence debt and the next permitted phase.
+See `PROJECT_STATE.md` for exact certification evidence, reviewer repairs, recovery invariants, physical evidence debt and phase boundaries.
