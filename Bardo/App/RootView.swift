@@ -64,16 +64,16 @@ struct RootView: View {
 
     @ToolbarContentBuilder
     private var captureToolbar: some ToolbarContent {
-        ToolbarItem {
+        ToolbarItem(placement: .primaryAction) {
             if microphone.isRecording {
-                Button {
+                Button(role: .destructive) {
                     Task { await stopMicrophoneRecording() }
                 } label: {
                     Label("Stop Recording", systemImage: "stop.circle.fill")
                 }
                 .help("Stop microphone recording")
             } else if systemAudio.isRecording {
-                Button {
+                Button(role: .destructive) {
                     Task { await stopSystemRecording() }
                 } label: {
                     Label("Stop Recording", systemImage: "stop.circle.fill")
@@ -95,7 +95,7 @@ struct RootView: View {
                     Button {
                         Task { await startSystemRecording(includeMicrophone: false) }
                     } label: {
-                        Label("System Audio", systemImage: "macbook.and.iphone")
+                        Label("System Audio", systemImage: "display")
                     }
 
                     Button {
@@ -128,13 +128,13 @@ struct RootView: View {
         switch microphone.phase {
         case .requestingPermission:
             transitionBar(
-                title: "Waiting for Microphone Permission",
-                detail: "Respond to the macOS permission prompt."
+                title: "Waiting for Microphone Access",
+                detail: "Use the macOS permission prompt to allow Bardo to record your microphone."
             )
         case .preparing:
             transitionBar(
-                title: "Preparing Recording",
-                detail: "Preparing the microphone and managed capture file."
+                title: "Preparing Microphone",
+                detail: "Bardo is preparing the input and a local managed audio file."
             )
         case .recording:
             activeRecordingBar(
@@ -147,8 +147,8 @@ struct RootView: View {
             )
         case .finalizing:
             transitionBar(
-                title: "Finishing Recording",
-                detail: "Closing, validating, and adding the audio to Library."
+                title: "Saving Recording",
+                detail: "Bardo is validating the audio and adding it to your Library."
             )
         case .idle, .failed:
             EmptyView()
@@ -160,27 +160,27 @@ struct RootView: View {
         switch systemAudio.phase {
         case .requestingMicrophonePermission:
             transitionBar(
-                title: "Waiting for Microphone Permission",
-                detail: "Microphone access is required only for the combined recording mode."
+                title: "Waiting for Microphone Access",
+                detail: "Microphone access is needed only for the combined recording mode."
             )
         case .selectingContent:
             transitionBar(
-                title: "Choose Audio to Capture",
+                title: "Choose What to Record",
                 detail: "Use the macOS sharing picker to choose a display, app, or window."
             )
         case .preparing:
             transitionBar(
                 title: "Preparing System Audio",
                 detail: systemAudio.includesMicrophone
-                    ? "Preparing independent system and microphone tracks."
-                    : "Preparing the system-audio capture file."
+                    ? "Bardo is preparing independent system and microphone tracks."
+                    : "Bardo is preparing a local system-audio capture file."
             )
         case .recording:
             activeRecordingBar(
                 title: systemAudio.includesMicrophone ? "Recording System + Microphone" : "Recording System Audio",
                 detail: systemAudio.includesMicrophone
                     ? "Both original sources are being preserved separately."
-                    : "Audio from the selected macOS content is being captured.",
+                    : "Audio from your selected macOS content is being captured.",
                 duration: systemAudio.elapsedTime,
                 changeSourceAction: {
                     systemAudio.changeSelection()
@@ -191,8 +191,8 @@ struct RootView: View {
             )
         case .changingSelection:
             activeRecordingBar(
-                title: "Recording — Choose New Source",
-                detail: "Capture continues while the macOS sharing picker is open.",
+                title: "Recording — Choose a New Source",
+                detail: "Recording continues while the macOS sharing picker is open.",
                 duration: systemAudio.elapsedTime,
                 stopAction: {
                     Task { await stopSystemRecording() }
@@ -200,10 +200,10 @@ struct RootView: View {
             )
         case .finalizing:
             transitionBar(
-                title: "Finishing System Audio",
+                title: "Saving Recording",
                 detail: systemAudio.includesMicrophone
-                    ? "Closing originals, aligning sources, and preparing playback."
-                    : "Closing, validating, and adding system audio to Library."
+                    ? "Bardo is closing the originals, aligning sources, and preparing playback."
+                    : "Bardo is validating the audio and adding it to your Library."
             )
         case .idle, .failed:
             EmptyView()
@@ -217,17 +217,22 @@ struct RootView: View {
         let total = microphoneCount + systemCount
 
         if total > 0 {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle")
                     .accessibilityHidden(true)
-                Text("Bardo preserved \(total) incomplete capture\(total == 1 ? "" : "s") for recovery.")
-                    .font(.caption)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Incomplete Capture Preserved")
+                        .font(.callout.weight(.medium))
+                    Text("Bardo preserved \(total) incomplete capture\(total == 1 ? "" : "s") for recovery instead of deleting them.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.vertical, 9)
             .background(.bar)
-            .accessibilityLabel("Bardo preserved \(total) incomplete captures for recovery")
+            .accessibilityElement(children: .combine)
         }
     }
 
@@ -240,14 +245,15 @@ struct RootView: View {
     ) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "record.circle.fill")
+                .font(.title3)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
                     Text(title)
-                        .fontWeight(.semibold)
+                        .font(.callout.weight(.semibold))
                     Text(durationText(duration))
-                        .monospacedDigit()
+                        .font(.callout.monospacedDigit())
                 }
                 Text(detail)
                     .font(.caption)
@@ -265,19 +271,19 @@ struct RootView: View {
                 .keyboardShortcut(.escape, modifiers: [])
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.vertical, 9)
         .background(.bar)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(durationText(duration)) elapsed. \(detail)")
     }
 
     private func transitionBar(title: String, detail: String) -> some View {
         HStack(spacing: 12) {
             ProgressView()
                 .controlSize(.small)
+                .accessibilityLabel(title)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .fontWeight(.semibold)
+                    .font(.callout.weight(.semibold))
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -285,7 +291,7 @@ struct RootView: View {
             Spacer()
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.vertical, 9)
         .background(.bar)
     }
 
