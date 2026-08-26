@@ -53,6 +53,7 @@ Use a short recording first.
 
 - Choose **Transcribe**.
 - Confirm the WhisperKit model download/preparation can complete on the network.
+- Confirm model preparation/loading explains what Bardo is doing instead of presenting a misleading frozen percentage.
 - Confirm transcription finishes without losing the source recording.
 - Confirm timestamped transcript turns appear.
 - Click several transcript timestamps and confirm playback seeks to the expected part of the recording.
@@ -82,6 +83,18 @@ Use audio with at least two distinct speakers if possible.
 - Choose **Transcribe Again** and confirm Bardo warns that manual work will be replaced before starting.
 - With a named speaker, choose **Identify Speakers Again** and confirm Bardo warns before replacing named speaker clusters.
 - Cancel each warning once to confirm cancellation leaves the current transcript unchanged.
+
+### 10. macOS UI and accessibility pass
+
+- Resize the main window down to its minimum size and back up; the sidebar, playback controls, transcript actions, and long transcript text should remain usable without overlapping controls.
+- Collapse and expand **Transcript Details** and **Recording Details** and confirm technical metadata stays secondary to the main content.
+- Check the Library, selected-row highlight, buttons, progress states, and transcript in both Light and Dark appearances.
+- Turn on **Increase Contrast** in macOS Accessibility settings and confirm status/selection information remains understandable without relying on color alone.
+- Use Tab and arrow-key navigation through the sidebar, search field, playback controls, transcript buttons, and edit sheets; focus should follow normal macOS behavior.
+- Use Command-O to open the audio importer.
+- During an active recording, confirm the status bar remains readable and **Stop** remains immediately available.
+- With a long transcript, scroll quickly and confirm turn separators, speaker names, timestamps, edited markers, and text selection remain clear.
+- In VoiceOver or Accessibility Inspector, spot-check that icon-only transcript edit/play controls and progress indicators expose understandable labels.
 
 ## What to report
 
