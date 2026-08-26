@@ -1,6 +1,6 @@
 # Bardo Phase 7 — Manual Smoke Test
 
-This guide validates the first real macOS build after Phases 0–7 are integrated.
+This guide validates the first real macOS build after Phases 0–7 are integrated. UI-polish builds should rerun the full functional path plus the macOS UI and accessibility checks in section 10.
 
 The test DMG is ad-hoc signed for development testing. It is not Developer ID signed or notarized, so macOS may require an explicit first-launch approval.
 
