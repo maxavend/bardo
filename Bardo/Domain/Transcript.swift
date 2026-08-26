@@ -132,4 +132,21 @@ struct Transcript: Codable, Equatable, Sendable {
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    var hasManualTextEdits: Bool {
+        segments.contains { $0.editedText != nil }
+    }
+
+    var hasNamedSpeakers: Bool {
+        speakers.contains { speaker in
+            guard let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return false
+            }
+            return !name.isEmpty
+        }
+    }
+
+    var hasManualChanges: Bool {
+        hasManualTextEdits || hasNamedSpeakers
+    }
 }
