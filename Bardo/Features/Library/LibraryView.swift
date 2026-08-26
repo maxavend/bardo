@@ -16,14 +16,14 @@ struct LibraryView: View {
                     } label: {
                         Label("Import Audio", systemImage: "plus")
                     }
-                    .disabled(model.isImporting || model.isTranscribing)
+                    .disabled(model.isImporting || model.isTranscribing || model.isDiarizing)
 
                     Button {
                         Task { await model.reload() }
                     } label: {
                         Label("Reload Library", systemImage: "arrow.clockwise")
                     }
-                    .disabled(model.isLoading || model.isImporting || model.isTranscribing)
+                    .disabled(model.isLoading || model.isImporting || model.isTranscribing || model.isDiarizing)
                 }
         } detail: {
             detail
@@ -47,7 +47,12 @@ struct LibraryView: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            guard !model.isImporting, !model.isTranscribing, !urls.isEmpty else { return false }
+            guard !model.isImporting,
+                  !model.isTranscribing,
+                  !model.isDiarizing,
+                  !urls.isEmpty else {
+                return false
+            }
             Task { await model.importAudio(from: urls) }
             return true
         }
@@ -64,6 +69,7 @@ struct LibraryView: View {
         }
         .onDisappear {
             model.cancelTranscription()
+            model.cancelDiarization()
             model.stopPlayback()
         }
     }
@@ -290,18 +296,52 @@ private struct RecordingDetail: View {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.secondary)
             }
+            if let error = model.diarizationErrorMessage {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
+            }
 
             LabeledContent("Language", value: transcript.languageCode ?? "Auto-detected")
             LabeledContent("Model", value: transcript.metadata.modelID)
             LabeledContent("Engine", value: "\(transcript.metadata.engine) \(transcript.metadata.engineVersion)")
 
-            Text(transcript.text)
-                .textSelection(.enabled)
+            if model.isDiarizing, model.diarizationRecordingID == recording.id {
+                let progress = model.diarizationProgress
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(diarizationStageText(progress?.stage))
+                        .font(.headline)
+                    ProgressView(value: progress?.fractionCompleted ?? 0)
+                    Text("Speaker identification runs locally with SpeakerKit.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Cancel Speaker Identification", role: .cancel) {
+                        model.cancelDiarization()
+                    }
+                }
+            } else {
+                if let diarization = transcript.diarizationMetadata {
+                    LabeledContent("Speakers", value: String(transcript.speakers.count))
+                    LabeledContent(
+                        "Speaker engine",
+                        value: "\(diarization.engine) \(diarization.engineVersion)"
+                    )
+                    LabeledContent("Speaker model", value: diarization.modelID)
+                }
 
-            Button("Transcribe Again") {
-                model.beginTranscription()
+                transcriptText(transcript)
+
+                HStack {
+                    Button(transcript.diarizationMetadata == nil ? "Identify Speakers" : "Identify Speakers Again") {
+                        model.beginDiarization()
+                    }
+                    .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
+
+                    Button("Transcribe Again") {
+                        model.beginTranscription()
+                    }
+                    .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
+                }
             }
-            .disabled(recording.audioAssets.isEmpty)
         } else {
             if let error = model.transcriptErrorMessage {
                 Label(error, systemImage: "exclamationmark.triangle")
@@ -315,8 +355,42 @@ private struct RecordingDetail: View {
             Button(recording.processingState == .failed ? "Retry Transcription" : "Transcribe") {
                 model.beginTranscription()
             }
-            .disabled(recording.audioAssets.isEmpty)
+            .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
         }
+    }
+
+    @ViewBuilder
+    private func transcriptText(_ transcript: Transcript) -> some View {
+        if transcript.speakers.isEmpty {
+            Text(transcript.text)
+                .textSelection(.enabled)
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(transcript.segments) { segment in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(speakerLabel(for: segment, in: transcript))
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                        Text(segment.text)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+        }
+    }
+
+    private func speakerLabel(for segment: TranscriptSegment, in transcript: Transcript) -> String {
+        guard let speakerID = segment.speakerID,
+              let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) else {
+            return "Unassigned speaker"
+        }
+
+        let speaker = transcript.speakers[index]
+        if let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
+        }
+        return "Speaker \(index + 1)"
     }
 }
 
@@ -327,6 +401,16 @@ private func transcriptionStageText(_ stage: TranscriptionStage?) -> String {
     case .transcribing: "Transcribing…"
     case .saving: "Saving Transcript…"
     case nil: "Preparing Transcription…"
+    }
+}
+
+private func diarizationStageText(_ stage: DiarizationStage?) -> String {
+    switch stage {
+    case .preparingModel: "Preparing Speaker Model…"
+    case .loadingModel: "Loading Speaker Model…"
+    case .diarizing: "Identifying Speakers…"
+    case .saving: "Saving Speaker Labels…"
+    case nil: "Preparing Speaker Identification…"
     }
 }
 

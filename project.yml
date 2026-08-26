@@ -34,6 +34,8 @@ targets:
     dependencies:
       - package: ArgmaxOSS
         product: WhisperKit
+      - package: ArgmaxOSS
+        product: SpeakerKit
     info:
       path: Bardo/Info.plist
       properties:

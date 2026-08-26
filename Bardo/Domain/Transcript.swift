@@ -76,25 +76,47 @@ struct TranscriptMetadata: Codable, Equatable, Sendable {
     }
 }
 
+struct DiarizationMetadata: Codable, Equatable, Sendable {
+    let engine: String
+    let engineVersion: String
+    let modelID: String
+    let createdAt: Date
+
+    init(
+        engine: String,
+        engineVersion: String,
+        modelID: String,
+        createdAt: Date = Date()
+    ) {
+        self.engine = engine
+        self.engineVersion = engineVersion
+        self.modelID = modelID
+        self.createdAt = createdAt
+    }
+}
+
 struct Transcript: Codable, Equatable, Sendable {
     let recordingID: Recording.ID
     var languageCode: String?
     var speakers: [Speaker]
     var segments: [TranscriptSegment]
     let metadata: TranscriptMetadata
+    var diarizationMetadata: DiarizationMetadata?
 
     init(
         recordingID: Recording.ID,
         languageCode: String? = nil,
         speakers: [Speaker] = [],
         segments: [TranscriptSegment] = [],
-        metadata: TranscriptMetadata
+        metadata: TranscriptMetadata,
+        diarizationMetadata: DiarizationMetadata? = nil
     ) {
         self.recordingID = recordingID
         self.languageCode = languageCode
         self.speakers = speakers
         self.segments = segments
         self.metadata = metadata
+        self.diarizationMetadata = diarizationMetadata
     }
 
     var text: String {

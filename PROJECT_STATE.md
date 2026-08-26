@@ -2,13 +2,13 @@
 
 ## Current phase
 
-5 — Transcription
+6 — Diarization
 
-**Status:** PHASE_READY
+**Status:** PHASE_READY, conditional on the exact documentation head containing this statement passing the same full CI gate. PR #8 must remain draft until that condition is satisfied.
 
-Phases 0–4 are integrated and certified on `main`. Phase 5 is implemented on `feat/phase-5-transcription` in PR #7 and contains no Phase 6 diarization functionality.
+Phases 0–5 are integrated on `main`. Phase 5 was merged through PR #7 with merge commit `8f06724131df77fee7cf9653b62b4ab1b93bc3e4`; `feat/phase-6-diarization` was created exactly from that commit.
 
-The production/reviewer head `aaae244253ef1f051c5096dee89aa09f4df2edf3` passed GitHub Actions run `32328966302` (CI #96) with XcodeGen generation, entitlement/configuration checks, Debug build, bundle verification and **93 XCTest cases with 0 failures**. Documentation-only commits after that head must pass the same CI before PR #7 is marked ready for review.
+The Phase 6 production/reviewer head `8cce00843a336ac7992a399b89b0ccad523fdb88` passed GitHub Actions run `32338124948` (CI #106) with XcodeGen generation, entitlement/configuration checks, Debug build, application bundle verification and **103 XCTest cases with 0 failures**.
 
 ## Integrated baseline
 
@@ -16,230 +16,264 @@ The production/reviewer head `aaae244253ef1f051c5096dee89aa09f4df2edf3` passed G
 - Phase 1 — Library & Persistence: merged via PR #2.
 - Phase 2 — Audio Import: merged via PR #3.
 - Phase 3 — Microphone Recording: merged via PR #4.
-- Phase 4 — System Audio: merged and certified before Phase 5 began.
-- Phase 5 branch base / current `main` baseline: `df7711173f8592e73c32f290b4a1a7cca868ff0a`.
+- Phase 4 — System Audio: merged and certified.
+- Phase 5 — Transcription: merged via PR #7.
+- Phase 5 merge / Phase 6 branch base: `8f06724131df77fee7cf9653b62b4ab1b93bc3e4`.
+- Phase 6 branch: `feat/phase-6-diarization`.
+- Phase 6 PR: #8 — `Phase 6 — Diarization`.
 - Platform: macOS 15+, Swift 6, SwiftUI, XcodeGen.
 - Recording manifest write schema remains **3**.
+- Transcript write schema remains **1**.
 
-## Mission 5.1 — WhisperKit integration and model resources
+## Mission 6.1 — SpeakerKit integration
 
-**Status:** COMPLETE for automated validation; first real model download/inference smoke remains PARTIAL.
+**Status:** COMPLETE for automated validation; first real model download/inference remains PARTIAL.
 
-- Argmax OSS is pinned exactly to **1.0.0** in `project.yml`.
-- Bardo links only the `WhisperKit` product; `ArgmaxCore` is transitive.
-- Bardo does not link the `ArgmaxOSS` umbrella product, `SpeakerKit`, or `TTSKit`.
-- Default model: `large-v3-v20240930_626MB`.
-- Models live under `Application Support/Bardo/Models/WhisperKit/` rather than in the app bundle or recording domain.
-- Existing model folders are accepted only when the required `MelSpectrogram`, `AudioEncoder` and `TextDecoder` Core ML artifacts are present.
-- Download is preceded by a free-space preflight; incomplete/invalid folders cannot masquerade as installed models.
-- WhisperKit v1.0.0 obtains its tokenizer separately, so Bardo prepares **Core ML model + large-v3 tokenizer** as one resource-readiness step.
-- The app sandbox includes `com.apple.security.network.client` for runtime model/tokenizer downloads; CI verifies it alongside the existing microphone entitlement.
-- `THIRD_PARTY_NOTICES.md` preserves the upstream MIT notice.
+- Argmax OSS remains pinned exactly to **1.0.0**.
+- Bardo links the `WhisperKit` and `SpeakerKit` products directly.
+- Bardo does not link the `ArgmaxOSS` umbrella product or `TTSKit`.
+- Diarization uses SpeakerKit's public Pyannote pipeline.
+- Production metadata identifies the default pipeline as `pyannote-v3+plda-v4`: Pyannote v3 segmenter/embedder resources plus the v4 PLDA clustering resource used by SpeakerKit 1.0.0.
+- SpeakerKit model resources live under `Application Support/Bardo/Models/SpeakerKit/` and are downloaded at runtime rather than bundled in the app.
+- The existing sandbox outbound-network entitlement from Phase 5 is reused and remains CI-verified.
+- `THIRD_PARTY_NOTICES.md` now covers both direct Argmax products and preserves the complete upstream MIT notice. Runtime-downloaded model artifacts remain separately called out for distribution/licensing review.
 
-## Mission 5.2 — Bounded transcription pipeline
+### First-use download repair
+
+The adversarial reviewer found a production-only clean-install bug that ordinary compilation could not reveal. The first implementation built `PyannoteConfig(download: false)` and then explicitly called `downloadModels()`. Upstream `PyannoteModelLoader` forwards that flag into model resolution, so a clean Mac with no cached SpeakerKit models would fail with download disabled even though CI compiled successfully.
+
+Production now constructs the public `SpeakerKitDiarizer.pyannote(...)` manager with:
+
+```text
+download: true
+load: false
+```
+
+and owns the lifecycle explicitly:
+
+```text
+create manager
+→ download/resolve models with progress
+→ cancellation check
+→ load models
+→ cancellation check
+→ diarize with progress
+→ align speaker intervals to transcript
+→ unload models
+```
+
+Every thrown/cancelled exit after manager creation also calls `unloadModels()`. Swift 6 exposed two inherited `downloadModels(progressCallback:)` overloads; Bardo resolves the SpeakerKit `@Sendable` contract explicitly instead of weakening concurrency checking.
+
+## Mission 6.2 — Local diarization and audio contract
+
+**Status:** COMPLETE, with long-session resource behavior documented honestly as PARTIAL physical evidence.
+
+Production diarization lives behind the `RecordingDiarizing` boundary and uses the same managed source-selection contract as transcription:
+
+- imported recording → healthy managed imported source;
+- microphone-only → managed microphone original;
+- system-only → managed system original;
+- system + microphone → **requires `conversationMix`**.
+
+A dual recording never silently diarizes only the system original or only the microphone original and presents that as the full conversation. If the combined mix is unavailable, Bardo surfaces a controlled error and preserves all originals/transcript state.
+
+### Memory contract
+
+SpeakerKit 1.0.0's stable public diarization API accepts one complete 16 kHz mono `[Float]` array. Its clustering pipeline is global for one diarization call and resets when a new call begins. There is no public API for reconciling independently clustered chunk speaker IDs.
+
+Therefore Phase 6 deliberately does **not** fake bounded diarization by calling SpeakerKit independently on arbitrary chunks. That could make “speaker 0” in one chunk unrelated to “speaker 0” in the next and would require a second custom embedding-reconciliation system outside the Phase 6 contract.
+
+Approximate raw PCM allocation is:
+
+```text
+16,000 Float samples/s × 4 bytes ≈ 64 KB/s
+≈ 230 MB for 1 hour
+```
+
+plus Core ML models/tensors and normal application memory. Bardo scopes that full-session sample array only to the SpeakerKit inference helper so it can be released before transcript alignment/persistence and does not intentionally create a second full-session copy. Real long-session memory/thermal behavior remains physical `PARTIAL` evidence rather than a false streaming claim.
+
+## Mission 6.3 — Speaker-to-transcript alignment
 
 **Status:** COMPLETE.
 
-Production transcription uses `WhisperTranscriptionService` behind the `RecordingTranscribing` boundary.
-
-Long recordings are planned as bounded overlapping intervals:
+SpeakerKit returns timestamped speaker intervals. Bardo does not re-run Whisper and does not rewrite transcript text. `TranscriptSpeakerAligner` applies those intervals to the already durable Phase 5 transcript:
 
 ```text
-source managed audio
-→ <= 300 s interval
-→ WhisperKit AudioProcessor interval load
-→ 16 kHz mono Float samples
-→ WhisperKit VAD + word timestamps
-→ global transcript timestamps
-→ next interval with 1 s overlap
+SpeakerKit intervals
++
+Phase 5 word timestamps / segment timestamps
+↓
+overlap scoring
+↓
+durable Speaker objects + TranscriptSegment.speakerID
 ```
 
-Important invariants:
+Alignment rules:
 
-- a full meeting is never intentionally decoded into one in-memory PCM array;
-- each planned interval is at most 300 seconds;
-- adjacent intervals overlap by one second;
-- acceptance boundaries split the overlap so duplicated boundary content is not retained twice;
-- non-finite/invalid durations cannot enter an infinite planning loop;
-- model resources are loaded with `download: false` after preparation, preventing a hidden second model download during inference;
-- WhisperKit models are unloaded after success or failure;
-- task cancellation is checked between pipeline stages and chunks and the inference callback cooperates with cancellation.
+- valid speaker clusters are ordered by first appearance for stable human-facing `Speaker 1`, `Speaker 2`, ... labels;
+- word timestamp overlap is used first when available;
+- segment overlap is the fallback when words provide no usable overlap;
+- gaps with no temporal overlap stay unassigned rather than guessing through silence;
+- transcript segment IDs, bounds, words and text are preserved;
+- `Transcript.text` remains unchanged by diarization;
+- a segment containing more than one real speaker receives the dominant overlap speaker rather than being split/reconstructed.
 
-Automated AVFoundation fixture coverage proves that requesting one second of a four-second stereo 48 kHz file produces approximately one second of 16 kHz mono samples rather than retaining the full source.
+That last rule is intentional. Phase 6 persists speaker identity on the existing transcript structure; restructuring transcript turns, speaker naming/editing and richer conversation presentation are not smuggled into this phase.
 
-## Audio selection contract
-
-- Imported audio: transcribes the healthy managed playback source.
-- Microphone-only: transcribes the managed microphone original.
-- System-only: transcribes the managed system original.
-- System + microphone: **requires the `conversationMix`**.
-
-A dual-source recording never silently falls back to only the system original or only the microphone original and then presents that as the complete conversation. If the mix is unavailable, transcription fails in a controlled/retryable way while originals remain intact.
-
-## Mission 5.3 — Durable transcript
+## Mission 6.4 — Durable speaker state
 
 **Status:** COMPLETE.
 
-Transcript persistence is intentionally separate from the recording manifest:
+The existing transcript model already had durable `Speaker` objects and `TranscriptSegment.speakerID`. Phase 6 adds optional `DiarizationMetadata` to the same `transcript.json` document:
 
-```text
-Application Support/Bardo/Library/<recording-uuid>/
-├── manifest.json          # Recording schema V3
-├── transcript.json        # Transcript schema V1
-└── audio/...
-```
+- engine;
+- engine version;
+- model pipeline ID;
+- diarization creation date.
 
-`transcript.json` persists:
+Transcript schema remains **V1** because the speaker/speakerID structure already existed and the new metadata field is optional/additive. Automated compatibility verifies that a Phase 5 V1 transcript without `diarizationMetadata` still decodes with `nil` and that new diarization metadata/speaker assignments survive a fresh `TranscriptStore` round trip.
 
-- recording identity;
-- detected language when available;
-- ordered transcript segments;
-- word timestamps/probabilities when provided by WhisperKit;
-- engine, engine version and model ID metadata;
-- transcript creation date.
+No speaker embeddings, Core ML model paths, model-cache paths or transient SpeakerKit objects are persisted in Domain.
 
-Transcript writes use a same-directory temporary file followed by atomic `rename`, so a crash cannot expose a half-written final document. A crash can leave `.transcript-*.tmp`; Bardo detects and preserves that evidence rather than pretending it is a valid transcript.
-
-The recording manifest remains schema V3 because Phase 5 does not add durable recording-manifest fields. Transcript evolution has its own schema boundary, currently V1.
-
-## Mission 5.4 — Retry, cancellation and recovery
+## Mission 6.5 — Failure, cancellation and re-diarization
 
 **Status:** COMPLETE for app-owned state transitions.
 
-- Starting transcription persists `processing`.
-- Successful transcript publication persists `completed`.
-- Controlled failure persists `failed` and remains retryable.
-- Cancellation returns the recording to `pending` without deleting managed audio.
-- Re-transcription failure does not destroy a previously valid `transcript.json`.
-- On restart, an abandoned `processing` state is reconciled:
-  - valid `transcript.json` → `completed`;
-  - missing/corrupt transcript → `failed`, retryable;
-  - source audio is preserved.
-- Corrupt transcript content never invalidates the recording/audio library entry.
+Diarization is a refinement of an already valid transcript, not a new Recording processing state. Therefore:
 
-Cancellation of app-owned inference/state work is automated. Immediate network-transfer interruption during a first-time upstream model/tokenizer download is not separately certified by CI and remains a physical/network smoke item rather than a stronger claim.
+- starting diarization does not mark the Recording as failed/processing;
+- success atomically replaces `transcript.json` with the speaker-enriched transcript;
+- failure leaves the previously persisted transcript untouched;
+- cancellation leaves the previously persisted transcript untouched;
+- failed re-diarization preserves previously valid speaker labels;
+- a raw Phase 5 transcript remains authoritative if first diarization fails;
+- model weights are explicitly unloaded on success, failure and cancellation exits after manager creation;
+- transcription and diarization are mutually exclusive in the Library view model.
 
-## Mission 5.5 — Minimal transcript UX
+The existing `TranscriptStore` same-directory temp + atomic rename publication remains the durability boundary. Diarization never mutates managed audio files.
+
+## Mission 6.6 — Minimal speaker UX
 
 **Status:** COMPLETE.
 
-Library detail now provides:
+Library transcript detail now provides:
 
-- `Transcribe`;
-- first-use model preparation/download progress;
-- model-loading, transcribing and saving stages;
-- `Cancel`;
-- `Retry Transcription` after failure;
-- persisted transcript text with text selection;
-- detected language;
-- model ID;
-- engine/version;
-- `Transcribe Again`.
+- `Identify Speakers`;
+- `Identify Speakers Again` after a successful diarization;
+- SpeakerKit model preparation/download progress;
+- model-loading, diarizing and saving stages;
+- `Cancel Speaker Identification`;
+- speaker count;
+- speaker engine/version and model-pipeline metadata;
+- transcript segments labeled `Speaker 1`, `Speaker 2`, ... in first-appearance order;
+- explicit `Unassigned speaker` when no temporal evidence supports an assignment.
 
-No transcript editing, speaker naming, waveform UI, summary generation or diarization UI is introduced in Phase 5.
+The existing transcription UI remains available. Import/reload/transcription controls cannot race diarization work.
+
+No speaker naming/editing UI, transcript-turn restructuring, summary generation, live diarization or waveform work is introduced.
 
 ## Integrated automated gate
 
-Phase 5 tests cover:
+Phase 6 deterministic tests cover:
 
 ```text
-managed recording audio
-→ deterministic transcriber boundary
-→ transcript creation
-→ atomic TranscriptStore publication
-→ Recording processing state
-→ Library reload
-→ delete external/original import source
-→ fresh stores / fresh LibraryViewModel
-→ Recording + managed audio + transcript reconstruct ✅
+existing persisted raw transcript
+→ deterministic diarizer boundary
+→ timestamped speaker intervals
+→ word/segment overlap alignment
+→ speakers + speakerID + diarization metadata
+→ atomic TranscriptStore save
+→ fresh LibraryViewModel / TranscriptStore
+→ speaker-enriched transcript reconstructs ✅
 ```
 
 Additional gates include:
 
 ```text
-long-duration bounded chunk planning ✅
-NaN/+∞/-∞ duration rejection ✅
-real AVFoundation bounded interval loading ✅
-model installed detection ✅
-invalid/unrelated model folder rejection ✅
-disk preflight before network setup ✅
-tokenizer preparation part of resource readiness ✅
-tokenizer failure preserves installed Core ML model ✅
-dual capture requires conversationMix ✅
-transcript schema V1 read/write ✅
-identity mismatch / corrupt transcript rejection ✅
-atomic overwrite preserves prior valid transcript semantics ✅
-interrupted processing restart recovery ✅
-residual transcript temp detection ✅
-retry/re-transcription preserves prior transcript on failure ✅
-all inherited Phase 0–4 regressions ✅
+raw transcript text preserved ✅
+segment IDs/bounds preserved ✅
+speakers ordered by first appearance ✅
+word-overlap voting ✅
+no-overlap gap remains unassigned ✅
+invalid/no speaker activity rejected ✅
+Phase 5 transcript without diarization metadata remains readable ✅
+new diarization fields round-trip in Transcript schema V1 ✅
+diarization failure preserves raw transcript ✅
+failed re-diarization preserves prior speaker labels ✅
+cancellation publishes no partial speaker state ✅
+Recording processing state unaffected by diarization failure/cancel ✅
+dual System + Mic still requires conversationMix ✅
+all inherited Phase 0–5 regressions ✅
 ```
 
 ## CI evidence
 
-GitHub Actions run `32328966302` (CI #96), production/reviewer head `aaae244253ef1f051c5096dee89aa09f4df2edf3`:
+GitHub Actions run `32338124948` (CI #106), production/reviewer head `8cce00843a336ac7992a399b89b0ccad523fdb88`:
 
 - macOS 15.7.7 Apple Silicon runner;
 - Xcode 16.4 (16F6);
 - Swift 6.1.2 targeting `arm64-apple-macosx15.0`;
 - XcodeGen 2.46.0;
 - exact Argmax OSS package resolution: **1.0.0**;
+- explicit Bardo target dependencies: `WhisperKit` + `SpeakerKit`;
 - microphone entitlement: passed;
 - outbound network client entitlement: passed;
 - XcodeGen generation: passed;
 - Debug build: **BUILD SUCCEEDED**;
 - application bundle/privacy verification: passed;
 - XCTest: **TEST SUCCEEDED**;
-- **93 tests executed, 0 failures**.
+- **103 tests executed, 0 failures**.
 
-CI deliberately does not download the 600+ MB production model or claim real Neural Engine performance; model acquisition is exercised through injected deterministic test preparation and actual package compilation.
+CI intentionally compiles the real SpeakerKit production boundary but does not download the production diarization models or claim real diarization quality/performance.
 
 ## Reviewer findings and repairs
 
-The Builder/Reviewer loop materially repaired Phase 5 before certification:
+The Builder/Reviewer loop materially repaired Phase 6 before certification:
 
-1. Kept Phase 5 isolated from SpeakerKit/Phase 6 and pinned WhisperKit exactly instead of using a floating dependency.
-2. Repaired Swift 6.1 rejection of `Self` in default arguments.
-3. Kept strict concurrency enabled; used `@preconcurrency` compatibility at the WhisperKit boundary rather than weakening compiler settings for its non-Sendable class.
-4. Prevented `+∞`, `NaN` and invalid chunk parameters from producing runaway planning.
-5. Tightened installed-model verification so unrelated `.mlpackage` folders cannot masquerade as Whisper resources.
-6. Reconciled abandoned `processing` recordings after restart.
-7. Preserved an existing valid transcript when a re-transcription attempt fails.
-8. Prevented dual System + Mic recordings from silently transcribing only one original when the conversation mix is missing.
-9. Found that WhisperKit v1.0.0 prepares the tokenizer separately and moved tokenizer preparation into first-use resource setup.
-10. Fixed Swift 6 XCTest actor/autoclosure diagnostics without weakening isolation.
-11. Added the missing sandbox outbound-network entitlement required for model downloads and made CI assert it.
-12. Completed the upstream MIT notice instead of merely naming the license.
+1. Kept the dependency exact at Argmax OSS 1.0.0 and linked only the direct `WhisperKit` + `SpeakerKit` products, not the umbrella/TTS products.
+2. Reused the existing durable `Speaker` / `speakerID` structure and kept `DiarizationMetadata` optional so Transcript schema V1 remained backward-compatible instead of bumping schema without need.
+3. Made speaker assignment additive over Phase 5 timestamps; raw transcript text and managed audio are never rewritten by diarization.
+4. Reused the strict dual-source `conversationMix` requirement rather than allowing silent one-original fallback.
+5. Separated diarization lifecycle from Recording processing state so a speaker-identification failure cannot turn a valid transcription/audio Recording into a failed Recording.
+6. Added deterministic failure, cancellation, re-diarization and fresh-restart persistence tests.
+7. Connected real SpeakerKit download and diarization progress instead of showing synthetic 0→100 jumps.
+8. Corrected model provenance metadata from the vague `pyannote-v3` label to `pyannote-v3+plda-v4`.
+9. Found the clean-install blocker where `PyannoteConfig(download: false)` made explicit `downloadModels()` unable to download missing models; production now uses `download: true` with an explicitly controlled lifecycle.
+10. Fixed the Swift 6 overload ambiguity between SpeakerKitDiarizer and its inherited model-manager `downloadModels(progressCallback:)` without weakening concurrency.
+11. Ensured Core ML model unloading occurs on success, failure and cancellation exits after manager creation.
+12. Inspected SpeakerKit's global clustering semantics and rejected naive independent chunk diarization because cluster IDs are not safely comparable across separate calls.
+13. Scoped the required full-session Float buffer to inference only and documented the real linear-memory contract instead of claiming Phase 5-style bounded behavior.
+14. Rechecked the full PR diff: it is based exactly on the integrated Phase 5 merge, is 0 commits behind `main`, and contains no Phase 7 implementation.
 
-Final reviewer pass found no remaining material issue in transcript durability, bounded memory design, audio selection, recovery semantics, Phase 6 leakage, or inherited recording behavior.
+Final reviewer pass found no remaining material issue in speaker-label durability, raw-transcript preservation, dual-source selection, failure/cancellation semantics, dependency boundary or Phase 7 leakage.
 
 ## Known partial / physical evidence pending
 
-- **PARTIAL — first-use production model download:** actual large-v3 Core ML + tokenizer download through the signed/sandboxed app should be smoked on a real Mac.
-- **PARTIAL — real Whisper inference:** human listening/transcript-quality smoke on imported, microphone, system-only and dual conversation-mix recordings remains physical evidence.
-- **PARTIAL — performance:** long real meetings should be observed for memory pressure, thermal behavior and Apple Silicon/Neural Engine throughput; CI proves bounded input planning, not end-user speed.
-- **PARTIAL — cancellation during an in-flight first download:** app task cancellation is implemented, but immediate upstream network-transfer interruption is not independently certified.
-- Inherited Phase 4 physical system-audio/dual-capture and normally signed TCC smoke debt remains as documented before Phase 5.
+- **PARTIAL — first-use SpeakerKit model download:** actual Pyannote/PLDA model download through a normally signed/sandboxed Bardo build should be smoked on a real Mac.
+- **PARTIAL — real diarization quality:** speaker count/assignment should be evaluated on imported, microphone-only, system-only and dual conversation-mix recordings with multiple human speakers.
+- **PARTIAL — long-session resource behavior:** SpeakerKit 1.0.0 requires a full 16 kHz Float array; real 1h+ meetings should be observed for memory pressure, thermal behavior and inference throughput.
+- **PARTIAL — cancellation during upstream work:** Bardo cooperates with Task cancellation and preserves durable state, but immediate interruption of an already in-flight upstream model transfer or synchronous audio decode is not independently certified.
+- **PARTIAL — model-download disk pressure:** Bardo does not invent a hardcoded SpeakerKit model-size threshold; real low-disk model download behavior remains physical evidence and upstream failures are surfaced without touching transcript/audio state.
+- Inherited Phase 5 real Whisper model/inference evidence and Phase 4 physical system-audio/dual-capture/TCC smoke debt remain as previously documented.
 
-These are evidence limitations, not blockers to the automated Phase 5 contract.
+These are evidence limitations, not blockers to the automated Phase 6 contract.
 
 ## Explicitly out of scope
 
-Phase 5 contains no:
+Phase 6 contains no:
 
-- SpeakerKit integration;
-- speaker diarization or speaker assignment;
-- speaker naming;
-- summaries/LLM processing;
-- live transcription;
-- transcript editing;
+- speaker naming or manual speaker editing;
+- transcript turn splitting/restructuring for speaker changes;
+- summaries or LLM processing;
+- live transcription or live diarization;
 - waveform work;
-- Phase 6+ implementation.
+- export work;
+- Phase 7+ implementation.
 
 ## Next phase
 
-After PR #7 is reviewed and explicitly merged in a subsequent instruction, the next permitted phase is:
+After PR #8 is reviewed and explicitly merged in a subsequent instruction, the next permitted phase is:
 
-- **6 — Diarization**
+- **7 — Transcript UX**
 
-Do not implement or merge Phase 6 from this phase branch.
+Do not implement or merge Phase 7 from this phase branch.
