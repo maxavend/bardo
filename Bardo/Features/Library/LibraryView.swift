@@ -11,20 +11,28 @@ struct LibraryView: View {
         NavigationSplitView {
             sidebar
                 .navigationTitle("Library")
+                .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 360)
                 .toolbar {
-                    Button {
-                        isFileImporterPresented = true
-                    } label: {
-                        Label("Import Audio", systemImage: "plus")
+                    ToolbarItem {
+                        Button {
+                            isFileImporterPresented = true
+                        } label: {
+                            Label("Import Audio", systemImage: "square.and.arrow.down")
+                        }
+                        .keyboardShortcut("o", modifiers: .command)
+                        .help("Import audio…")
+                        .disabled(model.isImporting || model.isTranscribing || model.isDiarizing)
                     }
-                    .disabled(model.isImporting || model.isTranscribing || model.isDiarizing)
 
-                    Button {
-                        Task { await model.reload() }
-                    } label: {
-                        Label("Reload Library", systemImage: "arrow.clockwise")
+                    ToolbarItem {
+                        Button {
+                            Task { await model.reload() }
+                        } label: {
+                            Label("Reload Library", systemImage: "arrow.clockwise")
+                        }
+                        .help("Reload Library")
+                        .disabled(model.isLoading || model.isImporting || model.isTranscribing || model.isDiarizing)
                     }
-                    .disabled(model.isLoading || model.isImporting || model.isTranscribing || model.isDiarizing)
                 }
         } detail: {
             detail
@@ -107,9 +115,9 @@ struct LibraryView: View {
             ContentUnavailableView {
                 Label("No Recordings", systemImage: "waveform")
             } description: {
-                Text("Import a compatible audio file or drop one into this window.")
+                Text("Record a conversation, import an audio file, or drop audio into this window.")
             } actions: {
-                Button("Import Audio") {
+                Button("Import Audio…") {
                     isFileImporterPresented = true
                 }
             }
@@ -117,10 +125,11 @@ struct LibraryView: View {
             List(selection: $model.selection) {
                 if model.isImporting {
                     Section {
-                        HStack {
+                        Label {
+                            Text("Importing audio…")
+                        } icon: {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("Importing audio…")
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -164,11 +173,11 @@ struct LibraryView: View {
                 playback: model.playback
             )
         } else {
-            ContentUnavailableView(
-                "Select a Recording",
-                systemImage: "sidebar.left",
-                description: Text("Choose a recording from the Library to inspect its metadata.")
-            )
+            ContentUnavailableView {
+                Label("Choose a Recording", systemImage: "waveform")
+            } description: {
+                Text("Select an item in the Library to play, transcribe, and review it.")
+            }
         }
     }
 }
@@ -177,27 +186,38 @@ private struct RecordingRow: View {
     let recording: Recording
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(recording.title)
-                .font(.headline)
-                .lineLimit(1)
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: sourceSymbol(recording.sources))
+                .font(.body)
+                .frame(width: 20, height: 20)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
 
-            Text(recording.createdAt, format: .dateTime.year().month().day().hour().minute())
-                .font(.caption)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(recording.title)
+                    .font(.body.weight(.medium))
+                    .lineLimit(1)
+
+                Text(recording.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 5) {
+                    Text(durationText(recording.duration))
+                    Text("•")
+                    Text(sourceText(recording.sources))
+                        .lineLimit(1)
+                }
+                .font(.caption2)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 6) {
-                Text(durationText(recording.duration))
-                Text("•")
-                Text(sourceText(recording.sources))
-                Text("•")
-                Text(stateText(recording.processingState))
+                Label(stateText(recording.processingState), systemImage: stateSymbol(recording.processingState))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -211,72 +231,18 @@ private struct RecordingDetail: View {
     @State private var pendingReplacementAction: TranscriptReplacementAction?
 
     var body: some View {
-        Form {
-            Section("Recording") {
-                LabeledContent("Title", value: recording.title)
-                LabeledContent("Created") {
-                    Text(recording.createdAt, format: .dateTime.year().month().day().hour().minute().second())
-                }
-                LabeledContent("Duration", value: durationText(recording.duration))
-                LabeledContent("Source", value: sourceText(recording.sources))
-                LabeledContent("State", value: stateText(recording.processingState))
-                LabeledContent("ID", value: recording.id.uuidString)
-            }
-
-            if let asset = recording.audioAssets.first {
-                Section("Audio") {
-                    LabeledContent("Original file", value: asset.originalFileName)
-                    LabeledContent("Codec", value: asset.metadata.codec)
-                    LabeledContent("Sample rate", value: sampleRateText(asset.metadata.sampleRate))
-                    LabeledContent("Channels", value: String(asset.metadata.channelCount))
-                }
-
-                Section("Playback") {
-                    if let errorMessage = playback.errorMessage {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack(spacing: 12) {
-                        Button {
-                            playback.togglePlayback()
-                        } label: {
-                            Label(
-                                playback.isPlaying ? "Pause" : "Play",
-                                systemImage: playback.isPlaying ? "pause.fill" : "play.fill"
-                            )
-                        }
-                        .disabled(!playback.isLoaded)
-
-                        Slider(
-                            value: Binding(
-                                get: { playback.position },
-                                set: { playback.seek(to: $0) }
-                            ),
-                            in: 0...max(playback.duration, 0.01)
-                        )
-                        .disabled(!playback.isLoaded)
-
-                        Text("\(durationText(playback.position)) / \(durationText(playback.duration))")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            } else {
-                Section("Audio") {
-                    ContentUnavailableView(
-                        "No Managed Audio",
-                        systemImage: "waveform.slash",
-                        description: Text("This recording predates audio import or has no managed audio resource.")
-                    )
-                }
-            }
-
-            Section("Transcript") {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                recordingHeader
+                playbackSection
                 transcriptSection
+                recordingDetails
             }
+            .frame(maxWidth: 960, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .formStyle(.grouped)
         .navigationTitle(recording.title)
         .onChange(of: recording.id) { _, _ in
             transcriptSearch = ""
@@ -322,62 +288,183 @@ private struct RecordingDetail: View {
         }
     }
 
+    private var recordingHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(recording.title)
+                .font(.title.weight(.semibold))
+                .textSelection(.enabled)
+
+            HStack(spacing: 14) {
+                Label(recording.createdAt.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
+                Label(durationText(recording.duration), systemImage: "clock")
+                Label(sourceText(recording.sources), systemImage: sourceSymbol(recording.sources))
+                Label(stateText(recording.processingState), systemImage: stateSymbol(recording.processingState))
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .labelStyle(.titleAndIcon)
+        }
+    }
+
+    @ViewBuilder
+    private var playbackSection: some View {
+        GroupBox {
+            if recording.audioAssets.isEmpty {
+                ContentUnavailableView(
+                    "No Managed Audio",
+                    systemImage: "waveform.slash",
+                    description: Text("This recording has no managed audio available for playback.")
+                )
+                .frame(minHeight: 110)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let errorMessage = playback.errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button {
+                            playback.togglePlayback()
+                        } label: {
+                            Label(
+                                playback.isPlaying ? "Pause" : "Play",
+                                systemImage: playback.isPlaying ? "pause.fill" : "play.fill"
+                            )
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!playback.isLoaded)
+                        .keyboardShortcut(.space, modifiers: [])
+
+                        Slider(
+                            value: Binding(
+                                get: { playback.position },
+                                set: { playback.seek(to: $0) }
+                            ),
+                            in: 0...max(playback.duration, 0.01)
+                        )
+                        .disabled(!playback.isLoaded)
+                        .accessibilityLabel("Playback position")
+
+                        Text("\(durationText(playback.position)) / \(durationText(playback.duration))")
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: 92, alignment: .trailing)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } label: {
+            Label("Playback", systemImage: "play.circle")
+        }
+    }
+
     @ViewBuilder
     private var transcriptSection: some View {
-        if model.isTranscribing {
-            let progress = model.transcriptionProgress
-            VStack(alignment: .leading, spacing: 8) {
-                Text(transcriptionStageText(progress?.stage))
-                    .font(.headline)
+        GroupBox {
+            if model.isTranscribing {
+                transcriptionProgressView
+            } else if let transcript = model.transcript,
+                      transcript.recordingID == recording.id {
+                VStack(alignment: .leading, spacing: 16) {
+                    transcriptErrors
+
+                    if model.isDiarizing, model.diarizationRecordingID == recording.id {
+                        diarizationProgressView
+                    } else {
+                        transcriptControls(transcript)
+                        transcriptConversation(transcript)
+                        transcriptDetails(transcript)
+                    }
+                }
+                .padding(.vertical, 4)
+            } else {
+                emptyTranscriptView
+            }
+        } label: {
+            Label("Transcript", systemImage: "text.bubble")
+        }
+    }
+
+    private var transcriptionProgressView: some View {
+        let progress = model.transcriptionProgress
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(transcriptionStageText(progress?.stage))
+                        .font(.headline)
+                    Text(transcriptionStageDetail(progress))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if shouldShowDeterminateTranscriptionProgress(progress) {
                 ProgressView(value: progress?.fractionCompleted ?? 0)
-                Text("Audio stays on this Mac while WhisperKit processes it.")
+            }
+
+            HStack {
+                Label("Audio stays on this Mac", systemImage: "lock.shield")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Spacer()
                 Button("Cancel", role: .cancel) {
                     model.cancelTranscription()
                 }
             }
-        } else if let transcript = model.transcript,
-                  transcript.recordingID == recording.id {
-            transcriptErrors
+        }
+        .padding(.vertical, 6)
+    }
 
-            if model.isDiarizing, model.diarizationRecordingID == recording.id {
-                diarizationProgressView
-            } else {
-                transcriptToolbar(transcript)
-                transcriptConversation(transcript)
-                transcriptDetails(transcript)
+    @ViewBuilder
+    private var emptyTranscriptView: some View {
+        VStack(spacing: 14) {
+            ContentUnavailableView {
+                Label(
+                    recording.processingState == .failed ? "Transcription Needs Attention" : "No Transcript Yet",
+                    systemImage: recording.processingState == .failed ? "exclamationmark.bubble" : "text.bubble"
+                )
+            } description: {
+                Text("Create a private, on-device transcript with WhisperKit. The model is prepared locally the first time you use it.")
+            } actions: {
+                Button(recording.processingState == .failed ? "Retry Transcription" : "Transcribe") {
+                    model.beginTranscription()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
             }
-        } else {
+
             if let error = model.transcriptErrorMessage {
                 Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
             }
-
-            Text("Create an on-device transcript with WhisperKit. The model downloads separately the first time you use transcription.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Button(recording.processingState == .failed ? "Retry Transcription" : "Transcribe") {
-                model.beginTranscription()
-            }
-            .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
     }
 
     @ViewBuilder
     private var transcriptErrors: some View {
         if let error = model.transcriptErrorMessage {
             Label(error, systemImage: "exclamationmark.triangle")
+                .font(.callout)
                 .foregroundStyle(.secondary)
         }
         if let error = model.diarizationErrorMessage {
             Label(error, systemImage: "exclamationmark.triangle")
+                .font(.callout)
                 .foregroundStyle(.secondary)
         }
         if let error = model.transcriptEditErrorMessage {
             HStack(alignment: .firstTextBaseline) {
                 Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button("Dismiss") {
@@ -390,31 +477,52 @@ private struct RecordingDetail: View {
 
     private var diarizationProgressView: some View {
         let progress = model.diarizationProgress
-        return VStack(alignment: .leading, spacing: 8) {
-            Text(diarizationStageText(progress?.stage))
-                .font(.headline)
-            ProgressView(value: progress?.fractionCompleted ?? 0)
-            Text("Speaker identification runs locally with SpeakerKit.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Button("Cancel Speaker Identification", role: .cancel) {
-                model.cancelDiarization()
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(diarizationStageText(progress?.stage))
+                        .font(.headline)
+                    Text(diarizationStageDetail(progress?.stage))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let progress, progress.fractionCompleted > 0, progress.fractionCompleted < 1 {
+                ProgressView(value: progress.fractionCompleted)
+            }
+
+            HStack {
+                Label("Speaker identification stays on this Mac", systemImage: "lock.shield")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Cancel", role: .cancel) {
+                    model.cancelDiarization()
+                }
             }
         }
+        .padding(.vertical, 6)
     }
 
-    private func transcriptToolbar(_ transcript: Transcript) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+    private func transcriptControls(_ transcript: Transcript) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
                 Label(transcript.languageCode ?? "Auto", systemImage: "captions.bubble")
-                    .foregroundStyle(.secondary)
 
                 if transcript.diarizationMetadata != nil {
                     Label(
                         "\(transcript.speakers.count) speaker\(transcript.speakers.count == 1 ? "" : "s")",
                         systemImage: "person.2"
                     )
-                    .foregroundStyle(.secondary)
+                }
+
+                if transcript.hasManualChanges {
+                    Label("Edited", systemImage: "pencil.line")
                 }
 
                 Spacer()
@@ -422,46 +530,52 @@ private struct RecordingDetail: View {
                 Button {
                     copyTranscript(transcript)
                 } label: {
-                    Label("Copy Transcript", systemImage: "doc.on.doc")
+                    Label("Copy", systemImage: "doc.on.doc")
                 }
                 .disabled(transcript.text.isEmpty)
+                .help("Copy Transcript")
             }
-            .font(.caption)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+
+            TextField("Search Transcript", text: $transcriptSearch)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Search transcript")
 
             HStack(spacing: 8) {
-                TextField("Search transcript", text: $transcriptSearch)
-                    .textFieldStyle(.roundedBorder)
-
-                if !transcriptSearch.isEmpty {
-                    Button {
-                        transcriptSearch = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Clear transcript search")
-                }
-            }
-
-            HStack {
-                Button(transcript.diarizationMetadata == nil ? "Identify Speakers" : "Identify Speakers Again") {
+                Button {
                     if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
                         pendingReplacementAction = .rediariize
                     } else {
                         model.beginDiarization()
                     }
+                } label: {
+                    Label(
+                        transcript.diarizationMetadata == nil ? "Identify Speakers" : "Identify Again",
+                        systemImage: "person.2.wave.2"
+                    )
                 }
                 .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
 
-                Button("Transcribe Again") {
+                Button {
                     if transcript.hasManualChanges {
                         pendingReplacementAction = .retranscribe
                     } else {
                         model.beginTranscription()
                     }
+                } label: {
+                    Label("Transcribe Again", systemImage: "arrow.clockwise")
                 }
                 .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
+
+                Spacer()
+
+                if !transcriptSearch.isEmpty {
+                    Button("Clear Search") {
+                        transcriptSearch = ""
+                    }
+                    .buttonStyle(.link)
+                }
             }
         }
     }
@@ -474,14 +588,19 @@ private struct RecordingDetail: View {
             ContentUnavailableView(
                 "Empty Transcript",
                 systemImage: "text.bubble",
-                description: Text("WhisperKit produced no transcript segments for this recording.")
+                description: Text("WhisperKit finished without readable transcript segments.")
             )
         } else if segments.isEmpty {
             ContentUnavailableView.search(text: transcriptSearch)
         } else {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(segments) { segment in
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
                     transcriptTurn(segment, in: transcript)
+                        .padding(.vertical, 14)
+
+                    if index < segments.count - 1 {
+                        Divider()
+                    }
                 }
             }
         }
@@ -502,7 +621,7 @@ private struct RecordingDetail: View {
                     Text("Transcript")
                         .font(.callout.weight(.semibold))
                 } else {
-                    Text("Unassigned speaker")
+                    Text("Unassigned Speaker")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -518,12 +637,13 @@ private struct RecordingDetail: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .disabled(!playback.isLoaded)
-                .help("Jump audio to this moment")
+                .help("Play from \(durationText(segment.startTime))")
 
                 Button {
                     editor = .segment(segment)
                 } label: {
-                    Image(systemName: "pencil")
+                    Label("Edit", systemImage: "pencil")
+                        .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -532,37 +652,66 @@ private struct RecordingDetail: View {
             }
 
             Text(segment.displayText)
+                .font(.body)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if segment.editedText != nil {
-                Label("Edited transcript text", systemImage: "pencil.line")
+                Label("Edited", systemImage: "pencil.line")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(12)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func transcriptDetails(_ transcript: Transcript) -> some View {
-        DisclosureGroup("Transcript details") {
-            VStack(alignment: .leading, spacing: 6) {
+        DisclosureGroup("Transcript Details") {
+            VStack(alignment: .leading, spacing: 8) {
                 LabeledContent("Language", value: transcript.languageCode ?? "Auto-detected")
                 LabeledContent("Model", value: transcript.metadata.modelID)
                 LabeledContent("Engine", value: "\(transcript.metadata.engine) \(transcript.metadata.engineVersion)")
 
                 if let diarization = transcript.diarizationMetadata {
+                    Divider()
                     LabeledContent("Speakers", value: String(transcript.speakers.count))
-                    LabeledContent(
-                        "Speaker engine",
-                        value: "\(diarization.engine) \(diarization.engineVersion)"
-                    )
-                    LabeledContent("Speaker model", value: diarization.modelID)
+                    LabeledContent("Speaker Engine", value: "\(diarization.engine) \(diarization.engineVersion)")
+                    LabeledContent("Speaker Model", value: diarization.modelID)
                 }
             }
-            .padding(.top, 6)
+            .font(.callout)
+            .padding(.top, 8)
         }
+    }
+
+    private var recordingDetails: some View {
+        DisclosureGroup("Recording Details") {
+            VStack(alignment: .leading, spacing: 8) {
+                LabeledContent("Created") {
+                    Text(recording.createdAt, format: .dateTime.year().month().day().hour().minute().second())
+                }
+                LabeledContent("Source", value: sourceText(recording.sources))
+                LabeledContent("Duration", value: durationText(recording.duration))
+                LabeledContent("Status", value: stateText(recording.processingState))
+
+                if let asset = recording.audioAssets.first {
+                    Divider()
+                    LabeledContent("Original File", value: asset.originalFileName)
+                    LabeledContent("Codec", value: asset.metadata.codec)
+                    LabeledContent("Sample Rate", value: sampleRateText(asset.metadata.sampleRate))
+                    LabeledContent("Channels", value: String(asset.metadata.channelCount))
+                }
+
+                Divider()
+                LabeledContent("Recording ID") {
+                    Text(recording.id.uuidString)
+                        .textSelection(.enabled)
+                        .monospaced()
+                }
+            }
+            .font(.callout)
+            .padding(.top, 8)
+        }
+        .foregroundStyle(.secondary)
     }
 
     private func filteredSegments(in transcript: Transcript) -> [TranscriptSegment] {
@@ -578,14 +727,13 @@ private struct RecordingDetail: View {
     private func speakerEditorState(speakerID: Speaker.ID, transcript: Transcript) -> TranscriptEditorState? {
         guard let speaker = transcript.speakers.first(where: { $0.id == speakerID }) else { return nil }
         let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) ?? 0
-        let fallback = "Speaker \(index + 1)"
-        return .speaker(speaker, fallbackName: fallback)
+        return .speaker(speaker, fallbackName: "Speaker \(index + 1)")
     }
 
     private func speakerLabel(for segment: TranscriptSegment, in transcript: Transcript) -> String {
         guard let speakerID = segment.speakerID,
               let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) else {
-            return transcript.speakers.isEmpty ? "Transcript" : "Unassigned speaker"
+            return transcript.speakers.isEmpty ? "Transcript" : "Unassigned Speaker"
         }
 
         let speaker = transcript.speakers[index]
@@ -609,10 +757,8 @@ private enum TranscriptReplacementAction: String, Identifiable {
 
     var title: String {
         switch self {
-        case .retranscribe:
-            "Replace Manual Transcript Changes?"
-        case .rediariize:
-            "Replace Speaker Names?"
+        case .retranscribe: "Replace Manual Transcript Changes?"
+        case .rediariize: "Replace Speaker Names?"
         }
     }
 
@@ -627,10 +773,8 @@ private enum TranscriptReplacementAction: String, Identifiable {
 
     var confirmLabel: String {
         switch self {
-        case .retranscribe:
-            "Transcribe Again"
-        case .rediariize:
-            "Identify Speakers Again"
+        case .retranscribe: "Transcribe Again"
+        case .rediariize: "Identify Speakers Again"
         }
     }
 }
@@ -665,7 +809,7 @@ private struct TranscriptEditorState: Identifiable {
             kind: .segment(segment.id),
             title: "Edit Transcript",
             initialValue: segment.displayText,
-            prompt: "Correct the readable transcript without replacing WhisperKit's original timing evidence.",
+            prompt: "Correct the readable transcript while preserving WhisperKit's original timing evidence.",
             canRestore: segment.editedText != nil,
             isMultiline: true
         )
@@ -693,20 +837,22 @@ private struct TranscriptEditorSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(state.title)
-                .font(.title2.weight(.semibold))
-
-            Text(state.prompt)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(state.title)
+                    .font(.title2.weight(.semibold))
+                Text(state.prompt)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
 
             if state.isMultiline {
                 TextEditor(text: $value)
                     .font(.body)
-                    .frame(minHeight: 150)
+                    .frame(minHeight: 160)
                     .padding(6)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             } else {
-                TextField("Speaker name", text: $value)
+                TextField("Speaker Name", text: $value)
                     .textFieldStyle(.roundedBorder)
             }
 
@@ -731,28 +877,68 @@ private struct TranscriptEditorSheet: View {
                 .disabled(state.isMultiline && value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(20)
-        .frame(minWidth: 480, minHeight: state.isMultiline ? 300 : 180)
+        .padding(24)
+        .frame(minWidth: 500, minHeight: state.isMultiline ? 320 : 190)
     }
 }
 
 private func transcriptionStageText(_ stage: TranscriptionStage?) -> String {
     switch stage {
-    case .preparingModel: "Preparing Whisper Model…"
-    case .loadingModel: "Loading Whisper Model…"
-    case .transcribing: "Transcribing…"
-    case .saving: "Saving Transcript…"
-    case nil: "Preparing Transcription…"
+    case .preparingModel: "Preparing Whisper Model"
+    case .loadingModel: "Loading Whisper Model"
+    case .transcribing: "Transcribing Audio"
+    case .saving: "Saving Transcript"
+    case nil: "Preparing Transcription"
+    }
+}
+
+private func transcriptionStageDetail(_ progress: TranscriptionProgressSnapshot?) -> String {
+    switch progress?.stage {
+    case .preparingModel:
+        "Bardo is preparing the local Whisper resources. The first run can take longer while model files are downloaded."
+    case .loadingModel:
+        "WhisperKit is loading and prewarming the model on this Mac. This stage may take a moment and doesn't expose a reliable percentage."
+    case .transcribing:
+        "Bardo is processing the recording locally. Progress advances as audio chunks finish."
+    case .saving:
+        "The finished transcript is being saved to your local Bardo library."
+    case nil:
+        "Bardo is getting the local transcription pipeline ready."
+    }
+}
+
+private func shouldShowDeterminateTranscriptionProgress(_ progress: TranscriptionProgressSnapshot?) -> Bool {
+    guard let progress else { return false }
+    switch progress.stage {
+    case .preparingModel, .transcribing:
+        return progress.fractionCompleted > 0 && progress.fractionCompleted < 1
+    case .loadingModel, .saving:
+        return false
     }
 }
 
 private func diarizationStageText(_ stage: DiarizationStage?) -> String {
     switch stage {
-    case .preparingModel: "Preparing Speaker Model…"
-    case .loadingModel: "Loading Speaker Model…"
-    case .diarizing: "Identifying Speakers…"
-    case .saving: "Saving Speaker Labels…"
-    case nil: "Preparing Speaker Identification…"
+    case .preparingModel: "Preparing Speaker Model"
+    case .loadingModel: "Loading Speaker Model"
+    case .diarizing: "Identifying Speakers"
+    case .saving: "Saving Speaker Labels"
+    case nil: "Preparing Speaker Identification"
+    }
+}
+
+private func diarizationStageDetail(_ stage: DiarizationStage?) -> String {
+    switch stage {
+    case .preparingModel:
+        "Bardo is preparing SpeakerKit resources locally. The first run can take longer while model files are downloaded."
+    case .loadingModel:
+        "SpeakerKit is loading the local diarization pipeline."
+    case .diarizing:
+        "Bardo is analyzing the full recording to identify distinct voices."
+    case .saving:
+        "Speaker labels are being written into the existing transcript."
+    case nil:
+        "Bardo is getting the local speaker-identification pipeline ready."
     }
 }
 
@@ -787,18 +973,43 @@ private func sourceText(_ sources: Set<AudioSource>) -> String {
         .map { source in
             switch source {
             case .microphone: "Microphone"
-            case .systemAudio: "System audio"
-            case .importedFile: "Imported file"
+            case .systemAudio: "System Audio"
+            case .importedFile: "Imported File"
             }
         }
         .joined(separator: " + ")
 }
 
+private func sourceSymbol(_ sources: Set<AudioSource>) -> String {
+    if sources.contains(.systemAudio), sources.contains(.microphone) {
+        return "person.wave.2"
+    }
+    if sources.contains(.systemAudio) {
+        return "display"
+    }
+    if sources.contains(.microphone) {
+        return "mic"
+    }
+    if sources.contains(.importedFile) {
+        return "waveform.badge.plus"
+    }
+    return "waveform"
+}
+
 private func stateText(_ state: ProcessingState) -> String {
     switch state {
-    case .pending: "Pending"
+    case .pending: "Ready"
     case .processing: "Processing"
-    case .completed: "Completed"
-    case .failed: "Failed"
+    case .completed: "Transcribed"
+    case .failed: "Needs Attention"
+    }
+}
+
+private func stateSymbol(_ state: ProcessingState) -> String {
+    switch state {
+    case .pending: "circle"
+    case .processing: "clock.arrow.circlepath"
+    case .completed: "checkmark.circle"
+    case .failed: "exclamationmark.triangle"
     }
 }
