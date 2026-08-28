@@ -4,10 +4,14 @@ import SwiftUI
 struct TranscriptContentView: View {
     let recording: Recording
     @ObservedObject var model: LibraryViewModel
-    let playback: AudioPlaybackController
+    @ObservedObject var playback: AudioPlaybackController
 
     @Binding var searchText: String
     @Binding var editor: TranscriptEditorState?
+
+    let onPlaybackBlockChange: (TranscriptReadingBlock.ID?) -> Void
+
+    @State private var activeBlockID: TranscriptReadingBlock.ID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -112,73 +116,76 @@ struct TranscriptContentView: View {
 
     @ViewBuilder
     private func transcriptConversation(_ transcript: Transcript) -> some View {
-        let segments = filteredSegments(in: transcript)
+        let allBlocks = TranscriptReadingBlockBuilder.blocks(from: transcript.segments)
+        let blocks = filteredBlocks(allBlocks, in: transcript)
 
-        if transcript.segments.isEmpty {
+        if transcript.segments.isEmpty || allBlocks.isEmpty {
             ContentUnavailableView(
                 "No Speech Found",
                 systemImage: "text.bubble",
                 description: Text("Bardo processed the recording but didn’t find readable speech.")
             )
             .frame(maxWidth: .infinity, minHeight: 220)
-        } else if segments.isEmpty {
+        } else if blocks.isEmpty {
             ContentUnavailableView.search(text: searchText)
                 .frame(maxWidth: .infinity, minHeight: 220)
         } else {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
-                    let currentSpeaker = speakerLabel(for: segment, in: transcript)
-                    let previousSpeaker = index > 0
-                        ? speakerLabel(for: segments[index - 1], in: transcript)
-                        : nil
-                    let startsSpeakerTurn = currentSpeaker != previousSpeaker
-
-                    if !transcript.speakers.isEmpty, startsSpeakerTurn {
-                        if index > 0 {
-                            Divider()
-                                .padding(.vertical, 22)
-                        }
-                        speakerHeader(for: segment, in: transcript)
-                            .padding(.bottom, 8)
-                    }
-
-                    TranscriptSegmentRow(
-                        segment: segment,
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(blocks) { block in
+                    TranscriptReadingBlockRow(
+                        block: block,
+                        speakerName: transcript.speakers.isEmpty ? nil : speakerLabel(for: block, in: transcript),
+                        canRenameSpeaker: canRenameSpeaker(for: block, in: transcript),
                         playback: playback,
+                        isActive: activeBlockID == block.id,
                         canEdit: !model.isTranscribing && !model.isDiarizing,
-                        onEdit: { editor = .segment(segment) }
+                        onRenameSpeaker: {
+                            guard let speakerID = block.speakerID else { return }
+                            editor = speakerEditorState(speakerID: speakerID, transcript: transcript)
+                        },
+                        onEditSegment: { segment in
+                            editor = .segment(segment)
+                        }
                     )
-                    .padding(.bottom, 12)
+                    .id(block.id)
                 }
             }
-        }
-    }
+            .background(alignment: .topLeading) {
+                TranscriptPlaybackTracker(
+                    timeline: playback.timeline,
+                    blocks: allBlocks,
+                    isPlaying: playback.isPlaying
+                ) { blockID, shouldFollow in
+                    if activeBlockID != blockID {
+                        activeBlockID = blockID
+                    }
 
-    @ViewBuilder
-    private func speakerHeader(for segment: TranscriptSegment, in transcript: Transcript) -> some View {
-        if let speakerID = segment.speakerID,
-           transcript.speakers.contains(where: { $0.id == speakerID }) {
-            Button(speakerLabel(for: segment, in: transcript)) {
-                editor = speakerEditorState(speakerID: speakerID, transcript: transcript)
+                    if shouldFollow, let blockID {
+                        onPlaybackBlockChange(blockID)
+                    }
+                }
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
-            .font(.headline)
-            .help("Rename this speaker")
-        } else {
-            Text(speakerLabel(for: segment, in: transcript))
-                .font(.headline)
-                .foregroundStyle(transcript.speakers.isEmpty ? .primary : .secondary)
         }
     }
 
-    private func filteredSegments(in transcript: Transcript) -> [TranscriptSegment] {
+    private func filteredBlocks(
+        _ blocks: [TranscriptReadingBlock],
+        in transcript: Transcript
+    ) -> [TranscriptReadingBlock] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return transcript.segments }
+        guard !query.isEmpty else { return blocks }
 
-        return transcript.segments.filter { segment in
-            segment.displayText.localizedCaseInsensitiveContains(query)
-                || speakerLabel(for: segment, in: transcript).localizedCaseInsensitiveContains(query)
+        return blocks.filter { block in
+            block.text.localizedCaseInsensitiveContains(query)
+                || speakerLabel(for: block, in: transcript).localizedCaseInsensitiveContains(query)
         }
+    }
+
+    private func canRenameSpeaker(for block: TranscriptReadingBlock, in transcript: Transcript) -> Bool {
+        guard let speakerID = block.speakerID else { return false }
+        return transcript.speakers.contains { $0.id == speakerID }
     }
 
     private func speakerEditorState(speakerID: Speaker.ID, transcript: Transcript) -> TranscriptEditorState? {
@@ -187,8 +194,8 @@ struct TranscriptContentView: View {
         return .speaker(speaker, fallbackName: "Speaker \(index + 1)")
     }
 
-    private func speakerLabel(for segment: TranscriptSegment, in transcript: Transcript) -> String {
-        guard let speakerID = segment.speakerID,
+    private func speakerLabel(for block: TranscriptReadingBlock, in transcript: Transcript) -> String {
+        guard let speakerID = block.speakerID,
               let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) else {
             return transcript.speakers.isEmpty ? "Transcript" : "Unassigned Speaker"
         }
@@ -201,71 +208,204 @@ struct TranscriptContentView: View {
     }
 }
 
-private struct TranscriptSegmentRow: View {
-    let segment: TranscriptSegment
+private struct TranscriptReadingBlockRow: View {
+    let block: TranscriptReadingBlock
+    let speakerName: String?
+    let canRenameSpeaker: Bool
     let playback: AudioPlaybackController
+    let isActive: Bool
     let canEdit: Bool
-    let onEdit: () -> Void
+    let onRenameSpeaker: () -> Void
+    let onEditSegment: (TranscriptSegment) -> Void
 
     @State private var isHovering = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Button {
-                playback.seek(to: segment.startTime)
-            } label: {
-                Text(LibraryFormatting.duration(segment.startTime))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, alignment: .leading)
+        HStack(alignment: .top, spacing: 16) {
+            Button(action: playFromBlock) {
+                VStack(spacing: 5) {
+                    Image(systemName: isActive && playback.isPlaying ? "waveform" : "play.fill")
+                        .font(.caption2.weight(.semibold))
+                        .frame(height: 12)
+                        .symbolEffect(.variableColor.iterative, isActive: isActive && playback.isPlaying)
+
+                    Text(LibraryFormatting.duration(block.startTime))
+                        .font(.caption.monospacedDigit())
+                }
+                .foregroundStyle(isActive ? .primary : .secondary)
+                .frame(width: 46, alignment: .center)
+                .padding(.top, speakerName == nil ? 2 : 1)
             }
             .buttonStyle(.plain)
             .disabled(!playback.isLoaded)
-            .help("Play from \(LibraryFormatting.duration(segment.startTime))")
+            .help("Play From Here")
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text(segment.displayText)
+            VStack(alignment: .leading, spacing: 7) {
+                if let speakerName {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if canRenameSpeaker {
+                            Button(speakerName, action: onRenameSpeaker)
+                                .buttonStyle(.plain)
+                                .font(.subheadline.weight(.semibold))
+                                .help("Rename this speaker")
+                        } else {
+                            Text(speakerName)
+                                .font(.subheadline.weight(.semibold))
+                        }
+
+                        Spacer(minLength: 12)
+                        blockEditControl
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 8) {
+                        Spacer(minLength: 0)
+                        blockEditControl
+                    }
+                    .frame(height: 0)
+                }
+
+                Text(block.text)
                     .font(.body)
-                    .lineSpacing(3)
+                    .lineSpacing(4)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if segment.editedText != nil {
+                if block.hasManualEdits {
                     Label("Edited", systemImage: "pencil.line")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
             }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isActive ? Color.accentColor.opacity(0.075) : Color.clear)
+        }
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(Color.accentColor)
+                .frame(width: 3)
+                .padding(.vertical, 12)
+                .opacity(isActive ? 1 : 0)
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .animation(.spring(response: 0.28, dampingFraction: 1), value: isActive)
+        .contextMenu {
+            Button("Play From Here", action: playFromBlock)
+                .disabled(!playback.isLoaded)
 
-            Button(action: onEdit) {
+            if canEdit {
+                editActions
+            }
+
+            Divider()
+
+            Button("Copy Block") {
+                NSPasteboard.general.clearContents()
+                _ = NSPasteboard.general.setString(block.text, forType: .string)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var blockEditControl: some View {
+        if block.segments.count == 1, let segment = block.segments.first {
+            Button {
+                onEditSegment(segment)
+            } label: {
                 Image(systemName: "pencil")
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .opacity(isHovering || segment.editedText != nil ? 1 : 0.18)
+            .opacity(isHovering || block.hasManualEdits ? 1 : 0.16)
             .disabled(!canEdit)
             .help("Edit transcript text")
-        }
-        .contentShape(Rectangle())
-        .onHover { isHovering = $0 }
-        .contextMenu {
-            Button("Play From Here") {
-                playback.seek(to: segment.startTime)
-                _ = playback.play()
+        } else {
+            Menu {
+                editActions
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 24, height: 24)
             }
-            .disabled(!playback.isLoaded)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .foregroundStyle(.secondary)
+            .opacity(isHovering || block.hasManualEdits ? 1 : 0.16)
+            .disabled(!canEdit)
+            .help("Edit Transcript…")
+        }
+    }
 
-            Button("Edit Transcript…", action: onEdit)
-                .disabled(!canEdit)
-
-            Divider()
-
-            Button("Copy Segment") {
-                NSPasteboard.general.clearContents()
-                _ = NSPasteboard.general.setString(segment.displayText, forType: .string)
+    @ViewBuilder
+    private var editActions: some View {
+        if block.segments.count == 1, let segment = block.segments.first {
+            Button("Edit Transcript…") {
+                onEditSegment(segment)
+            }
+        } else {
+            Section("Edit Segment") {
+                ForEach(block.segments) { segment in
+                    Button(segmentMenuTitle(segment)) {
+                        onEditSegment(segment)
+                    }
+                }
             }
         }
+    }
+
+    private func playFromBlock() {
+        playback.seek(to: block.startTime)
+        if !playback.isPlaying {
+            _ = playback.play()
+        }
+    }
+
+    private func segmentMenuTitle(_ segment: TranscriptSegment) -> String {
+        let text = segment.displayText
+        let limit = 44
+        let preview = text.count > limit ? String(text.prefix(limit)) + "…" : text
+        return "\(LibraryFormatting.duration(segment.startTime)) · \(preview)"
+    }
+}
+
+private struct TranscriptPlaybackTracker: View {
+    @ObservedObject var timeline: AudioPlaybackTimeline
+    let blocks: [TranscriptReadingBlock]
+    let isPlaying: Bool
+    let onActiveBlockChange: (TranscriptReadingBlock.ID?, Bool) -> Void
+
+    @State private var lastReportedID: TranscriptReadingBlock.ID?
+
+    var body: some View {
+        Color.clear
+            .onAppear {
+                report(position: timeline.position, shouldFollow: false, force: true)
+            }
+            .onChange(of: timeline.position) { _, position in
+                report(position: position, shouldFollow: isPlaying)
+            }
+            .onChange(of: isPlaying) { _, nowPlaying in
+                guard nowPlaying else { return }
+                report(position: timeline.position, shouldFollow: true, force: true)
+            }
+            .onChange(of: blocks.map(\.id)) { _, _ in
+                report(position: timeline.position, shouldFollow: false, force: true)
+            }
+    }
+
+    private func report(
+        position: TimeInterval,
+        shouldFollow: Bool,
+        force: Bool = false
+    ) {
+        let blockID = TranscriptPlaybackMapping.activeBlockID(at: position, in: blocks)
+        guard force || blockID != lastReportedID else { return }
+        lastReportedID = blockID
+        onActiveBlockChange(blockID, shouldFollow)
     }
 }
 
