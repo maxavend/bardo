@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 @testable import Bardo
@@ -59,6 +60,40 @@ final class AudioPlaybackControllerTests: XCTestCase {
         }
     }
 
+    func testTimelineTicksDoNotRepublishEntirePlaybackController() async throws {
+        let url = directoryURL.appendingPathComponent("StableToolbar.wav")
+        try AudioTestFixture.makeWAV(at: url, duration: 1.2)
+
+        let controller = await MainActor.run { AudioPlaybackController() }
+        let counter = PublicationCounter()
+        let cancellable = await MainActor.run {
+            controller.objectWillChange.sink {
+                counter.increment()
+            }
+        }
+        defer { cancellable.cancel() }
+
+        await MainActor.run {
+            XCTAssertTrue(controller.load(url: url))
+            XCTAssertTrue(controller.play())
+        }
+        counter.reset()
+
+        let startingPosition = await MainActor.run { controller.timeline.position }
+        try await Task.sleep(for: .milliseconds(450))
+        let endingPosition = await MainActor.run { controller.timeline.position }
+        let publications = counter.value
+
+        XCTAssertGreaterThan(endingPosition, startingPosition + 0.2)
+        XCTAssertLessThanOrEqual(
+            publications,
+            1,
+            "10 Hz timeline progress must not invalidate the whole detail/toolbar hierarchy"
+        )
+
+        await MainActor.run { controller.pause() }
+    }
+
     func testLoadingAnotherRecordingStopsPreviousAndResetsPlaybackState() async throws {
         let firstURL = directoryURL.appendingPathComponent("First.wav")
         let secondURL = directoryURL.appendingPathComponent("Second.wav")
@@ -96,5 +131,28 @@ final class AudioPlaybackControllerTests: XCTestCase {
             XCTAssertFalse(controller.isLoaded)
             XCTAssertNotNil(controller.errorMessage)
         }
+    }
+}
+
+private final class PublicationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func increment() {
+        lock.lock()
+        storage += 1
+        lock.unlock()
+    }
+
+    func reset() {
+        lock.lock()
+        storage = 0
+        lock.unlock()
     }
 }
