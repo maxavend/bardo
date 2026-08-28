@@ -39,8 +39,6 @@ struct LibraryView: View {
         }
         .dropDestination(for: URL.self) { urls, _ in
             guard !model.isImporting,
-                  !model.isTranscribing,
-                  !model.isDiarizing,
                   !urls.isEmpty else {
                 return false
             }
@@ -59,30 +57,22 @@ struct LibraryView: View {
             Text(model.importErrorMessage ?? "The audio could not be imported.")
         }
         .onDisappear {
-            model.cancelTranscription()
-            model.cancelDiarization()
+            // Transcription and diarization are recording-scoped jobs, not view-scoped jobs.
+            // Navigating or rebuilding the split view must never cancel important processing.
             model.stopPlayback()
         }
     }
 
     @ToolbarContentBuilder
     private var sidebarToolbar: some ToolbarContent {
-        ToolbarItemGroup {
+        ToolbarItem {
             Button {
                 isFileImporterPresented = true
             } label: {
-                Label("Import Audio", systemImage: "plus")
+                Label("Import Audio", systemImage: "square.and.arrow.down")
             }
-            .disabled(model.isImporting || model.isTranscribing || model.isDiarizing)
+            .disabled(model.isImporting)
             .help("Import audio")
-
-            Button {
-                Task { await model.reload() }
-            } label: {
-                Label("Reload Library", systemImage: "arrow.clockwise")
-            }
-            .disabled(model.isLoading || model.isImporting || model.isTranscribing || model.isDiarizing)
-            .help("Reload library")
         }
     }
 
