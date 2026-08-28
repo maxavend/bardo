@@ -13,6 +13,16 @@ struct DiarizationProgressSnapshot: Equatable, Sendable {
     let fractionCompleted: Double
 }
 
+enum DiarizationSetupStage: String, Sendable {
+    case downloading
+    case optimizingForMac
+}
+
+struct DiarizationSetupProgressSnapshot: Equatable, Sendable {
+    let stage: DiarizationSetupStage
+    let fractionCompleted: Double
+}
+
 protocol RecordingDiarizing: Sendable {
     func diarize(
         recording: Recording,
@@ -122,7 +132,9 @@ enum TranscriptSpeakerAligner {
             accumulateScores(
                 startTime: segment.startTime,
                 endTime: segment.endTime,
-                intervals: intervals,
+                intervals: validIntervals(intervals)
+                    ? intervals
+                    : [],
                 into: &scores
             )
         }
@@ -134,6 +146,10 @@ enum TranscriptSpeakerAligner {
                 return $0.value < $1.value
             }?
             .key
+    }
+
+    private static func validIntervals(_ intervals: [DiarizationInterval]) -> Bool {
+        !intervals.isEmpty
     }
 
     private static func accumulateScores(
@@ -162,16 +178,10 @@ enum TranscriptSpeakerAligner {
 }
 
 actor SpeakerDiarizationService: RecordingDiarizing {
-    static let engineVersion = "1.0.0"
+    static let engineVersion = "1.1.0"
     static let modelID = "pyannote-v3+plda-v4"
 
-    private let modelRoot: URL
-
-    init(modelRoot: URL) {
-        self.modelRoot = modelRoot
-    }
-
-    static func live() throws -> SpeakerDiarizationService {
+    private static let sharedServiceResult: Result<SpeakerDiarizationService, Error> = Result {
         let applicationSupport = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -183,6 +193,45 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             .appendingPathComponent("Models", isDirectory: true)
             .appendingPathComponent("SpeakerKit", isDirectory: true)
         return SpeakerDiarizationService(modelRoot: root)
+    }
+
+    private let modelRoot: URL
+    private var loadedDiarizer: SpeakerKitDiarizer?
+
+    init(modelRoot: URL) {
+        self.modelRoot = modelRoot
+    }
+
+    static func live() throws -> SpeakerDiarizationService {
+        try sharedServiceResult.get()
+    }
+
+    /// Installs and loads speaker-identification models during Bardo's first-run setup.
+    /// The same manager is retained for later Identify Speakers actions, avoiding another
+    /// download/load cycle after the user was already told setup was complete.
+    func prepareForUse(
+        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void
+    ) async throws {
+        try ensureModelDirectory()
+        let diarizer = engine()
+
+        progress(.init(stage: .downloading, fractionCompleted: 0))
+        let downloadProgressHandler: @Sendable (Progress) -> Void = { downloadProgress in
+            progress(
+                .init(
+                    stage: .downloading,
+                    fractionCompleted: Self.clamped(downloadProgress.fractionCompleted)
+                )
+            )
+        }
+        let downloadModels: ((@Sendable (Progress) -> Void)?) async throws -> Void =
+            diarizer.downloadModels(progressCallback:)
+        try await downloadModels(downloadProgressHandler)
+        progress(.init(stage: .downloading, fractionCompleted: 1))
+
+        progress(.init(stage: .optimizingForMac, fractionCompleted: 0))
+        try await diarizer.loadModels()
+        progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
     }
 
     func diarize(
@@ -197,14 +246,65 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             throw RecordingDiarizationError.invalidDuration
         }
 
-        try FileManager.default.createDirectory(
-            at: modelRoot,
-            withIntermediateDirectories: true
-        )
+        try ensureModelDirectory()
+        let diarizer = engine()
 
-        // Build the public model manager directly instead of letting SpeakerKit's initializer
-        // perform an implicit download. `download: true` is required by PyannoteModelLoader for
-        // a clean install to fall through from local cache lookup to the network.
+        progress(.init(stage: .preparingModel, fractionCompleted: 0))
+        let downloadProgressHandler: @Sendable (Progress) -> Void = { downloadProgress in
+            progress(
+                .init(
+                    stage: .preparingModel,
+                    fractionCompleted: Self.clamped(downloadProgress.fractionCompleted)
+                )
+            )
+        }
+        let downloadModels: ((@Sendable (Progress) -> Void)?) async throws -> Void =
+            diarizer.downloadModels(progressCallback:)
+        try await downloadModels(downloadProgressHandler)
+        try Task.checkCancellation()
+        progress(.init(stage: .preparingModel, fractionCompleted: 1))
+
+        progress(.init(stage: .loadingModel, fractionCompleted: 0))
+        try await diarizer.loadModels()
+        try Task.checkCancellation()
+        progress(.init(stage: .loadingModel, fractionCompleted: 1))
+
+        progress(.init(stage: .diarizing, fractionCompleted: 0))
+        let result = try await runSpeakerKitDiarization(
+            diarizer: diarizer,
+            audioURL: audioURL,
+            duration: duration,
+            progress: progress
+        )
+        try Task.checkCancellation()
+        progress(.init(stage: .diarizing, fractionCompleted: 1))
+
+        let intervals = result.segments.compactMap { segment -> DiarizationInterval? in
+            guard let speakerIndex = segment.speaker.speakerId else { return nil }
+            return DiarizationInterval(
+                speakerIndex: speakerIndex,
+                startTime: TimeInterval(segment.startTime),
+                endTime: TimeInterval(segment.endTime)
+            )
+        }
+
+        return try TranscriptSpeakerAligner.applying(
+            intervals: intervals,
+            to: transcript,
+            metadata: DiarizationMetadata(
+                engine: "SpeakerKit",
+                engineVersion: Self.engineVersion,
+                modelID: Self.modelID
+            )
+        )
+    }
+
+    private func engine() -> SpeakerKitDiarizer {
+        if let loadedDiarizer { return loadedDiarizer }
+
+        // `download: true` lets the loader resolve a clean install while still hitting the
+        // local model cache on subsequent calls. Keeping this manager alive preserves its
+        // loaded Core ML state instead of rebuilding it for every speaker-identification run.
         let config = PyannoteConfig(
             downloadBase: modelRoot.path,
             download: true,
@@ -212,67 +312,15 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             verbose: false
         )
         let diarizer = SpeakerKitDiarizer.pyannote(config: config)
+        loadedDiarizer = diarizer
+        return diarizer
+    }
 
-        do {
-            progress(.init(stage: .preparingModel, fractionCompleted: 0))
-            let downloadProgressHandler: @Sendable (Progress) -> Void = { downloadProgress in
-                progress(
-                    .init(
-                        stage: .preparingModel,
-                        fractionCompleted: Self.clamped(downloadProgress.fractionCompleted)
-                    )
-                )
-            }
-            let downloadModels: ((@Sendable (Progress) -> Void)?) async throws -> Void =
-                diarizer.downloadModels(progressCallback:)
-            try await downloadModels(downloadProgressHandler)
-            try Task.checkCancellation()
-            progress(.init(stage: .preparingModel, fractionCompleted: 1))
-
-            progress(.init(stage: .loadingModel, fractionCompleted: 0))
-            try await diarizer.loadModels()
-            try Task.checkCancellation()
-            progress(.init(stage: .loadingModel, fractionCompleted: 1))
-
-            progress(.init(stage: .diarizing, fractionCompleted: 0))
-            // SpeakerKit 1.0.0's public diarization API accepts one complete 16 kHz mono
-            // Float array. Keep that allocation scoped to inference so it can be released
-            // before transcript alignment and persistence; do not create another full copy here.
-            let result = try await runSpeakerKitDiarization(
-                diarizer: diarizer,
-                audioURL: audioURL,
-                duration: duration,
-                progress: progress
-            )
-            try Task.checkCancellation()
-            progress(.init(stage: .diarizing, fractionCompleted: 1))
-
-            let intervals = result.segments.compactMap { segment -> DiarizationInterval? in
-                guard let speakerIndex = segment.speaker.speakerId else { return nil }
-                return DiarizationInterval(
-                    speakerIndex: speakerIndex,
-                    startTime: TimeInterval(segment.startTime),
-                    endTime: TimeInterval(segment.endTime)
-                )
-            }
-
-            let aligned = try TranscriptSpeakerAligner.applying(
-                intervals: intervals,
-                to: transcript,
-                metadata: DiarizationMetadata(
-                    engine: "SpeakerKit",
-                    engineVersion: Self.engineVersion,
-                    modelID: Self.modelID
-                )
-            )
-            await diarizer.unloadModels()
-            return aligned
-        } catch {
-            // Explicitly release Core ML weights on every exit after manager creation,
-            // including cancellation immediately after model loading.
-            await diarizer.unloadModels()
-            throw error
-        }
+    private func ensureModelDirectory() throws {
+        try FileManager.default.createDirectory(
+            at: modelRoot,
+            withIntermediateDirectories: true
+        )
     }
 
     private func runSpeakerKitDiarization(
