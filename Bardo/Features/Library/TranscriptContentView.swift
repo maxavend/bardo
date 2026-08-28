@@ -4,7 +4,7 @@ import SwiftUI
 struct TranscriptContentView: View {
     let recording: Recording
     @ObservedObject var model: LibraryViewModel
-    @ObservedObject var playback: AudioPlaybackController
+    let playback: AudioPlaybackController
 
     @Binding var searchText: String
     @Binding var editor: TranscriptEditorState?
@@ -15,7 +15,7 @@ struct TranscriptContentView: View {
 
             transcriptErrors
 
-            if model.isTranscribing {
+            if model.isTranscribing, model.transcriptionRecordingID == recording.id {
                 transcriptionProgressView
             } else if let transcript = model.transcript,
                       transcript.recordingID == recording.id {
@@ -78,7 +78,7 @@ struct TranscriptContentView: View {
         let progress = model.transcriptionProgress
         return ProcessingView(
             title: transcriptionStageText(progress?.stage),
-            detail: "Audio stays on this Mac while WhisperKit processes it.",
+            detail: "Your audio stays on this Mac while Bardo prepares and transcribes it.",
             fractionCompleted: progress?.fractionCompleted ?? 0,
             cancelTitle: "Cancel",
             cancelAction: { model.cancelTranscription() }
@@ -89,7 +89,7 @@ struct TranscriptContentView: View {
         let progress = model.diarizationProgress
         return ProcessingView(
             title: diarizationStageText(progress?.stage),
-            detail: "Speaker identification runs locally with SpeakerKit.",
+            detail: "Bardo is telling the voices apart locally on this Mac.",
             fractionCompleted: progress?.fractionCompleted ?? 0,
             cancelTitle: "Cancel Speaker Identification",
             cancelAction: { model.cancelDiarization() }
@@ -100,12 +100,12 @@ struct TranscriptContentView: View {
         ContentUnavailableView {
             Label("No Transcript Yet", systemImage: "captions.bubble")
         } description: {
-            Text("Create a private, on-device transcript with WhisperKit. The speech model is prepared locally the first time you use it.")
+            Text("Create a private transcript right on this Mac. Once setup is finished, no cloud transcription is needed.")
         } actions: {
-            Button(recording.processingState == .failed ? "Retry Transcription" : "Transcribe") {
+            Button(recording.processingState == .failed || recording.processingState == .partial ? "Retry Transcription" : "Transcribe") {
                 model.beginTranscription()
             }
-            .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
+            .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
         }
         .frame(maxWidth: .infinity, minHeight: 250)
     }
@@ -116,9 +116,9 @@ struct TranscriptContentView: View {
 
         if transcript.segments.isEmpty {
             ContentUnavailableView(
-                "Empty Transcript",
+                "No Speech Found",
                 systemImage: "text.bubble",
-                description: Text("WhisperKit produced no readable transcript segments for this recording.")
+                description: Text("Bardo processed the recording but didn’t find readable speech.")
             )
             .frame(maxWidth: .infinity, minHeight: 220)
         } else if segments.isEmpty {
@@ -203,7 +203,7 @@ struct TranscriptContentView: View {
 
 private struct TranscriptSegmentRow: View {
     let segment: TranscriptSegment
-    @ObservedObject var playback: AudioPlaybackController
+    let playback: AudioPlaybackController
     let canEdit: Bool
     let onEdit: () -> Void
 
@@ -263,7 +263,7 @@ private struct TranscriptSegmentRow: View {
 
             Button("Copy Segment") {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(segment.displayText, forType: .string)
+                _ = NSPasteboard.general.setString(segment.displayText, forType: .string)
             }
         }
     }
@@ -312,20 +312,20 @@ private struct InlineIssueView: View {
 
 private func transcriptionStageText(_ stage: TranscriptionStage?) -> String {
     switch stage {
-    case .preparingModel: "Preparing Whisper Model…"
-    case .loadingModel: "Loading Whisper Model…"
-    case .transcribing: "Transcribing…"
-    case .saving: "Saving Transcript…"
-    case nil: "Preparing Transcription…"
+    case .preparingModel: "Preparing the transcription…"
+    case .loadingModel: "Getting transcription ready…"
+    case .transcribing: "Transcribing your recording…"
+    case .saving: "Saving the transcript…"
+    case nil: "Preparing the transcription…"
     }
 }
 
 private func diarizationStageText(_ stage: DiarizationStage?) -> String {
     switch stage {
-    case .preparingModel: "Preparing Speaker Model…"
-    case .loadingModel: "Loading Speaker Model…"
-    case .diarizing: "Identifying Speakers…"
-    case .saving: "Saving Speaker Labels…"
-    case nil: "Preparing Speaker Identification…"
+    case .preparingModel: "Preparing speaker identification…"
+    case .loadingModel: "Getting speaker identification ready…"
+    case .diarizing: "Figuring out who said what…"
+    case .saving: "Saving speaker labels…"
+    case nil: "Preparing speaker identification…"
     }
 }
