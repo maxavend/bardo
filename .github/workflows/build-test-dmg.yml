@@ -60,8 +60,8 @@ jobs:
           APP=.derived-data/Build/Products/Release/Bardo.app
           test -f "$APP/Contents/Info.plist"
           test -x "$APP/Contents/MacOS/Bardo"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP/Contents/Info.plist)" = "Bardo records microphone audio only when you choose to start a local recording."
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$APP/Contents/Info.plist)" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$APP/Contents/Info.plist")" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
 
       - name: Ad-hoc sign test app
         run: |
