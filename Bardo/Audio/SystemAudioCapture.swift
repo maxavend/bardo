@@ -59,6 +59,8 @@ protocol SystemAudioCapturing: AnyObject {
     ) async throws
 
     func update(selection: SystemContentSelection) async throws
+    func pause() async throws
+    func resume() async throws
     func stop() async -> SystemAudioCaptureResult
 }
 
@@ -66,6 +68,7 @@ enum SystemAudioCaptureError: Error, LocalizedError, Equatable, Sendable {
     case invalidSelection
     case alreadyCapturing
     case notCapturing
+    case invalidPauseState
     case missingMicrophoneDestination
     case noAudioSamples(String)
     case writer(String)
@@ -79,6 +82,8 @@ enum SystemAudioCaptureError: Error, LocalizedError, Equatable, Sendable {
             return "A system-audio capture is already active."
         case .notCapturing:
             return "No system-audio capture is active."
+        case .invalidPauseState:
+            return "The system-audio recording cannot change pause state right now."
         case .missingMicrophoneDestination:
             return "The dual-source capture has no microphone staging destination."
         case .noAudioSamples(let source):
