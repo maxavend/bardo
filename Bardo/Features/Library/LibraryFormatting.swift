@@ -53,6 +53,7 @@ enum LibraryFormatting {
         case .pending: "Ready"
         case .processing: "Processing"
         case .completed: "Transcribed"
+        case .partial: "Partial Transcript"
         case .failed: "Needs Attention"
         }
     }
@@ -62,6 +63,7 @@ enum LibraryFormatting {
         case .pending: "circle"
         case .processing: "clock.arrow.circlepath"
         case .completed: "checkmark.circle.fill"
+        case .partial: "exclamationmark.circle"
         case .failed: "exclamationmark.circle.fill"
         }
     }
