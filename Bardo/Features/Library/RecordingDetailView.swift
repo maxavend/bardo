@@ -6,6 +6,8 @@ struct RecordingDetailView: View {
     @ObservedObject var model: LibraryViewModel
     @ObservedObject var playback: AudioPlaybackController
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @State private var transcriptSearch = ""
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
@@ -16,23 +18,39 @@ struct RecordingDetailView: View {
     @State private var isDeletePresented = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                recordingHeader
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 32) {
+                    recordingHeader
 
-                TranscriptContentView(
-                    recording: recording,
-                    model: model,
-                    playback: playback,
-                    searchText: $transcriptSearch,
-                    editor: $editor
-                )
+                    TranscriptContentView(
+                        recording: recording,
+                        model: model,
+                        playback: playback,
+                        searchText: $transcriptSearch,
+                        editor: $editor,
+                        onPlaybackBlockChange: { blockID in
+                            guard let blockID,
+                                  transcriptSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                                return
+                            }
+
+                            if reduceMotion {
+                                proxy.scrollTo(blockID, anchor: .center)
+                            } else {
+                                withAnimation(.spring(response: 0.38, dampingFraction: 1)) {
+                                    proxy.scrollTo(blockID, anchor: .center)
+                                }
+                            }
+                        }
+                    )
+                }
+                .frame(maxWidth: 880, alignment: .leading)
+                .padding(.horizontal, 36)
+                .padding(.top, 34)
+                .padding(.bottom, 110)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .frame(maxWidth: 880, alignment: .leading)
-            .padding(.horizontal, 36)
-            .padding(.top, 34)
-            .padding(.bottom, 110)
-            .frame(maxWidth: .infinity, alignment: .top)
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle("")
