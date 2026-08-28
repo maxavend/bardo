@@ -6,6 +6,7 @@ struct RootView: View {
     @StateObject private var library = LibraryViewModel()
     @StateObject private var microphone = MicrophoneRecordingController()
     @StateObject private var systemAudio = SystemAudioRecordingController()
+    @State private var isRecoveryNoticeDismissed = false
 
     init(warmTranscriptionForRecording: @escaping @MainActor () -> Void = {}) {
         self.warmTranscriptionForRecording = warmTranscriptionForRecording
@@ -258,18 +259,42 @@ struct RootView: View {
     private var recoveryStatusBar: some View {
         let total = microphone.recoveryIssues.count + systemAudio.recoveryIssues.count
 
-        if total > 0 {
-            HStack(spacing: 9) {
+        if total > 0, !isRecoveryNoticeDismissed {
+            HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
-                Text("Bardo preserved \(total) incomplete capture\(total == 1 ? "" : "s") for recovery.")
-                    .font(.caption)
-                Spacer(minLength: 0)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Unfinished recording files found")
+                        .font(.caption.weight(.semibold))
+                    Text("Bardo left files from an interrupted recording untouched. They do not block new recordings.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                Text("\(total)")
+                    .font(.caption.monospacedDigit().weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+
+                Button {
+                    isRecoveryNoticeDismissed = true
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Dismiss recovery notice")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
-            .frame(maxWidth: 640)
+            .frame(maxWidth: 680)
             .bardoGlassSurface(cornerRadius: 14)
             .padding(.horizontal, 18)
             .padding(.top, 8)
