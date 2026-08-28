@@ -9,27 +9,27 @@ enum TranscriptReplacementAction: String, Identifiable {
     var title: String {
         switch self {
         case .retranscribe:
-            "Replace Manual Transcript Changes?"
+            LibraryFormatting.localized("Replace Manual Transcript Changes?")
         case .rediarize:
-            "Replace Speaker Names?"
+            LibraryFormatting.localized("Replace Speaker Names?")
         }
     }
 
     var message: String {
         switch self {
         case .retranscribe:
-            "Transcribing again creates a new transcript and removes manual text corrections and speaker names from the current transcript."
+            LibraryFormatting.localized("Transcribing again creates a new transcript and removes manual text corrections and speaker names from the current transcript.")
         case .rediarize:
-            "Identifying speakers again creates new speaker clusters. Existing speaker names will be removed because the new clusters may represent different people. Manual text corrections are preserved."
+            LibraryFormatting.localized("Identifying speakers again creates new speaker clusters. Existing speaker names will be removed because the new clusters may represent different people. Manual text corrections are preserved.")
         }
     }
 
     var confirmLabel: String {
         switch self {
         case .retranscribe:
-            "Transcribe Again"
+            LibraryFormatting.localized("Transcribe Again")
         case .rediarize:
-            "Identify Speakers Again"
+            LibraryFormatting.localized("Identify Speakers Again")
         }
     }
 }
@@ -51,9 +51,12 @@ struct TranscriptEditorState: Identifiable {
     static func speaker(_ speaker: Speaker, fallbackName: String) -> TranscriptEditorState {
         TranscriptEditorState(
             kind: .speaker(speaker.id),
-            title: "Name Speaker",
+            title: LibraryFormatting.localized("Name Speaker"),
             initialValue: speaker.name ?? "",
-            prompt: "Give \(fallbackName) a name. Leave it blank to restore the automatic label.",
+            prompt: String(
+                format: LibraryFormatting.localized("Give %@ a name. Leave it blank to restore the automatic label."),
+                fallbackName
+            ),
             canRestore: false,
             isMultiline: false
         )
@@ -62,9 +65,9 @@ struct TranscriptEditorState: Identifiable {
     static func segment(_ segment: TranscriptSegment) -> TranscriptEditorState {
         TranscriptEditorState(
             kind: .segment(segment.id),
-            title: "Edit Transcript",
+            title: LibraryFormatting.localized("Edit Transcript"),
             initialValue: segment.displayText,
-            prompt: "Correct the readable transcript while Bardo preserves the original timing evidence.",
+            prompt: LibraryFormatting.localized("Correct the readable transcript while Bardo preserves the original timing evidence."),
             canRestore: segment.editedText != nil,
             isMultiline: true
         )
