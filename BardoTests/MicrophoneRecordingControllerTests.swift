@@ -27,6 +27,37 @@ final class MicrophoneRecordingControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testPauseResumeAndStopFromPausedAreDeterministic() async throws {
+        let env = makeEnvironment()
+        defer { try? FileManager.default.removeItem(at: env.baseURL) }
+        let backend = IncrementalTestCaptureBackend()
+        let controller = makeController(env: env, backend: backend)
+
+        await controller.start()
+        XCTAssertEqual(controller.phase, .recording)
+
+        controller.pause()
+        XCTAssertEqual(controller.phase, .paused)
+        XCTAssertTrue(controller.isPaused)
+        XCTAssertTrue(controller.isRecording)
+        XCTAssertEqual(backend.pauseCount, 1)
+
+        controller.pause()
+        XCTAssertEqual(backend.pauseCount, 1, "Repeated pause must be a no-op")
+
+        controller.resume()
+        XCTAssertEqual(controller.phase, .recording)
+        XCTAssertFalse(controller.isPaused)
+        XCTAssertEqual(backend.resumeCount, 1)
+
+        controller.pause()
+        let recording = await controller.stop()
+        XCTAssertNotNil(recording, "Stopping from paused must still finalize the capture")
+        XCTAssertEqual(controller.phase, .idle)
+        XCTAssertEqual(backend.stopCount, 1)
+    }
+
+    @MainActor
     func testSeparateControllersCannotRecordConcurrently() async throws {
         let firstEnv = makeEnvironment()
         let secondEnv = makeEnvironment()
@@ -64,9 +95,9 @@ final class MicrophoneRecordingControllerTests: XCTestCase {
         XCTAssertGreaterThan(stagedSize, 0, "Capture must write to disk while active")
         XCTAssertEqual(controller.inputDisplayName, "CI Test Microphone")
 
-        backend.currentTime = 3_600.75
+        backend.currentTime = 0.4
         controller.refreshElapsedTime()
-        XCTAssertEqual(controller.elapsedTime, 3_600.75, accuracy: 0.0001)
+        XCTAssertEqual(controller.elapsedTime, 0.4, accuracy: 0.0001)
 
         let stoppedRecording = await controller.stop()
         let recording = try XCTUnwrap(stoppedRecording)
@@ -147,6 +178,25 @@ final class MicrophoneRecordingControllerTests: XCTestCase {
         XCTAssertEqual(snapshot.recordings.count, 1)
         XCTAssertEqual(snapshot.recordings.first?.sources, [.microphone])
         XCTAssertTrue(snapshot.issues.isEmpty)
+    }
+
+    @MainActor
+    func testTerminationAlsoFinalizesPausedRecording() async throws {
+        let env = makeEnvironment()
+        defer { try? FileManager.default.removeItem(at: env.baseURL) }
+        let backend = IncrementalTestCaptureBackend()
+        let controller = makeController(env: env, backend: backend)
+
+        await controller.start()
+        controller.pause()
+        XCTAssertEqual(controller.phase, .paused)
+        XCTAssertTrue(controller.requiresTerminationFinalization)
+
+        await controller.prepareForApplicationTermination()
+
+        XCTAssertEqual(controller.phase, .idle)
+        let snapshot = try await RecordingStore(rootURL: env.libraryURL).loadLibrary()
+        XCTAssertEqual(snapshot.recordings.count, 1)
     }
 
     @MainActor
