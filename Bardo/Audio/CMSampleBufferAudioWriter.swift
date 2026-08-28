@@ -13,6 +13,7 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
     private var firstPTS: CMTime?
     private var lastEndPTS: CMTime?
     private var terminalError: Error?
+    private var pauseTimeline = CapturePauseTimeline()
 
     init(outputURL: URL, channelCount: Int, bitRate: Int = 128_000) {
         self.outputURL = outputURL
@@ -28,9 +29,41 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
         }
     }
 
-    func append(_ sampleBuffer: CMSampleBuffer) throws {
-        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+    func pause() {
+        lock.bardoWithLock {
+            pauseTimeline.pause()
+        }
+    }
+
+    func resume() {
+        lock.bardoWithLock {
+            pauseTimeline.resume()
+        }
+    }
+
+    func append(_ sourceSampleBuffer: CMSampleBuffer) throws {
+        guard CMSampleBufferDataIsReady(sourceSampleBuffer) else { return }
         if let terminalError { throw terminalError }
+
+        let sourcePTS = CMSampleBufferGetPresentationTimeStamp(sourceSampleBuffer)
+        guard sourcePTS.isValid, !sourcePTS.isIndefinite else { return }
+        let sourceSeconds = CMTimeGetSeconds(sourcePTS)
+        guard sourceSeconds.isFinite else { return }
+
+        let pauseDecision = lock.bardoWithLock {
+            pauseTimeline.decision(for: sourceSeconds)
+        }
+        guard pauseDecision.shouldAppend else { return }
+
+        let sampleBuffer: CMSampleBuffer
+        if pauseDecision.timestampOffset > 0 {
+            sampleBuffer = try retimedSampleBuffer(
+                sourceSampleBuffer,
+                subtracting: pauseDecision.timestampOffset
+            )
+        } else {
+            sampleBuffer = sourceSampleBuffer
+        }
 
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         guard pts.isValid, !pts.isIndefinite else { return }
@@ -106,6 +139,72 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
                 lastPresentationTime: CMTimeGetSeconds(lastEndPTS)
             )
         }
+    }
+
+    private func retimedSampleBuffer(
+        _ sampleBuffer: CMSampleBuffer,
+        subtracting offset: TimeInterval
+    ) throws -> CMSampleBuffer {
+        var timingCount: CMItemCount = 0
+        let countStatus = CMSampleBufferGetSampleTimingInfoArray(
+            sampleBuffer,
+            entryCount: 0,
+            arrayToFill: nil,
+            entriesNeededOut: &timingCount
+        )
+        guard countStatus == noErr, timingCount > 0 else {
+            throw SystemAudioCaptureError.writer("Bardo could not inspect paused audio timing information.")
+        }
+
+        var timings = Array(
+            repeating: CMSampleTimingInfo(
+                duration: .invalid,
+                presentationTimeStamp: .invalid,
+                decodeTimeStamp: .invalid
+            ),
+            count: timingCount
+        )
+        let readStatus = CMSampleBufferGetSampleTimingInfoArray(
+            sampleBuffer,
+            entryCount: timingCount,
+            arrayToFill: &timings,
+            entriesNeededOut: &timingCount
+        )
+        guard readStatus == noErr else {
+            throw SystemAudioCaptureError.writer("Bardo could not read paused audio timing information.")
+        }
+
+        let timescale = max(CMTimeScale(1), CMSampleBufferGetPresentationTimeStamp(sampleBuffer).timescale)
+        let offsetTime = CMTime(seconds: offset, preferredTimescale: timescale)
+        for index in timings.indices {
+            if timings[index].presentationTimeStamp.isValid,
+               !timings[index].presentationTimeStamp.isIndefinite {
+                timings[index].presentationTimeStamp = CMTimeSubtract(
+                    timings[index].presentationTimeStamp,
+                    offsetTime
+                )
+            }
+            if timings[index].decodeTimeStamp.isValid,
+               !timings[index].decodeTimeStamp.isIndefinite {
+                timings[index].decodeTimeStamp = CMTimeSubtract(
+                    timings[index].decodeTimeStamp,
+                    offsetTime
+                )
+            }
+        }
+
+        var adjusted: CMSampleBuffer?
+        let copyStatus = CMSampleBufferCreateCopyWithNewTiming(
+            allocator: kCFAllocatorDefault,
+            sampleBuffer: sampleBuffer,
+            sampleTimingEntryCount: timingCount,
+            sampleTimingArray: &timings,
+            sampleBufferOut: &adjusted
+        )
+        guard copyStatus == noErr, let adjusted else {
+            throw SystemAudioCaptureError.writer("Bardo could not retime audio after resuming capture.")
+        }
+        return adjusted
     }
 
     private func prepareWriter(startingAt pts: CMTime) throws {
