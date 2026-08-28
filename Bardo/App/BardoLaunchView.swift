@@ -6,7 +6,7 @@ struct BardoLaunchView: View {
     var body: some View {
         Group {
             if setup.isReady {
-                RootView()
+                RootView(warmTranscriptionForRecording: setup.warmForRecording)
                     .transition(.opacity)
             } else {
                 TranscriptionSetupView(
