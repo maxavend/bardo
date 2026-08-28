@@ -50,13 +50,18 @@ final class FakeSystemAudioCaptureBackend: SystemAudioCapturing {
     var microphoneError: String?
     var streamStopError: String?
     var startError: Error?
+    var pauseError: Error?
+    var resumeError: Error?
 
     private(set) var startCount = 0
     private(set) var updateCount = 0
     private(set) var stopCount = 0
+    private(set) var pauseCount = 0
+    private(set) var resumeCount = 0
     private(set) var lastIncludeMicrophone = false
     private(set) var lastSystemURL: URL?
     private(set) var lastMicrophoneURL: URL?
+    private(set) var isPaused = false
 
     func start(
         selection: SystemContentSelection,
@@ -69,6 +74,7 @@ final class FakeSystemAudioCaptureBackend: SystemAudioCapturing {
         lastIncludeMicrophone = includeMicrophone
         lastSystemURL = systemURL
         lastMicrophoneURL = microphoneURL
+        isPaused = false
 
         if produceSystem {
             try AudioTestFixture.makeM4A(
@@ -89,11 +95,27 @@ final class FakeSystemAudioCaptureBackend: SystemAudioCapturing {
     }
 
     func update(selection: SystemContentSelection) async throws {
+        guard !isPaused else { throw SystemAudioCaptureError.invalidPauseState }
         updateCount += 1
+    }
+
+    func pause() async throws {
+        if let pauseError { throw pauseError }
+        guard !isPaused else { throw SystemAudioCaptureError.invalidPauseState }
+        pauseCount += 1
+        isPaused = true
+    }
+
+    func resume() async throws {
+        if let resumeError { throw resumeError }
+        guard isPaused else { throw SystemAudioCaptureError.invalidPauseState }
+        resumeCount += 1
+        isPaused = false
     }
 
     func stop() async -> SystemAudioCaptureResult {
         stopCount += 1
+        isPaused = false
         return SystemAudioCaptureResult(
             systemTrack: produceSystem && systemError == nil
                 ? CapturedAudioTrackTiming(
