@@ -68,6 +68,11 @@ final class TranscriptionSetupCoordinator: ObservableObject {
                 }
             }
 
+            // SpeakerKit setup can take long enough that Whisper's idle timer may have moved
+            // on. Touch the shared runtime once more so "Ready" really means the first
+            // transcription starts from a hot engine.
+            await transcription.warmUpIfInstalled()
+
             defaults.set(true, forKey: Self.completionKey)
             completedSetupThisLaunch = true
             state = .ready
