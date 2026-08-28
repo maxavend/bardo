@@ -1,9 +1,15 @@
 import SwiftUI
 
 struct RootView: View {
+    private let warmTranscriptionForRecording: () -> Void
+
     @StateObject private var library = LibraryViewModel()
     @StateObject private var microphone = MicrophoneRecordingController()
     @StateObject private var systemAudio = SystemAudioRecordingController()
+
+    init(warmTranscriptionForRecording: @escaping () -> Void = {}) {
+        self.warmTranscriptionForRecording = warmTranscriptionForRecording
+    }
 
     var body: some View {
         LibraryView(model: library)
@@ -82,10 +88,7 @@ struct RootView: View {
             } else {
                 Menu {
                     Button {
-                        Task {
-                            library.stopPlayback()
-                            await microphone.start()
-                        }
+                        Task { await startMicrophoneRecording() }
                     } label: {
                         Label("Microphone", systemImage: "mic")
                     }
@@ -304,7 +307,15 @@ struct RootView: View {
     }
 
     @MainActor
+    private func startMicrophoneRecording() async {
+        warmTranscriptionForRecording()
+        library.stopPlayback()
+        await microphone.start()
+    }
+
+    @MainActor
     private func startSystemRecording(includeMicrophone: Bool) async {
+        warmTranscriptionForRecording()
         library.stopPlayback()
         await systemAudio.start(includeMicrophone: includeMicrophone)
     }
