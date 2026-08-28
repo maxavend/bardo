@@ -10,6 +10,10 @@ struct RecordingDetailView: View {
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
     @State private var isInspectorPresented = false
+    @State private var copyFeedback: CopyFeedback?
+    @State private var isRenamePresented = false
+    @State private var renameTitle = ""
+    @State private var isDeletePresented = false
 
     var body: some View {
         ScrollView {
@@ -36,6 +40,22 @@ struct RecordingDetailView: View {
         .toolbar {
             detailToolbar
         }
+        .overlay(alignment: .topTrailing) {
+            if let copyFeedback {
+                copyFeedbackView(copyFeedback)
+                    .padding(.top, 14)
+                    .padding(.trailing, 18)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.16), value: copyFeedback)
+        .task(id: copyFeedback) {
+            guard copyFeedback != nil else { return }
+            try? await Task.sleep(for: .seconds(1.6))
+            if !Task.isCancelled {
+                copyFeedback = nil
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !recording.audioAssets.isEmpty || playback.errorMessage != nil {
                 FloatingPlaybackBar(playback: playback)
@@ -48,6 +68,9 @@ struct RecordingDetailView: View {
             transcriptSearch = ""
             editor = nil
             pendingReplacementAction = nil
+            copyFeedback = nil
+            isRenamePresented = false
+            isDeletePresented = false
         }
         .sheet(item: $editor) { state in
             TranscriptEditorSheet(
@@ -86,6 +109,28 @@ struct RecordingDetailView: View {
                 secondaryButton: .cancel()
             )
         }
+        .alert("Rename Recording", isPresented: $isRenamePresented) {
+            TextField("Recording Name", text: $renameTitle)
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") {
+                Task {
+                    _ = await model.renameRecording(id: recording.id, to: renameTitle)
+                }
+            }
+            .disabled(renameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Choose a name you’ll recognize later.")
+        }
+        .alert("Delete Recording?", isPresented: $isDeletePresented) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    _ = await model.deleteRecording(id: recording.id)
+                }
+            }
+        } message: {
+            Text(deleteMessage)
+        }
     }
 
     private var recordingHeader: some View {
@@ -99,10 +144,10 @@ struct RecordingDetailView: View {
                 if recording.processingState == .processing {
                     ProgressView()
                         .controlSize(.small)
-                } else if recording.processingState == .failed {
+                } else if recording.processingState == .failed || recording.processingState == .partial {
                     Image(systemName: "exclamationmark.circle.fill")
                         .foregroundStyle(.secondary)
-                        .help("This recording needs attention")
+                        .help(recording.processingState == .partial ? "This transcript is partial" : "This recording needs attention")
                 }
             }
 
@@ -117,14 +162,19 @@ struct RecordingDetailView: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .lineLimit(1)
+
+            if recording.processingState == .partial {
+                Label("Partial transcript — retry to process the full recording", systemImage: "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
     @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            if let transcript = model.transcript,
-               transcript.recordingID == recording.id {
+            if let transcript = selectedTranscript {
                 Button {
                     copyTranscript(transcript)
                 } label: {
@@ -132,49 +182,109 @@ struct RecordingDetailView: View {
                 }
                 .disabled(transcript.text.isEmpty)
                 .help("Copy transcript")
-
-                Menu {
-                    Button {
-                        if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
-                            pendingReplacementAction = .rediarize
-                        } else {
-                            model.beginDiarization()
-                        }
-                    } label: {
-                        Label(
-                            transcript.diarizationMetadata == nil ? "Identify Speakers" : "Identify Speakers Again",
-                            systemImage: "person.2.wave.2"
-                        )
-                    }
-                    .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
-
-                    Button {
-                        if transcript.hasManualChanges {
-                            pendingReplacementAction = .retranscribe
-                        } else {
-                            model.beginTranscription()
-                        }
-                    } label: {
-                        Label("Transcribe Again", systemImage: "arrow.clockwise")
-                    }
-                    .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
-                } label: {
-                    Label("Transcript Actions", systemImage: "ellipsis")
-                }
-                .help("Transcript actions")
             }
 
             Button {
                 isInspectorPresented.toggle()
             } label: {
-                Label("Recording Info", systemImage: "sidebar.right")
+                Label("Recording Info", systemImage: "info.circle")
             }
             .help(isInspectorPresented ? "Hide recording info" : "Show recording info")
+
+            Menu {
+                transcriptMenuActions
+
+                if selectedTranscript != nil {
+                    Divider()
+                }
+
+                Button {
+                    renameTitle = recording.title
+                    isRenamePresented = true
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+
+                Button(role: .destructive) {
+                    isDeletePresented = true
+                } label: {
+                    Label("Delete Recording", systemImage: "trash")
+                }
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
+            }
+            .help("More recording actions")
         }
     }
 
-    private func copyTranscript(_ transcript: Transcript) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(transcript.text, forType: .string)
+    @ViewBuilder
+    private var transcriptMenuActions: some View {
+        if let transcript = selectedTranscript {
+            Button {
+                if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
+                    pendingReplacementAction = .rediarize
+                } else {
+                    model.beginDiarization()
+                }
+            } label: {
+                Label(
+                    transcript.diarizationMetadata == nil ? "Identify Speakers" : "Identify Speakers Again",
+                    systemImage: "person.2.wave.2"
+                )
+            }
+            .disabled(
+                !transcript.isComplete
+                    || recording.audioAssets.isEmpty
+                    || model.isDiarizing
+                    || model.isTranscribing
+            )
+
+            Button {
+                if transcript.hasManualChanges {
+                    pendingReplacementAction = .retranscribe
+                } else {
+                    model.beginTranscription()
+                }
+            } label: {
+                Label("Transcribe Again", systemImage: "arrow.clockwise")
+            }
+            .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
+        }
     }
+
+    private var selectedTranscript: Transcript? {
+        guard let transcript = model.transcript, transcript.recordingID == recording.id else { return nil }
+        return transcript
+    }
+
+    private var deleteMessage: String {
+        if model.isProcessing(recordingID: recording.id) {
+            return "Bardo will stop the current processing task, then permanently remove this recording and its transcript from this Mac."
+        }
+        return "“\(recording.title)” and its transcript will be permanently removed from this Mac."
+    }
+
+    @ViewBuilder
+    private func copyFeedbackView(_ feedback: CopyFeedback) -> some View {
+        Label(
+            feedback == .copied ? "Transcript Copied" : "Couldn’t Copy Transcript",
+            systemImage: feedback == .copied ? "checkmark" : "exclamationmark.triangle"
+        )
+        .font(.caption.weight(.medium))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .bardoGlassSurface(cornerRadius: 14)
+        .accessibilityAddTraits(.isStaticText)
+    }
+
+    private func copyTranscript(_ transcript: Transcript) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        copyFeedback = pasteboard.setString(transcript.text, forType: .string) ? .copied : .failed
+    }
+}
+
+private enum CopyFeedback: Hashable {
+    case copied
+    case failed
 }
