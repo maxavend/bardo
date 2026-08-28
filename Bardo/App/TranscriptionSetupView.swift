@@ -25,7 +25,7 @@ struct TranscriptionSetupView: View {
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                        .frame(maxWidth: 520)
+                        .frame(maxWidth: 540)
                 }
 
                 VStack(spacing: 12) {
@@ -53,8 +53,8 @@ struct TranscriptionSetupView: View {
                 .bardoGlassSurface(cornerRadius: 22)
 
                 VStack(spacing: 5) {
-                    Text("About 650 MB is downloaded once.")
-                    Text("Transcription stays private and runs on this Mac.")
+                    Text("Bardo downloads its AI models once during this setup.")
+                    Text("Afterward, transcription and speaker identification run privately on this Mac.")
                 }
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -78,7 +78,14 @@ struct TranscriptionSetupView: View {
             case .preparingLanguageSupport:
                 return "Preparing Language Support"
             case .optimizingForMac:
-                return "Optimizing for This Mac"
+                return "Optimizing Transcription"
+            }
+        case .installingSpeakers(let progress):
+            switch progress.stage {
+            case .downloading:
+                return "Installing Speaker Identification"
+            case .optimizingForMac:
+                return "Optimizing Speaker Identification"
             }
         case .ready:
             return "Bardo Is Ready"
@@ -90,7 +97,7 @@ struct TranscriptionSetupView: View {
     private var detail: String {
         switch state {
         case .checking:
-            return "Bardo is checking the private on-device transcription engine. This first-time setup only happens once."
+            return "Bardo is preparing the private on-device AI stack. This first-time setup only happens once."
         case .installing(let progress):
             switch progress.stage {
             case .checking:
@@ -100,10 +107,17 @@ struct TranscriptionSetupView: View {
             case .preparingLanguageSupport:
                 return "Preparing the tokenizer and multilingual resources used by WhisperKit."
             case .optimizingForMac:
-                return "Core ML is loading and specializing the model for this Mac so the first real transcription starts hot."
+                return "Core ML is loading and specializing transcription for this Mac so the first real transcript starts hot."
+            }
+        case .installingSpeakers(let progress):
+            switch progress.stage {
+            case .downloading:
+                return "Downloading Bardo’s local speaker-identification models now, instead of surprising you the first time you identify speakers."
+            case .optimizingForMac:
+                return "Loading SpeakerKit into Core ML so speaker-aware transcripts are ready too."
             }
         case .ready:
-            return "The transcription engine is installed, loaded, and ready."
+            return "Transcription and speaker identification are installed, loaded, and ready."
         case .failed(let message):
             return message
         }
@@ -122,7 +136,14 @@ struct TranscriptionSetupView: View {
             case .preparingLanguageSupport:
                 return "Preparing language support…"
             case .optimizingForMac:
-                return "Preparing Core ML…"
+                return "Preparing transcription in Core ML…"
+            }
+        case .installingSpeakers(let progress):
+            switch progress.stage {
+            case .downloading:
+                return "Downloading speaker models…"
+            case .optimizingForMac:
+                return "Preparing speaker models in Core ML…"
             }
         case .ready:
             return "Ready"
@@ -141,11 +162,19 @@ struct TranscriptionSetupView: View {
             case .checking:
                 return 0.03
             case .downloading:
-                return 0.05 + (0.72 * fraction)
+                return 0.05 + (0.60 * fraction)
             case .preparingLanguageSupport:
-                return 0.78 + (0.08 * fraction)
+                return 0.66 + (0.06 * fraction)
             case .optimizingForMac:
-                return 0.87 + (0.13 * fraction)
+                return 0.73 + (0.10 * fraction)
+            }
+        case .installingSpeakers(let progress):
+            let fraction = min(1, max(0, progress.fractionCompleted))
+            switch progress.stage {
+            case .downloading:
+                return 0.84 + (0.10 * fraction)
+            case .optimizingForMac:
+                return 0.95 + (0.05 * fraction)
             }
         case .ready:
             return 1
