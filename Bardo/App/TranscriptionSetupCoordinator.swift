@@ -12,6 +12,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     }
 
     @Published private(set) var state: State
+    private(set) var completedSetupThisLaunch = false
 
     private let defaults: UserDefaults
     private var isPreparing = false
@@ -51,6 +52,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
                 return
             }
 
+            completedSetupThisLaunch = false
             defaults.set(false, forKey: Self.completionKey)
             state = .checking
 
@@ -67,6 +69,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             }
 
             defaults.set(true, forKey: Self.completionKey)
+            completedSetupThisLaunch = true
             state = .ready
         } catch is CancellationError {
             // Closing Bardo during first-run setup is safe. Partial downloads remain in the
