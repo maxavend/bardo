@@ -7,10 +7,12 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var issues: [RecordingStoreIssue] = []
     @Published private(set) var errorMessage: String?
     @Published private(set) var importErrorMessage: String?
+    @Published private(set) var recordingManagementErrorMessage: String?
     @Published private(set) var transcript: Transcript?
     @Published private(set) var transcriptErrorMessage: String?
     @Published private(set) var transcriptEditErrorMessage: String?
     @Published private(set) var transcriptionProgress: TranscriptionProgressSnapshot?
+    @Published private(set) var transcriptionRecordingID: Recording.ID?
     @Published private(set) var diarizationErrorMessage: String?
     @Published private(set) var diarizationProgress: DiarizationProgressSnapshot?
     @Published private(set) var diarizationRecordingID: Recording.ID?
@@ -103,6 +105,66 @@ final class LibraryViewModel: ObservableObject {
         importErrorMessage = nil
     }
 
+    func clearRecordingManagementError() {
+        recordingManagementErrorMessage = nil
+    }
+
+    func renameRecording(id: Recording.ID, to proposedTitle: String) async -> Bool {
+        let title = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            recordingManagementErrorMessage = "A recording name cannot be empty."
+            return false
+        }
+
+        do {
+            let activeStore = try resolveStore()
+            guard var recording = try await activeStore.read(id: id) else {
+                recordingManagementErrorMessage = "That recording is no longer available."
+                return false
+            }
+            recording.title = title
+            try await activeStore.update(recording)
+            replaceRecording(recording)
+            recordingManagementErrorMessage = nil
+            return true
+        } catch {
+            recordingManagementErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func deleteRecording(id: Recording.ID) async -> Bool {
+        do {
+            await cancelProcessingIfNeeded(for: id)
+            let activeStore = try resolveStore()
+            let wasSelected = selection == id
+            if wasSelected {
+                playback.unload()
+                transcript = nil
+                transcriptErrorMessage = nil
+                transcriptEditErrorMessage = nil
+                diarizationErrorMessage = nil
+            }
+
+            try await activeStore.delete(id: id)
+            recordings.removeAll { $0.id == id }
+            recordingManagementErrorMessage = nil
+
+            if wasSelected {
+                selection = recordings.first?.id
+                await prepareSelection()
+            }
+            return true
+        } catch {
+            recordingManagementErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func isProcessing(recordingID: Recording.ID) -> Bool {
+        transcriptionRecordingID == recordingID || diarizationRecordingID == recordingID
+    }
+
     func prepareSelection() async {
         await preparePlaybackForSelection()
         await loadTranscriptForSelection()
@@ -190,24 +252,26 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func performSelectedTranscription() async {
-        guard !isTranscribing, !isDiarizing, var recording = selectedRecording else { return }
+        guard !isTranscribing, !isDiarizing, let recording = selectedRecording else { return }
         let recordingID = recording.id
         isTranscribing = true
+        transcriptionRecordingID = recordingID
         transcriptErrorMessage = nil
         transcriptEditErrorMessage = nil
         diarizationErrorMessage = nil
         transcriptionProgress = .init(stage: .preparingModel, fractionCompleted: 0)
         defer {
             isTranscribing = false
+            if transcriptionRecordingID == recordingID {
+                transcriptionRecordingID = nil
+            }
             transcriptionProgress = nil
             transcriptionTask = nil
         }
 
         do {
             let activeRecordingStore = try resolveStore()
-            recording.processingState = .processing
-            try await activeRecordingStore.update(recording)
-            replaceRecording(recording)
+            _ = try await persistProcessingState(.processing, recordingID: recordingID, fallback: recording)
 
             let activeTranscriber = try resolveTranscriber()
             let generated = try await activeTranscriber.transcribe(
@@ -215,7 +279,7 @@ final class LibraryViewModel: ObservableObject {
                 store: activeRecordingStore,
                 progress: { [weak self] snapshot in
                     Task { @MainActor in
-                        guard let self, self.selection == recordingID else { return }
+                        guard let self, self.transcriptionRecordingID == recordingID else { return }
                         self.transcriptionProgress = snapshot
                     }
                 }
@@ -226,42 +290,31 @@ final class LibraryViewModel: ObservableObject {
             let activeTranscriptStore = try resolveTranscriptStore()
             try await activeTranscriptStore.save(generated)
 
-            recording.processingState = generated.metadata.coverage?.completion == .partial ? .partial : .completed
-            try await activeRecordingStore.update(recording)
-            replaceRecording(recording)
+            let state: ProcessingState = generated.metadata.coverage?.completion == .partial ? .partial : .completed
+            _ = try await persistProcessingState(state, recordingID: recordingID, fallback: recording)
             if selection == recordingID {
                 transcript = generated
-                if recording.processingState == .partial {
+                if state == .partial {
                     transcriptErrorMessage = "This transcript is partial. Retry transcription to process the full recording."
                 }
             }
             transcriptionProgress = .init(stage: .saving, fractionCompleted: 1)
         } catch is CancellationError {
-            recording.processingState = .pending
-            if let activeStore = try? resolveStore() {
-                try? await activeStore.update(recording)
-            }
-            replaceRecording(recording)
+            try? await persistProcessingState(.pending, recordingID: recordingID, fallback: recording)
         } catch let partial as PartialTranscriptionFailure {
             if let activeTranscriptStore = try? resolveTranscriptStore() {
                 try? await activeTranscriptStore.save(partial.transcript)
             }
-            recording.processingState = .partial
-            if let activeStore = try? resolveStore() {
-                try? await activeStore.update(recording)
-            }
-            replaceRecording(recording)
+            try? await persistProcessingState(.partial, recordingID: recordingID, fallback: recording)
             if selection == recordingID {
                 transcript = partial.transcript
                 transcriptErrorMessage = partial.localizedDescription
             }
         } catch {
-            recording.processingState = .failed
-            if let activeStore = try? resolveStore() {
-                try? await activeStore.update(recording)
+            try? await persistProcessingState(.failed, recordingID: recordingID, fallback: recording)
+            if selection == recordingID {
+                transcriptErrorMessage = error.localizedDescription
             }
-            replaceRecording(recording)
-            transcriptErrorMessage = error.localizedDescription
         }
     }
 
@@ -270,6 +323,7 @@ final class LibraryViewModel: ObservableObject {
               !isDiarizing,
               let recording = selectedRecording,
               let transcript,
+              transcript.isComplete,
               transcript.recordingID == recording.id else {
             return
         }
@@ -292,6 +346,7 @@ final class LibraryViewModel: ObservableObject {
               !isDiarizing,
               let recording = selectedRecording,
               let currentTranscript = transcript,
+              currentTranscript.isComplete,
               currentTranscript.recordingID == recording.id else {
             return
         }
@@ -333,7 +388,9 @@ final class LibraryViewModel: ObservableObject {
         } catch is CancellationError {
             // The previously persisted raw/diarized transcript remains authoritative.
         } catch {
-            diarizationErrorMessage = error.localizedDescription
+            if selection == recordingID {
+                diarizationErrorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -403,6 +460,31 @@ final class LibraryViewModel: ObservableObject {
     var selectedRecording: Recording? {
         guard let selection else { return nil }
         return recordings.first { $0.id == selection }
+    }
+
+    private func cancelProcessingIfNeeded(for recordingID: Recording.ID) async {
+        if transcriptionRecordingID == recordingID, let task = transcriptionTask {
+            task.cancel()
+            await task.value
+        }
+        if diarizationRecordingID == recordingID, let task = diarizationTask {
+            task.cancel()
+            await task.value
+        }
+    }
+
+    @discardableResult
+    private func persistProcessingState(
+        _ state: ProcessingState,
+        recordingID: Recording.ID,
+        fallback: Recording
+    ) async throws -> Recording {
+        let activeStore = try resolveStore()
+        var current = (try await activeStore.read(id: recordingID)) ?? fallback
+        current.processingState = state
+        try await activeStore.update(current)
+        replaceRecording(current)
+        return current
     }
 
     private func persistEditedTranscript(_ updated: Transcript) async {
