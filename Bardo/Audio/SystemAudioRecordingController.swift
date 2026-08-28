@@ -9,6 +9,7 @@ final class SystemAudioRecordingController: ObservableObject {
         case selectingContent
         case preparing
         case recording
+        case paused
         case changingSelection
         case finalizing
         case failed
@@ -20,11 +21,12 @@ final class SystemAudioRecordingController: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var recoveryIssues: [RecordingStoreIssue] = []
 
-    var isRecording: Bool { phase == .recording || phase == .changingSelection }
+    var isRecording: Bool { phase == .recording || phase == .paused || phase == .changingSelection }
+    var isPaused: Bool { phase == .paused }
 
     var isBusy: Bool {
         switch phase {
-        case .requestingMicrophonePermission, .selectingContent, .preparing, .recording, .changingSelection, .finalizing:
+        case .requestingMicrophonePermission, .selectingContent, .preparing, .recording, .paused, .changingSelection, .finalizing:
             return true
         case .idle, .failed:
             return false
@@ -32,7 +34,7 @@ final class SystemAudioRecordingController: ObservableObject {
     }
 
     var requiresTerminationFinalization: Bool {
-        phase == .recording || phase == .changingSelection || phase == .finalizing
+        phase == .recording || phase == .paused || phase == .changingSelection || phase == .finalizing
     }
 
     static var activeForApplicationTermination: SystemAudioRecordingController? {
@@ -134,6 +136,31 @@ final class SystemAudioRecordingController: ObservableObject {
         }
     }
 
+    func pause() async {
+        guard phase == .recording else { return }
+        do {
+            refreshElapsedTime()
+            try await backend.pause()
+            stopProgressUpdates()
+            phase = .paused
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func resume() async {
+        guard phase == .paused else { return }
+        do {
+            try await backend.resume()
+            phase = .recording
+            errorMessage = nil
+            startProgressUpdates()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func changeSelection() {
         guard phase == .recording else { return }
         phase = .changingSelection
@@ -150,7 +177,7 @@ final class SystemAudioRecordingController: ObservableObject {
     }
 
     func prepareForApplicationTermination() async {
-        if phase == .recording || phase == .changingSelection {
+        if phase == .recording || phase == .paused || phase == .changingSelection {
             _ = await stop()
         }
         while phase == .finalizing {
@@ -159,7 +186,7 @@ final class SystemAudioRecordingController: ObservableObject {
     }
 
     func refreshElapsedTime() {
-        guard isRecording else { return }
+        guard phase == .recording || phase == .changingSelection else { return }
         elapsedTime = max(0, backend.currentTime)
     }
 
@@ -183,7 +210,7 @@ final class SystemAudioRecordingController: ObservableObject {
     private func handlePickerEvent(_ event: SystemContentSelectionEvent) async {
         switch event {
         case .selected(let selection, let isUpdate):
-            if phase == .changingSelection || (isUpdate && isRecording) {
+            if phase == .changingSelection || (isUpdate && phase == .recording) {
                 phase = .changingSelection
                 do {
                     try await backend.update(selection: selection)
@@ -199,7 +226,7 @@ final class SystemAudioRecordingController: ObservableObject {
             await beginCapture(selection: selection)
 
         case .cancelled(let isUpdate):
-            if phase == .changingSelection || (isUpdate && isRecording) {
+            if phase == .changingSelection || (isUpdate && phase == .recording) {
                 phase = .recording
                 return
             }
@@ -207,7 +234,7 @@ final class SystemAudioRecordingController: ObservableObject {
             finishWithoutCapture(message: nil)
 
         case .failed(let message):
-            if phase == .changingSelection || isRecording {
+            if phase == .changingSelection || phase == .recording {
                 errorMessage = "The system sharing picker could not update the selection: \(message)"
                 phase = .recording
             } else if phase == .selectingContent {
@@ -298,6 +325,10 @@ final class SystemAudioRecordingController: ObservableObject {
             if let timing = result.systemTrack {
                 do {
                     let metadata = try metadataReader.read(from: prepared.systemURL)
+                    try CaptureDurationIntegrity.validate(
+                        expected: max(0, timing.lastPresentationTime - timing.firstPresentationTime),
+                        finalized: metadata.duration
+                    )
                     let asset = AudioAsset(
                         id: prepared.systemAssetID,
                         originalFileName: "System Audio.m4a",
@@ -311,7 +342,6 @@ final class SystemAudioRecordingController: ObservableObject {
                 } catch {
                     warnings.append("System audio could not be validated: \(error.localizedDescription)")
                 }
-                _ = timing
             } else if let error = result.systemError {
                 warnings.append(error)
             }
@@ -320,6 +350,10 @@ final class SystemAudioRecordingController: ObservableObject {
                 if let timing = result.microphoneTrack {
                     do {
                         let metadata = try metadataReader.read(from: microphoneURL)
+                        try CaptureDurationIntegrity.validate(
+                            expected: max(0, timing.lastPresentationTime - timing.firstPresentationTime),
+                            finalized: metadata.duration
+                        )
                         let asset = AudioAsset(
                             id: prepared.microphoneAssetID ?? UUID(),
                             originalFileName: "Microphone.m4a",
@@ -333,7 +367,6 @@ final class SystemAudioRecordingController: ObservableObject {
                     } catch {
                         warnings.append("Microphone audio could not be validated: \(error.localizedDescription)")
                     }
-                    _ = timing
                 } else if let error = result.microphoneError {
                     warnings.append(error)
                 }
@@ -343,8 +376,6 @@ final class SystemAudioRecordingController: ObservableObject {
                 throw SystemAudioCaptureError.noAudioSamples("system or microphone")
             }
 
-            // Normalize first-sample PTS values onto a durable recording-relative timeline.
-            // Absolute host-clock values never enter Domain or persistence.
             let firstPTSValues = [result.systemTrack?.firstPresentationTime, result.microphoneTrack?.firstPresentationTime]
                 .compactMap { $0 }
                 .filter(\.isFinite)
@@ -487,7 +518,7 @@ final class SystemAudioRecordingController: ObservableObject {
         progressTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(250))
-                guard !Task.isCancelled, let self, self.isRecording else { return }
+                guard !Task.isCancelled, let self, self.phase == .recording || self.phase == .changingSelection else { return }
                 self.refreshElapsedTime()
             }
         }
