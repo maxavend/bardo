@@ -8,7 +8,8 @@ final class SpeakerDiarizationServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let service = SpeakerDiarizationService(modelRoot: root)
-        XCTAssertFalse(await service.hasInstalledModels())
+        let initiallyInstalled = await service.hasInstalledModels()
+        XCTAssertFalse(initiallyInstalled)
 
         for name in [
             "SpeakerSegmenter",
@@ -20,7 +21,8 @@ final class SpeakerDiarizationServiceTests: XCTestCase {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
 
-        XCTAssertTrue(await service.hasInstalledModels())
+        let fullyInstalled = await service.hasInstalledModels()
+        XCTAssertTrue(fullyInstalled)
     }
 
     func testPartialSpeakerModelCacheIsNotReportedReady() async throws {
@@ -33,7 +35,8 @@ final class SpeakerDiarizationServiceTests: XCTestCase {
         }
 
         let service = SpeakerDiarizationService(modelRoot: root)
-        XCTAssertFalse(await service.hasInstalledModels())
+        let installed = await service.hasInstalledModels()
+        XCTAssertFalse(installed)
     }
 
     private func makeTemporaryRoot() throws -> URL {
