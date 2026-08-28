@@ -59,8 +59,8 @@ jobs:
           BUNDLE=.derived-data/Build/Products/Debug/Bardo.app
           test -f "$BUNDLE/Contents/Info.plist"
           test -x "$BUNDLE/Contents/MacOS/Bardo"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$BUNDLE/Contents/Info.plist)" = "Bardo records microphone audio only when you choose to start a local recording."
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$BUNDLE/Contents/Info.plist)" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
 
       - name: Run unit tests
         run: |
