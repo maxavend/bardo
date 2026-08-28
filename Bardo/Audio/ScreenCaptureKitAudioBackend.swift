@@ -11,6 +11,7 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
 
     @MainActor private var stream: SCStream?
     @MainActor private var isStopping = false
+    @MainActor private var isPaused = false
 
     @MainActor
     var currentTime: TimeInterval {
@@ -28,8 +29,6 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
             configuration.microphoneCaptureDeviceID = AVCaptureDevice.default(for: .audio)?.uniqueID
         }
 
-        // ScreenCaptureKit still streams selected visual content internally, but Bardo does
-        // not register a .screen output. Keep visual work minimal because no video is stored.
         configuration.width = 2
         configuration.height = 2
         configuration.minimumFrameInterval = CMTime(seconds: 1, preferredTimescale: 600)
@@ -64,6 +63,7 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
             }
             try await startCapture(stream)
             self.stream = stream
+            isPaused = false
         } catch {
             processor.reset()
             throw SystemAudioCaptureError.screenCapture(error.localizedDescription)
@@ -73,12 +73,33 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
     @MainActor
     func update(selection: SystemContentSelection) async throws {
         guard let stream else { throw SystemAudioCaptureError.notCapturing }
+        guard !isPaused else { throw SystemAudioCaptureError.invalidPauseState }
         guard let filter = selection.filter else { throw SystemAudioCaptureError.invalidSelection }
         do {
             try await updateContentFilter(stream, filter: filter)
         } catch {
             throw SystemAudioCaptureError.screenCapture(error.localizedDescription)
         }
+    }
+
+    @MainActor
+    func pause() async throws {
+        guard stream != nil, !isPaused else { throw SystemAudioCaptureError.invalidPauseState }
+        // Serialize the state transition behind every callback already queued. From this point
+        // forward writers discard samples until resume and remember the source-clock gap.
+        sampleQueue.sync {
+            processor.pause()
+        }
+        isPaused = true
+    }
+
+    @MainActor
+    func resume() async throws {
+        guard stream != nil, isPaused else { throw SystemAudioCaptureError.invalidPauseState }
+        sampleQueue.sync {
+            processor.resume()
+        }
+        isPaused = false
     }
 
     @MainActor
@@ -102,10 +123,12 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
         }
         self.stream = nil
 
-        // Drain every callback already enqueued before finalizing writers.
+        // Drain every callback already enqueued before finalizing writers. This is the capture
+        // equivalent of a final flush: no queued sample can race writer finalization.
         sampleQueue.sync { }
         let result = await processor.finish(streamStopError: stopError)
         processor.reset()
+        isPaused = false
         isStopping = false
         return result
     }
@@ -163,10 +186,6 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
     }
 }
 
-/// ScreenCaptureKit invokes its completion handlers on framework-owned queues. Creating
-/// these handlers outside MainActor isolation prevents Swift 6 runtime executor checks from
-/// trapping when the framework calls them off the main queue. The only value they touch is
-/// a Sendable continuation; SCStream itself remains confined to MainActor in the backend.
 enum ScreenCaptureKitCompletionBridge {
     nonisolated static func handler(
         for continuation: CheckedContinuation<Void, Error>
@@ -202,6 +221,20 @@ private final class SystemAudioSampleProcessor: @unchecked Sendable {
             }
             systemFailure = nil
             microphoneFailure = nil
+        }
+    }
+
+    func pause() {
+        lock.bardoWithLock {
+            systemWriter?.pause()
+            microphoneWriter?.pause()
+        }
+    }
+
+    func resume() {
+        lock.bardoWithLock {
+            systemWriter?.resume()
+            microphoneWriter?.resume()
         }
     }
 
