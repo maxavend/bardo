@@ -72,6 +72,22 @@ final class AVAudioRecorderCaptureBackend: NSObject, AudioCapturing {
         }
     }
 
+    func pause() throws {
+        guard let recorder, recorder.isRecording else {
+            throw AudioCaptureBackendError.invalidPauseState
+        }
+        recorder.pause()
+    }
+
+    func resume() throws {
+        guard let recorder, !recorder.isRecording else {
+            throw AudioCaptureBackendError.invalidPauseState
+        }
+        guard recorder.record() else {
+            throw AudioCaptureBackendError.startFailed
+        }
+    }
+
     func stop() {
         guard let recorder else { return }
         stoppingIntentionally = true
