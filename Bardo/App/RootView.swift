@@ -1,13 +1,13 @@
 import SwiftUI
 
 struct RootView: View {
-    private let warmTranscriptionForRecording: () -> Void
+    private let warmTranscriptionForRecording: @MainActor () -> Void
 
     @StateObject private var library = LibraryViewModel()
     @StateObject private var microphone = MicrophoneRecordingController()
     @StateObject private var systemAudio = SystemAudioRecordingController()
 
-    init(warmTranscriptionForRecording: @escaping () -> Void = {}) {
+    init(warmTranscriptionForRecording: @escaping @MainActor () -> Void = {}) {
         self.warmTranscriptionForRecording = warmTranscriptionForRecording
     }
 
@@ -322,12 +322,14 @@ struct RootView: View {
 
     @MainActor
     private func stopMicrophoneRecording() async {
+        warmTranscriptionForRecording()
         let recording = await microphone.stop()
         await publishToLibrary(recording)
     }
 
     @MainActor
     private func stopSystemRecording() async {
+        warmTranscriptionForRecording()
         let recording = await systemAudio.stop()
         await publishToLibrary(recording)
     }
