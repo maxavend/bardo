@@ -42,6 +42,7 @@ jobs:
       - name: Verify test-build configuration
         run: |
           test -f Bardo/Bardo.entitlements
+          test -f Bardo/Resources/BardoIcon.png
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' Bardo/Bardo.entitlements)" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' Bardo/Bardo.entitlements)" = "true"
           BUILD_SETTINGS="$(xcodebuild -project Bardo.xcodeproj -scheme Bardo -configuration Release -showBuildSettings)"
@@ -64,8 +65,12 @@ jobs:
           APP=.derived-data/Build/Products/Release/Bardo.app
           test -f "$APP/Contents/Info.plist"
           test -x "$APP/Contents/MacOS/Bardo"
+          test -f "$APP/Contents/Resources/BardoIcon.png"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Contents/Info.plist")" = "BardoIcon.png"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$APP/Contents/Info.plist")" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
+          test "$(sips -g pixelWidth "$APP/Contents/Resources/BardoIcon.png" | awk '/pixelWidth/ {print $2}')" = "256"
+          test "$(sips -g pixelHeight "$APP/Contents/Resources/BardoIcon.png" | awk '/pixelHeight/ {print $2}')" = "256"
 
       - name: Ad-hoc sign test app
         run: |
@@ -86,7 +91,7 @@ jobs:
         run: |
           APP=.derived-data/Build/Products/Release/Bardo.app
           ROOT=.dmg-root
-          DMG=Bardo-Phase7-Test.dmg
+          DMG=Bardo-Reliability-Test.dmg
           rm -rf "$ROOT" "$DMG" "$DMG.sha256"
           mkdir -p "$ROOT"
           ditto "$APP" "$ROOT/Bardo.app"
@@ -103,9 +108,9 @@ jobs:
       - name: Upload test DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Bardo-Phase7-Test-DMG
+          name: Bardo-Reliability-Test-DMG
           path: |
-            Bardo-Phase7-Test.dmg
-            Bardo-Phase7-Test.dmg.sha256
+            Bardo-Reliability-Test.dmg
+            Bardo-Reliability-Test.dmg.sha256
           if-no-files-found: error
           retention-days: 14
