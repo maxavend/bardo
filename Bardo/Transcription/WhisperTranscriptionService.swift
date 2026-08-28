@@ -405,6 +405,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         cancellation: TranscriptionCancellationFlag,
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
     ) async throws -> Transcript {
+        let languagePreference = TranscriptionLanguagePreference.current
+        let preferredLanguageCode = languagePreference.whisperLanguageCode
         var segments: [TranscriptSegment] = []
         var detectedLanguage: String?
         var processedThrough: TimeInterval = 0
@@ -434,12 +436,17 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                     )
                 }
 
-                let shouldDetectLanguage = detectedLanguage == nil
+                let languagePolicy = TranscriptionLanguagePolicy.make(
+                    preference: languagePreference,
+                    lockedLanguageCode: detectedLanguage
+                )
                 let options = DecodingOptions(
-                    language: detectedLanguage,
+                    // Product invariant: Bardo is a transcriber, never a speech translator.
+                    task: .transcribe,
+                    language: languagePolicy.languageCode,
                     temperatureFallbackCount: profile.temperatureFallbackCount,
                     usePrefillPrompt: true,
-                    detectLanguage: shouldDetectLanguage,
+                    detectLanguage: languagePolicy.detectsLanguage,
                     skipSpecialTokens: true,
                     wordTimestamps: true,
                     windowClipTime: 0,
@@ -475,7 +482,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                 if processedThrough > 0 || !segments.isEmpty {
                     let partial = makeTranscript(
                         recordingID: recordingID,
-                        languageCode: detectedLanguage,
+                        languageCode: preferredLanguageCode ?? detectedLanguage,
                         segments: segments,
                         modelID: modelID,
                         sourceDuration: recordingDuration,
@@ -493,7 +500,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
 
         return makeTranscript(
             recordingID: recordingID,
-            languageCode: detectedLanguage,
+            languageCode: preferredLanguageCode ?? detectedLanguage,
             segments: segments,
             modelID: modelID,
             sourceDuration: recordingDuration,
