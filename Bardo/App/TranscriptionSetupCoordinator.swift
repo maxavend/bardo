@@ -6,6 +6,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     enum State: Equatable {
         case checking
         case installing(TranscriptionSetupProgressSnapshot)
+        case installingSpeakers(DiarizationSetupProgressSnapshot)
         case ready
         case failed(String)
     }
@@ -16,7 +17,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     private var isPreparing = false
 
     private static var completionKey: String {
-        "Bardo.TranscriptionSetupCompleted.\(TranscriptionModelManager.defaultModelID)"
+        "Bardo.FullAISetup.v2.\(TranscriptionModelManager.defaultModelID).\(SpeakerDiarizationService.modelID)"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -35,23 +36,32 @@ final class TranscriptionSetupCoordinator: ObservableObject {
         defer { isPreparing = false }
 
         do {
-            let service = try WhisperTranscriptionService.live()
+            let transcription = try WhisperTranscriptionService.live()
             let markedComplete = defaults.bool(forKey: Self.completionKey)
 
-            if !force, markedComplete, await service.hasInstalledModel() {
-                // The app can appear immediately on subsequent launches. Warm the exact shared
-                // runtime in the background so transcription is hot before the user needs it.
+            if !force, markedComplete, await transcription.hasInstalledModel() {
+                // Later launches enter Library immediately, then reload the already-installed
+                // AI runtimes in the background. First-run setup has already paid all downloads.
                 state = .ready
-                await service.warmUpIfInstalled()
+                async let transcriptionWarm: Void = transcription.warmUpIfInstalled()
+                async let speakerWarm: Void = warmSpeakerRuntime()
+                _ = await (transcriptionWarm, speakerWarm)
                 return
             }
 
             defaults.set(false, forKey: Self.completionKey)
             state = .checking
 
-            try await service.prepareForUse { [weak self] snapshot in
+            try await transcription.prepareForUse { [weak self] snapshot in
                 Task { @MainActor in
                     self?.state = .installing(snapshot)
+                }
+            }
+
+            let speakers = try SpeakerDiarizationService.live()
+            try await speakers.prepareForUse { [weak self] snapshot in
+                Task { @MainActor in
+                    self?.state = .installingSpeakers(snapshot)
                 }
             }
 
@@ -68,13 +78,18 @@ final class TranscriptionSetupCoordinator: ObservableObject {
         }
     }
 
-    /// Recording can outlive the 10-minute idle residency window. Re-warm the installed
-    /// model as capture begins so a long meeting still finishes with a hot transcription path.
+    /// Re-warm the installed transcription runtime when a long capture starts so its
+    /// eventual transcript is less likely to pay a cold Core ML load after recording ends.
     func warmForRecording() {
         guard isReady else { return }
         Task {
             guard let service = try? WhisperTranscriptionService.live() else { return }
             await service.warmUpIfInstalled()
         }
+    }
+
+    private func warmSpeakerRuntime() async {
+        guard let speakers = try? SpeakerDiarizationService.live() else { return }
+        try? await speakers.prepareForUse { _ in }
     }
 }
