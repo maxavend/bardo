@@ -31,6 +31,20 @@ final class TranscriptionPipelineTests: XCTestCase {
         XCTAssertTrue(plans[0].isLast)
     }
 
+    func testShortFormDecodeSkipsVADAndLimitsFallbackWork() {
+        let profile = TranscriptionDecodingProfile.make(duration: 8, planCount: 1)
+
+        XCTAssertFalse(profile.usesVAD)
+        XCTAssertEqual(profile.temperatureFallbackCount, 3)
+    }
+
+    func testLongFormDecodeKeepsVADAndFullFallbackQuality() {
+        let profile = TranscriptionDecodingProfile.make(duration: 600, planCount: 3)
+
+        XCTAssertTrue(profile.usesVAD)
+        XCTAssertEqual(profile.temperatureFallbackCount, 5)
+    }
+
     func testInvalidDurationsAndBoundsDoNotProduceWork() {
         XCTAssertTrue(TranscriptionChunkPlanner.plans(duration: 0).isEmpty)
         XCTAssertTrue(TranscriptionChunkPlanner.plans(duration: -.infinity).isEmpty)
