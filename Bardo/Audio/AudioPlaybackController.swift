@@ -3,14 +3,26 @@ import Combine
 import Foundation
 
 @MainActor
+final class AudioPlaybackTimeline: ObservableObject {
+    @Published fileprivate(set) var position: TimeInterval = 0
+    @Published fileprivate(set) var duration: TimeInterval = 0
+}
+
+@MainActor
 final class AudioPlaybackController: ObservableObject {
     @Published private(set) var isPlaying = false
-    @Published private(set) var position: TimeInterval = 0
-    @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var errorMessage: String?
+
+    /// Timeline ticks at 10 Hz while audio is playing. Keeping them in a dedicated observable
+    /// prevents the recording detail, transcript rows, toolbar and inspector from being
+    /// invalidated on every playback tick. Only the compact player observes this object.
+    let timeline = AudioPlaybackTimeline()
 
     private var player: AVAudioPlayer?
     private var progressTask: Task<Void, Never>?
+
+    var position: TimeInterval { timeline.position }
+    var duration: TimeInterval { timeline.duration }
 
     var isLoaded: Bool {
         player != nil
@@ -26,14 +38,12 @@ final class AudioPlaybackController: ObservableObject {
                 throw AudioPlaybackError.couldNotPrepare
             }
             self.player = player
-            duration = player.duration
-            position = player.currentTime
+            updateTimeline(position: player.currentTime, duration: player.duration)
             errorMessage = nil
             return true
         } catch {
             player = nil
-            duration = 0
-            position = 0
+            updateTimeline(position: 0, duration: 0)
             isPlaying = false
             errorMessage = AudioPlaybackError.unreadableAudio(error.localizedDescription).localizedDescription
             return false
@@ -52,9 +62,9 @@ final class AudioPlaybackController: ObservableObject {
             return false
         }
 
-        if position >= player.duration || player.currentTime >= player.duration {
+        if timeline.position >= player.duration || player.currentTime >= player.duration {
             player.currentTime = 0
-            position = 0
+            updateTimeline(position: 0, duration: player.duration)
         }
 
         guard player.play() else {
@@ -73,7 +83,7 @@ final class AudioPlaybackController: ObservableObject {
     func pause() {
         guard let player else { return }
         player.pause()
-        position = player.currentTime
+        updateTimeline(position: player.currentTime, duration: player.duration)
         isPlaying = false
         stopProgressUpdates()
     }
@@ -94,7 +104,7 @@ final class AudioPlaybackController: ObservableObject {
 
         let clamped = min(max(0, time), player.duration)
         player.currentTime = clamped
-        position = clamped
+        updateTimeline(position: clamped, duration: player.duration)
         syncFromPlayer()
     }
 
@@ -103,8 +113,7 @@ final class AudioPlaybackController: ObservableObject {
         player?.stop()
         player = nil
         isPlaying = false
-        position = 0
-        duration = 0
+        updateTimeline(position: 0, duration: 0)
         errorMessage = nil
     }
 
@@ -134,16 +143,26 @@ final class AudioPlaybackController: ObservableObject {
             return
         }
 
-        duration = player.duration
-
         if isPlaying && !player.isPlaying {
+            updateTimeline(position: player.duration, duration: player.duration)
             isPlaying = false
-            position = player.duration
             stopProgressUpdates()
             return
         }
 
-        position = min(max(0, player.currentTime), player.duration)
+        updateTimeline(
+            position: min(max(0, player.currentTime), player.duration),
+            duration: player.duration
+        )
+    }
+
+    private func updateTimeline(position: TimeInterval, duration: TimeInterval) {
+        if timeline.duration != duration {
+            timeline.duration = duration
+        }
+        if timeline.position != position {
+            timeline.position = position
+        }
     }
 }
 
