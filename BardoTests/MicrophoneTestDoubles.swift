@@ -61,18 +61,21 @@ final class IncrementalTestCaptureBackend: AudioCapturing {
     var startError: Error?
     private(set) var startCount = 0
     private(set) var stopCount = 0
+    private(set) var pauseCount = 0
+    private(set) var resumeCount = 0
     private(set) var lastURL: URL?
 
     private let sampleRate: Double = 8_000
     private var file: AVAudioFile?
     private var format: AVAudioFormat?
+    private var isPaused = false
 
     func start(to url: URL) throws {
         startCount += 1
         if let startError {
             throw startError
         }
-        guard !isRecording else {
+        guard !isRecording, file == nil else {
             throw AudioCaptureBackendError.alreadyRecording
         }
         guard let format = AVAudioFormat(
@@ -87,26 +90,46 @@ final class IncrementalTestCaptureBackend: AudioCapturing {
         self.format = format
         lastURL = url
         isRecording = true
+        isPaused = false
         currentTime = 0
         try writeChunk(duration: 0.25)
     }
 
+    func pause() throws {
+        guard isRecording, !isPaused else { throw AudioCaptureBackendError.invalidPauseState }
+        pauseCount += 1
+        isPaused = true
+        isRecording = false
+    }
+
+    func resume() throws {
+        guard file != nil, isPaused else { throw AudioCaptureBackendError.invalidPauseState }
+        resumeCount += 1
+        isPaused = false
+        isRecording = true
+        try writeChunk(duration: 0.1)
+    }
+
     func stop() {
-        guard isRecording || file != nil else { return }
+        guard isRecording || isPaused || file != nil else { return }
         stopCount += 1
         if isRecording {
             try? writeChunk(duration: 0.25)
         }
         isRecording = false
+        isPaused = false
         file?.close()
         file = nil
         format = nil
     }
 
     func simulateInterruption(_ message: String) {
-        guard isRecording else { return }
-        try? writeChunk(duration: 0.1)
+        guard isRecording || isPaused else { return }
+        if isRecording {
+            try? writeChunk(duration: 0.1)
+        }
         isRecording = false
+        isPaused = false
         file?.close()
         file = nil
         format = nil
