@@ -20,6 +20,16 @@ final class TranscriptionPipelineTests: XCTestCase {
         }
     }
 
+    func testTwoMinuteRecordingUsesOneCompletePlan() {
+        let plans = TranscriptionChunkPlanner.plans(duration: 120)
+
+        XCTAssertEqual(plans.count, 1)
+        XCTAssertEqual(plans[0].startTime, 0)
+        XCTAssertEqual(plans[0].endTime, 120)
+        XCTAssertEqual(plans[0].acceptanceStart, 0)
+        XCTAssertEqual(plans[0].acceptanceEnd, 120)
+    }
+
     func testShortRecordingUsesSingleChunkWithoutArtificialPadding() {
         let plans = TranscriptionChunkPlanner.plans(duration: 42.5)
 
@@ -38,10 +48,10 @@ final class TranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(profile.temperatureFallbackCount, 3)
     }
 
-    func testLongFormDecodeKeepsVADAndFullFallbackQuality() {
+    func testLongFormDecodeAlsoSkipsSecondLayerVAD() {
         let profile = TranscriptionDecodingProfile.make(duration: 600, planCount: 3)
 
-        XCTAssertTrue(profile.usesVAD)
+        XCTAssertFalse(profile.usesVAD)
         XCTAssertEqual(profile.temperatureFallbackCount, 5)
     }
 
@@ -74,9 +84,7 @@ final class TranscriptionPipelineTests: XCTestCase {
     }
 
     func testBoundedAudioLoaderReadsOnlyRequestedIntervalAndConvertsTo16kMonoSamples() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("BardoBoundedAudio-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let source = directory.appendingPathComponent("four-seconds.wav")
@@ -96,6 +104,64 @@ final class TranscriptionPipelineTests: XCTestCase {
         XCTAssertGreaterThan(samples.count, 15_900)
         XCTAssertLessThan(samples.count, 16_100)
         XCTAssertLessThan(samples.count, 20_000, "The loader must not retain the four-second source when only one second is requested")
+    }
+
+    func testTwoMinuteAudioReachesTranscriptionLoaderInFull() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let source = directory.appendingPathComponent("two-minutes.wav")
+        try AudioTestFixture.makeWAV(
+            at: source,
+            sampleRate: 48_000,
+            channelCount: 1,
+            duration: 120
+        )
+
+        let samples = try BoundedWhisperAudioLoader.loadSamples(
+            from: source,
+            startTime: 0,
+            endTime: 120
+        )
+
+        let expected = TranscriptionInputIntegrity.expectedSamples(duration: 120)
+        XCTAssertEqual(samples.count, expected, accuracy: 4_000)
+        XCTAssertTrue(
+            TranscriptionInputIntegrity.validates(
+                sampleCount: samples.count,
+                requestedDuration: 120
+            )
+        )
+    }
+
+    func testCoverageGuardRejectsMateriallyTruncatedInput() {
+        let onlyNinetySeconds = TranscriptionInputIntegrity.expectedSamples(duration: 90)
+        XCTAssertFalse(
+            TranscriptionInputIntegrity.validates(
+                sampleCount: onlyNinetySeconds,
+                requestedDuration: 120
+            )
+        )
+    }
+
+    func testCoverageMetadataDistinguishesCompleteAndPartial() {
+        let complete = TranscriptionCoverage(
+            completion: .complete,
+            sourceDuration: 120,
+            processedDuration: 120,
+            expectedSampleCount: 1_920_000,
+            processedSampleCount: 1_920_000
+        )
+        let partial = TranscriptionCoverage(
+            completion: .partial,
+            sourceDuration: 600,
+            processedDuration: 299.5,
+            expectedSampleCount: 9_600_000,
+            processedSampleCount: 4_792_000
+        )
+
+        XCTAssertTrue(complete.isComplete)
+        XCTAssertFalse(partial.isComplete)
     }
 
     func testDualCaptureUsesOnlyConversationMixForTranscription() {
@@ -127,6 +193,13 @@ final class TranscriptionPipelineTests: XCTestCase {
         )
 
         XCTAssertTrue(TranscriptionAudioSelection.candidates(for: recording).isEmpty)
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BardoBoundedAudio-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
     }
 
     private func makeAsset(
