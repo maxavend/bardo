@@ -23,7 +23,13 @@ struct TranscriptionModelResources: Equatable, Sendable {
 }
 
 actor TranscriptionModelManager {
-    static let defaultModelID = "large-v3-v20240930_626MB"
+    // Turbo keeps Whisper large-v3 multilingual quality while reducing the decoder from
+    // 32 layers to 4. The compressed variant is a better default for a 16 GB Mac because
+    // it substantially reduces model storage and memory pressure without falling back to
+    // a small/medium accuracy tier.
+    static let fastModelID = "large-v3-v20240930_turbo_632MB"
+    static let maximumAccuracyModelID = "large-v3-v20240930_626MB"
+    static let defaultModelID = fastModelID
     static let minimumFreeBytesForDownload: Int64 = 1_500_000_000
 
     typealias CapacityProvider = @Sendable (URL) throws -> Int64?
@@ -34,6 +40,7 @@ actor TranscriptionModelManager {
     private let fileManager: FileManager
     private let availableCapacity: CapacityProvider
     private let prepareTokenizer: TokenizerPreparer
+    private var cachedResources: TranscriptionModelResources?
 
     init(
         modelID: String = TranscriptionModelManager.defaultModelID,
@@ -85,13 +92,25 @@ actor TranscriptionModelManager {
 
     func installedModelURL() throws -> URL? {
         try ensureDirectoryExists(downloadRoot)
+        if let cachedResources, verifyModelFolder(cachedResources.modelFolder) {
+            return cachedResources.modelFolder
+        }
         return findInstalledModel()
+    }
+
+    func hasInstalledModel() throws -> Bool {
+        try installedModelURL() != nil
     }
 
     func ensureResourcesAvailable(
         progress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> TranscriptionModelResources {
         try ensureDirectoryExists(downloadRoot)
+
+        if let cachedResources, verifyModelFolder(cachedResources.modelFolder) {
+            progress(1)
+            return cachedResources
+        }
 
         let modelFolder: URL
         if let installed = findInstalledModel() {
@@ -117,16 +136,17 @@ actor TranscriptionModelManager {
             progress(0.9)
         }
 
-        // WhisperKit's tokenizer is a separate Hub artifact in v1.0.0. Preparing it here
-        // makes "model setup complete" truthful and avoids a surprise network request when
-        // the first transcription begins. The same root is later supplied to WhisperKit.
+        // Tokenizer preparation is intentionally cached for the lifetime of this manager.
+        // The previous implementation repeated this Hub/cache resolution for every 8-second
+        // transcription even when nothing had changed.
         try await prepareTokenizer(downloadRoot)
-        progress(1)
-
-        return TranscriptionModelResources(
+        let resources = TranscriptionModelResources(
             modelFolder: modelFolder,
             tokenizerFolder: downloadRoot
         )
+        cachedResources = resources
+        progress(1)
+        return resources
     }
 
     func selectedModelID() -> String {
