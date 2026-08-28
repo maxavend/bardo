@@ -19,6 +19,15 @@ protocol RecordingTranscribing: Sendable {
         store: RecordingStore,
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
     ) async throws -> Transcript
+
+    /// Opportunistically loads an already-installed model so the next user-initiated
+    /// transcription starts on a hot Core ML pipeline. Implementations must not require
+    /// a model download just to satisfy this hint.
+    func warmUpIfInstalled() async
+}
+
+extension RecordingTranscribing {
+    func warmUpIfInstalled() async {}
 }
 
 enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
@@ -134,24 +143,52 @@ private final class TranscriptionCancellationFlag: @unchecked Sendable {
 }
 
 actor WhisperTranscriptionService: RecordingTranscribing {
-    static let engineVersion = "1.0.0"
+    static let engineVersion = "1.1.0"
+    static let defaultIdleUnloadNanoseconds: UInt64 = 10 * 60 * 1_000_000_000
 
     private let modelManager: TranscriptionModelManager
     private let chunkDuration: TimeInterval
     private let overlap: TimeInterval
+    private let idleUnloadNanoseconds: UInt64
+
+    /// Keep the expensive Core ML pipeline alive between transcriptions. The old path
+    /// constructed WhisperKit with prewarm+load and then immediately unloaded it for every
+    /// recording, making model setup dominate an 8-second clip.
+    private var loadedWhisper: WhisperKit?
+    private var idleUnloadTask: Task<Void, Never>?
 
     init(
         modelManager: TranscriptionModelManager,
         chunkDuration: TimeInterval = TranscriptionChunkPlanner.defaultChunkDuration,
-        overlap: TimeInterval = TranscriptionChunkPlanner.defaultOverlap
+        overlap: TimeInterval = TranscriptionChunkPlanner.defaultOverlap,
+        idleUnloadNanoseconds: UInt64 = WhisperTranscriptionService.defaultIdleUnloadNanoseconds
     ) {
         self.modelManager = modelManager
         self.chunkDuration = chunkDuration
         self.overlap = overlap
+        self.idleUnloadNanoseconds = idleUnloadNanoseconds
     }
 
     static func live() throws -> WhisperTranscriptionService {
         WhisperTranscriptionService(modelManager: try TranscriptionModelManager.live())
+    }
+
+    func warmUpIfInstalled() async {
+        guard loadedWhisper == nil else {
+            scheduleIdleUnload()
+            return
+        }
+
+        do {
+            // Do not trigger the large model download merely because Bardo launched.
+            guard try await modelManager.hasInstalledModel() else { return }
+            let resources = try await modelManager.ensureResourcesAvailable()
+            _ = try await engine(resources: resources, progress: { _ in })
+            scheduleIdleUnload()
+        } catch {
+            // Warm-up is opportunistic. A real transcription will surface actionable setup
+            // errors through the existing user-visible path.
+        }
     }
 
     func transcribe(
@@ -159,14 +196,25 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         store: RecordingStore,
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
     ) async throws -> Transcript {
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
+
         let cancellation = TranscriptionCancellationFlag()
         return try await withTaskCancellationHandler {
-            try await transcribeInternal(
-                recording: recording,
-                store: store,
-                cancellation: cancellation,
-                progress: progress
-            )
+            do {
+                let transcript = try await transcribeInternal(
+                    recording: recording,
+                    store: store,
+                    cancellation: cancellation,
+                    progress: progress
+                )
+                scheduleIdleUnload()
+                return transcript
+            } catch {
+                // A decode error should not force a costly model reload on the user's retry.
+                scheduleIdleUnload()
+                throw error
+            }
         } onCancel: {
             cancellation.cancel()
         }
@@ -194,35 +242,46 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         }
         try checkCancellation(cancellation)
 
+        let whisper = try await engine(resources: resources, progress: progress)
+        try checkCancellation(cancellation)
+
+        return try await transcribeChunks(
+            recordingID: recording.id,
+            audioURL: audioURL,
+            plans: plans,
+            whisper: whisper,
+            modelID: await modelManager.selectedModelID(),
+            cancellation: cancellation,
+            progress: progress
+        )
+    }
+
+    private func engine(
+        resources: TranscriptionModelResources,
+        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
+    ) async throws -> WhisperKit {
+        if let loadedWhisper {
+            progress(.init(stage: .loadingModel, fractionCompleted: 1))
+            return loadedWhisper
+        }
+
         progress(.init(stage: .loadingModel, fractionCompleted: 0))
         let config = WhisperKitConfig(
             model: nil,
             modelFolder: resources.modelFolder.path,
             tokenizerFolder: resources.tokenizerFolder,
             verbose: false,
-            prewarm: true,
+            // WhisperKit documents prewarm as a load-unload-load sequence that roughly
+            // doubles load latency when Core ML's specialization cache is already warm.
+            // For a speed-first 16 GB Apple Silicon target, load directly once and retain it.
+            prewarm: false,
             load: true,
             download: false
         )
         let whisper = try await WhisperKit(config)
+        loadedWhisper = whisper
         progress(.init(stage: .loadingModel, fractionCompleted: 1))
-
-        do {
-            let transcript = try await transcribeChunks(
-                recordingID: recording.id,
-                audioURL: audioURL,
-                plans: plans,
-                whisper: whisper,
-                modelID: await modelManager.selectedModelID(),
-                cancellation: cancellation,
-                progress: progress
-            )
-            await whisper.unloadModels()
-            return transcript
-        } catch {
-            await whisper.unloadModels()
-            throw error
-        }
+        return whisper
     }
 
     private func transcribeChunks(
@@ -248,7 +307,11 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             guard !samples.isEmpty else { continue }
 
             let options = DecodingOptions(
-                usePrefillPrompt: false,
+                // Detect the language once and prefill Whisper's task/language tokens instead
+                // of asking the decoder to emit control tokens as normal output.
+                usePrefillPrompt: true,
+                detectLanguage: true,
+                skipSpecialTokens: true,
                 wordTimestamps: true,
                 chunkingStrategy: .vad
             )
@@ -349,6 +412,26 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             throw RecordingTranscriptionError.combinedAudioUnavailable(recording.id)
         }
         throw RecordingTranscriptionError.noManagedAudio(recording.id)
+    }
+
+    private func scheduleIdleUnload() {
+        idleUnloadTask?.cancel()
+        let delay = idleUnloadNanoseconds
+        idleUnloadTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch {
+                return
+            }
+            await self?.unloadEngineAfterIdleTimeout()
+        }
+    }
+
+    private func unloadEngineAfterIdleTimeout() async {
+        guard let whisper = loadedWhisper else { return }
+        loadedWhisper = nil
+        idleUnloadTask = nil
+        await whisper.unloadModels()
     }
 
     private func checkCancellation(_ cancellation: TranscriptionCancellationFlag) throws {
