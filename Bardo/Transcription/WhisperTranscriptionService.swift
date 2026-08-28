@@ -40,11 +40,21 @@ extension RecordingTranscribing {
     func warmUpIfInstalled() async {}
 }
 
+struct PartialTranscriptionFailure: Error, LocalizedError, Sendable {
+    let transcript: Transcript
+    let underlyingDescription: String
+
+    var errorDescription: String? {
+        "Transcription stopped before all audio was processed. The completed portion was preserved. \(underlyingDescription)"
+    }
+}
+
 enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
     case noManagedAudio(Recording.ID)
     case combinedAudioUnavailable(Recording.ID)
     case invalidDuration
-    case emptyTranscription
+    case inputCoverageMismatch(expectedSamples: Int, actualSamples: Int)
+    case decoderReturnedNoResult
 
     var errorDescription: String? {
         switch self {
@@ -54,8 +64,10 @@ enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
             return "The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before transcribing."
         case .invalidDuration:
             return "Bardo could not determine a valid audio duration for transcription."
-        case .emptyTranscription:
-            return "WhisperKit completed without producing any transcript segments."
+        case .inputCoverageMismatch(let expectedSamples, let actualSamples):
+            return "Bardo stopped because the audio decoder returned only \(actualSamples) of about \(expectedSamples) expected samples. The recording was not marked complete."
+        case .decoderReturnedNoResult:
+            return "The transcription engine finished without returning a decode result. The recording was not marked complete."
         }
     }
 }
@@ -127,6 +139,9 @@ enum TranscriptionChunkPlanner {
 struct TranscriptionDecodingProfile: Equatable, Sendable {
     static let shortFormThreshold: TimeInterval = 45
 
+    /// Bardo already owns deterministic, overlapping 5-minute chunking. Adding WhisperKit's
+    /// VAD chunker on top creates a second segmentation layer that can omit ranges before the
+    /// decoder ever sees them. Reliability wins here: every Bardo chunk is decoded linearly.
     let usesVAD: Bool
     let temperatureFallbackCount: Int
 
@@ -137,7 +152,7 @@ struct TranscriptionDecodingProfile: Equatable, Sendable {
             && planCount == 1
 
         return TranscriptionDecodingProfile(
-            usesVAD: !isShortForm,
+            usesVAD: false,
             temperatureFallbackCount: isShortForm ? 3 : 5
         )
     }
@@ -151,6 +166,21 @@ enum TranscriptionAudioSelection {
             return recording.audioAssets.filter { $0.role == .conversationMix }
         }
         return recording.playbackAudioAssets
+    }
+}
+
+enum TranscriptionInputIntegrity {
+    static let sampleRate: Double = 16_000
+    static let durationTolerance: TimeInterval = 0.25
+
+    static func expectedSamples(duration: TimeInterval) -> Int {
+        max(0, Int((duration * sampleRate).rounded()))
+    }
+
+    static func validates(sampleCount: Int, requestedDuration: TimeInterval) -> Bool {
+        guard sampleCount > 0, requestedDuration.isFinite, requestedDuration > 0 else { return false }
+        let actualDuration = Double(sampleCount) / sampleRate
+        return actualDuration + durationTolerance >= requestedDuration
     }
 }
 
@@ -188,6 +218,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     private let chunkDuration: TimeInterval
     private let overlap: TimeInterval
     private let idleUnloadNanoseconds: UInt64
+    private let metadataReader = AudioMetadataReader()
 
     private var loadedWhisper: WhisperKit?
     private var idleUnloadTask: Task<Void, Never>?
@@ -330,7 +361,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
         let realTimeFactor = duration > 0 ? elapsed / duration : 0
         Self.logger.info(
-            "Whisper finished audioSeconds=\(duration) elapsedSeconds=\(elapsed) rtf=\(realTimeFactor) segments=\(transcript.segments.count)"
+            "Whisper finished audioSeconds=\(duration) elapsedSeconds=\(elapsed) rtf=\(realTimeFactor) segments=\(transcript.segments.count) coverage=complete"
         )
         return transcript
     }
@@ -376,6 +407,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     ) async throws -> Transcript {
         var segments: [TranscriptSegment] = []
         var detectedLanguage: String?
+        var processedThrough: TimeInterval = 0
         let profile = TranscriptionDecodingProfile.make(
             duration: recordingDuration,
             planCount: plans.count
@@ -384,85 +416,156 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         for (index, plan) in plans.enumerated() {
             try checkCancellation(cancellation)
 
-            let samples = try BoundedWhisperAudioLoader.loadSamples(
-                from: audioURL,
-                startTime: plan.startTime,
-                endTime: plan.endTime
-            )
-            guard !samples.isEmpty else { continue }
-
-            let shouldDetectLanguage = detectedLanguage == nil
-            let options = DecodingOptions(
-                language: detectedLanguage,
-                temperatureFallbackCount: profile.temperatureFallbackCount,
-                usePrefillPrompt: true,
-                detectLanguage: shouldDetectLanguage,
-                skipSpecialTokens: true,
-                wordTimestamps: true,
-                chunkingStrategy: profile.usesVAD ? .vad : nil
-            )
-            let results = try await whisper.transcribe(
-                audioArray: samples,
-                decodeOptions: options,
-                callback: { _ in
-                    !cancellation.isCancelled
-                }
-            )
-            try checkCancellation(cancellation)
-
-            for result in results {
-                if detectedLanguage == nil, !result.language.isEmpty {
-                    detectedLanguage = result.language
-                }
-                for segment in result.segments {
-                    let globalStart = plan.startTime + TimeInterval(segment.start)
-                    let globalEnd = plan.startTime + TimeInterval(segment.end)
-                    let midpoint = globalStart + (globalEnd - globalStart) / 2
-                    let accepted = midpoint >= plan.acceptanceStart
-                        && (plan.isLast ? midpoint <= plan.acceptanceEnd : midpoint < plan.acceptanceEnd)
-                    guard accepted else { continue }
-
-                    let words = (segment.words ?? []).map { word in
-                        TranscriptWord(
-                            startTime: plan.startTime + TimeInterval(word.start),
-                            endTime: plan.startTime + TimeInterval(word.end),
-                            text: word.word,
-                            probability: word.probability
-                        )
-                    }
-                    let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty else { continue }
-                    segments.append(
-                        TranscriptSegment(
-                            startTime: globalStart,
-                            endTime: globalEnd,
-                            text: text,
-                            words: words
-                        )
+            do {
+                let samples = try BoundedWhisperAudioLoader.loadSamples(
+                    from: audioURL,
+                    startTime: plan.startTime,
+                    endTime: plan.endTime
+                )
+                let requestedDuration = plan.endTime - plan.startTime
+                let expectedSamples = TranscriptionInputIntegrity.expectedSamples(duration: requestedDuration)
+                guard TranscriptionInputIntegrity.validates(
+                    sampleCount: samples.count,
+                    requestedDuration: requestedDuration
+                ) else {
+                    throw RecordingTranscriptionError.inputCoverageMismatch(
+                        expectedSamples: expectedSamples,
+                        actualSamples: samples.count
                     )
                 }
-            }
 
-            progress(.init(
-                stage: .transcribing,
-                fractionCompleted: Double(index + 1) / Double(plans.count)
-            ))
+                let shouldDetectLanguage = detectedLanguage == nil
+                let options = DecodingOptions(
+                    language: detectedLanguage,
+                    temperatureFallbackCount: profile.temperatureFallbackCount,
+                    usePrefillPrompt: true,
+                    detectLanguage: shouldDetectLanguage,
+                    skipSpecialTokens: true,
+                    wordTimestamps: true,
+                    windowClipTime: 0,
+                    chunkingStrategy: nil
+                )
+                let results = try await whisper.transcribe(
+                    audioArray: samples,
+                    decodeOptions: options,
+                    callback: { _ in
+                        !cancellation.isCancelled
+                    }
+                )
+                try checkCancellation(cancellation)
+                guard !results.isEmpty else {
+                    throw RecordingTranscriptionError.decoderReturnedNoResult
+                }
+
+                for result in results {
+                    if detectedLanguage == nil, !result.language.isEmpty {
+                        detectedLanguage = result.language
+                    }
+                    append(result: result, plan: plan, to: &segments)
+                }
+
+                processedThrough = plan.acceptanceEnd
+                progress(.init(
+                    stage: .transcribing,
+                    fractionCompleted: Double(index + 1) / Double(plans.count)
+                ))
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                if processedThrough > 0 || !segments.isEmpty {
+                    let partial = makeTranscript(
+                        recordingID: recordingID,
+                        languageCode: detectedLanguage,
+                        segments: segments,
+                        modelID: modelID,
+                        sourceDuration: recordingDuration,
+                        processedDuration: processedThrough,
+                        completion: .partial
+                    )
+                    throw PartialTranscriptionFailure(
+                        transcript: partial,
+                        underlyingDescription: error.localizedDescription
+                    )
+                }
+                throw error
+            }
+        }
+
+        return makeTranscript(
+            recordingID: recordingID,
+            languageCode: detectedLanguage,
+            segments: segments,
+            modelID: modelID,
+            sourceDuration: recordingDuration,
+            processedDuration: recordingDuration,
+            completion: .complete
+        )
+    }
+
+    private func append(
+        result: TranscriptionResult,
+        plan: TranscriptionChunkPlan,
+        to segments: inout [TranscriptSegment]
+    ) {
+        for segment in result.segments {
+            let globalStart = plan.startTime + TimeInterval(segment.start)
+            let globalEnd = plan.startTime + TimeInterval(segment.end)
+            let midpoint = globalStart + (globalEnd - globalStart) / 2
+            let accepted = midpoint >= plan.acceptanceStart
+                && (plan.isLast ? midpoint <= plan.acceptanceEnd : midpoint < plan.acceptanceEnd)
+            guard accepted else { continue }
+
+            let words = (segment.words ?? []).map { word in
+                TranscriptWord(
+                    startTime: plan.startTime + TimeInterval(word.start),
+                    endTime: plan.startTime + TimeInterval(word.end),
+                    text: word.word,
+                    probability: word.probability
+                )
+            }
+            let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            segments.append(
+                TranscriptSegment(
+                    startTime: globalStart,
+                    endTime: globalEnd,
+                    text: text,
+                    words: words
+                )
+            )
         }
 
         segments.sort {
             if $0.startTime == $1.startTime { return $0.id.uuidString < $1.id.uuidString }
             return $0.startTime < $1.startTime
         }
-        guard !segments.isEmpty else { throw RecordingTranscriptionError.emptyTranscription }
+    }
 
+    private func makeTranscript(
+        recordingID: Recording.ID,
+        languageCode: String?,
+        segments: [TranscriptSegment],
+        modelID: String,
+        sourceDuration: TimeInterval,
+        processedDuration: TimeInterval,
+        completion: TranscriptionCompletion
+    ) -> Transcript {
+        let clampedProcessed = min(sourceDuration, max(0, processedDuration))
         return Transcript(
             recordingID: recordingID,
-            languageCode: detectedLanguage,
+            languageCode: languageCode,
             segments: segments,
             metadata: TranscriptMetadata(
                 engine: "WhisperKit",
                 engineVersion: Self.engineVersion,
-                modelID: modelID
+                modelID: modelID,
+                coverage: TranscriptionCoverage(
+                    completion: completion,
+                    sourceDuration: sourceDuration,
+                    processedDuration: clampedProcessed,
+                    expectedSampleCount: TranscriptionInputIntegrity.expectedSamples(duration: sourceDuration),
+                    processedSampleCount: TranscriptionInputIntegrity.expectedSamples(duration: clampedProcessed)
+                )
             )
         )
     }
@@ -485,8 +588,14 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                     recordingID: recording.id,
                     audioAssetID: asset.id
                 )
-                let duration = asset.metadata.duration
+                let metadata = try metadataReader.read(from: url)
+                let duration = metadata.duration
                 if duration.isFinite, duration > 0 {
+                    if abs(duration - asset.metadata.duration) > 0.25 {
+                        Self.logger.warning(
+                            "Managed audio duration differs from manifest file=\(duration) manifest=\(asset.metadata.duration) recording=\(recording.id.uuidString, privacy: .public)"
+                        )
+                    }
                     return (url, duration)
                 }
             } catch {
