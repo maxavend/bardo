@@ -64,22 +64,75 @@ struct TranscriptSegment: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+enum TranscriptionCompletion: String, Codable, Equatable, Sendable {
+    case complete
+    case partial
+}
+
+/// Evidence about the audio range that was successfully handed through Whisper's
+/// deterministic decode path. This is intentionally independent of the timestamp of the
+/// last spoken word: trailing/intermediate silence is valid audio and must not be mistaken
+/// for missing transcription work.
+struct TranscriptionCoverage: Codable, Equatable, Sendable {
+    let completion: TranscriptionCompletion
+    let sourceDuration: TimeInterval
+    let processedDuration: TimeInterval
+    let expectedSampleCount: Int
+    let processedSampleCount: Int
+
+    init(
+        completion: TranscriptionCompletion,
+        sourceDuration: TimeInterval,
+        processedDuration: TimeInterval,
+        expectedSampleCount: Int,
+        processedSampleCount: Int
+    ) {
+        self.completion = completion
+        self.sourceDuration = sourceDuration
+        self.processedDuration = processedDuration
+        self.expectedSampleCount = expectedSampleCount
+        self.processedSampleCount = processedSampleCount
+    }
+
+    var isComplete: Bool { completion == .complete }
+}
+
 struct TranscriptMetadata: Codable, Equatable, Sendable {
     let engine: String
     let engineVersion: String
     let modelID: String
     let createdAt: Date
+    let coverage: TranscriptionCoverage?
 
     init(
         engine: String,
         engineVersion: String,
         modelID: String,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        coverage: TranscriptionCoverage? = nil
     ) {
         self.engine = engine
         self.engineVersion = engineVersion
         self.modelID = modelID
         self.createdAt = createdAt
+        self.coverage = coverage
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case engine
+        case engineVersion
+        case modelID
+        case createdAt
+        case coverage
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        engine = try container.decode(String.self, forKey: .engine)
+        engineVersion = try container.decode(String.self, forKey: .engineVersion)
+        modelID = try container.decode(String.self, forKey: .modelID)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        coverage = try container.decodeIfPresent(TranscriptionCoverage.self, forKey: .coverage)
     }
 }
 
@@ -132,6 +185,10 @@ struct Transcript: Codable, Equatable, Sendable {
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var isComplete: Bool {
+        metadata.coverage?.completion != .partial
     }
 
     var hasManualTextEdits: Bool {
