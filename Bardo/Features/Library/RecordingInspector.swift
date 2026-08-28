@@ -17,7 +17,7 @@ struct RecordingInspector: View {
 
             if !recording.audioAssets.isEmpty {
                 ForEach(Array(recording.audioAssets.enumerated()), id: \.element.id) { index, asset in
-                    Section(recording.audioAssets.count == 1 ? "Audio" : "Audio Track \(index + 1)") {
+                    Section {
                         LabeledContent("File", value: asset.originalFileName)
                         LabeledContent("Codec", value: asset.metadata.codec)
                         LabeledContent("Sample Rate", value: LibraryFormatting.sampleRate(asset.metadata.sampleRate))
@@ -25,6 +25,8 @@ struct RecordingInspector: View {
                         if recording.audioAssets.count > 1 {
                             LabeledContent("Role", value: roleText(asset.role))
                         }
+                    } header: {
+                        Text(audioSectionTitle(index: index))
                     }
                 }
             }
@@ -34,6 +36,11 @@ struct RecordingInspector: View {
                     LabeledContent("Language", value: LibraryFormatting.language(transcript.languageCode))
                     LabeledContent("Engine", value: "\(transcript.metadata.engine) \(transcript.metadata.engineVersion)")
                     LabeledContent("Model", value: transcript.metadata.modelID)
+                    if let coverage = transcript.metadata.coverage {
+                        LabeledContent("Status", value: coverage.isComplete
+                            ? LibraryFormatting.localized("Complete")
+                            : LibraryFormatting.localized("Partial Transcript"))
+                    }
                     LabeledContent("Created") {
                         Text(transcript.metadata.createdAt, format: .dateTime.year().month().day().hour().minute())
                     }
@@ -60,12 +67,22 @@ struct RecordingInspector: View {
         .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
     }
 
+    private func audioSectionTitle(index: Int) -> String {
+        if recording.audioAssets.count == 1 {
+            return LibraryFormatting.localized("Audio")
+        }
+        return String(
+            format: LibraryFormatting.localized("Audio Track %@"),
+            String(index + 1)
+        )
+    }
+
     private func roleText(_ role: AudioAssetRole) -> String {
         switch role {
-        case .importedOriginal: "Imported Original"
-        case .microphoneOriginal: "Microphone Original"
-        case .systemOriginal: "System Original"
-        case .conversationMix: "Conversation Mix"
+        case .importedOriginal: LibraryFormatting.localized("Imported Original")
+        case .microphoneOriginal: LibraryFormatting.localized("Microphone Original")
+        case .systemOriginal: LibraryFormatting.localized("System Original")
+        case .conversationMix: LibraryFormatting.localized("Conversation Mix")
         }
     }
 }
