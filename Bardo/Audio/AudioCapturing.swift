@@ -9,6 +9,7 @@ enum AudioCaptureBackendError: Error, LocalizedError, Equatable, Sendable {
     case noInputDevice
     case preparationFailed
     case startFailed
+    case invalidPauseState
     case recorderInitialization(String)
 
     var errorDescription: String? {
@@ -21,6 +22,8 @@ enum AudioCaptureBackendError: Error, LocalizedError, Equatable, Sendable {
             return "The microphone recorder could not prepare its output file."
         case .startFailed:
             return "The microphone recorder could not start capturing audio."
+        case .invalidPauseState:
+            return "The microphone recording cannot change pause state right now."
         case .recorderInitialization(let description):
             return "The microphone recorder could not be created: \(description)"
         }
@@ -36,5 +39,7 @@ protocol AudioCapturing: AnyObject {
     var eventHandler: ((AudioCaptureBackendEvent) -> Void)? { get set }
 
     func start(to url: URL) throws
+    func pause() throws
+    func resume() throws
     func stop()
 }
