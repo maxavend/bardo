@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 @preconcurrency import WhisperKit
 
 enum TranscriptionStage: String, Sendable {
@@ -32,9 +33,6 @@ protocol RecordingTranscribing: Sendable {
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
     ) async throws -> Transcript
 
-    /// Opportunistically loads an already-installed model so the next user-initiated
-    /// transcription starts on a hot Core ML pipeline. Implementations must not require
-    /// a model download just to satisfy this hint.
     func warmUpIfInstalled() async
 }
 
@@ -126,6 +124,25 @@ enum TranscriptionChunkPlanner {
     }
 }
 
+struct TranscriptionDecodingProfile: Equatable, Sendable {
+    static let shortFormThreshold: TimeInterval = 45
+
+    let usesVAD: Bool
+    let temperatureFallbackCount: Int
+
+    static func make(duration: TimeInterval, planCount: Int) -> TranscriptionDecodingProfile {
+        let isShortForm = duration.isFinite
+            && duration > 0
+            && duration <= shortFormThreshold
+            && planCount == 1
+
+        return TranscriptionDecodingProfile(
+            usesVAD: !isShortForm,
+            temperatureFallbackCount: isShortForm ? 3 : 5
+        )
+    }
+}
+
 enum TranscriptionAudioSelection {
     static func candidates(for recording: Recording) -> [AudioAsset] {
         let isDualCapture = recording.sources.contains(.systemAudio)
@@ -156,11 +173,13 @@ private final class TranscriptionCancellationFlag: @unchecked Sendable {
 
 actor WhisperTranscriptionService: RecordingTranscribing {
     static let engineVersion = "1.1.0"
-    static let defaultIdleUnloadNanoseconds: UInt64 = 10 * 60 * 1_000_000_000
+    static let defaultIdleUnloadNanoseconds: UInt64 = 30 * 60 * 1_000_000_000
 
-    /// All app features resolve the same runtime. This matters because Core ML model loading
-    /// and specialization are the expensive part of short-form transcription; a setup screen
-    /// that warms one instance is useless if Library later creates a different one.
+    private static let logger = Logger(
+        subsystem: "com.maxavend.bardo",
+        category: "transcription.performance"
+    )
+
     private static let sharedServiceResult: Result<WhisperTranscriptionService, Error> = Result {
         WhisperTranscriptionService(modelManager: try TranscriptionModelManager.live())
     }
@@ -170,9 +189,6 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     private let overlap: TimeInterval
     private let idleUnloadNanoseconds: UInt64
 
-    /// Keep the expensive Core ML pipeline alive between transcriptions. The old path
-    /// constructed WhisperKit with prewarm+load and then immediately unloaded it for every
-    /// recording, making model setup dominate an 8-second clip.
     private var loadedWhisper: WhisperKit?
     private var idleUnloadTask: Task<Void, Never>?
 
@@ -196,9 +212,6 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         (try? await modelManager.hasInstalledModel()) == true
     }
 
-    /// Completes the heavyweight work up front: model download, tokenizer preparation and
-    /// the first Core ML load/specialization. When this returns, the exact same WhisperKit
-    /// instance is retained for Library's first transcription.
     func prepareForUse(
         progress: @escaping @Sendable (TranscriptionSetupProgressSnapshot) -> Void
     ) async throws {
@@ -240,14 +253,12 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         }
 
         do {
-            // Do not trigger the large model download merely because Bardo launched.
             guard try await modelManager.hasInstalledModel() else { return }
             let resources = try await modelManager.ensureResourcesAvailable()
             _ = try await engine(resources: resources, progress: { _ in })
             scheduleIdleUnload()
         } catch {
-            // Warm-up is opportunistic. A real transcription will surface actionable setup
-            // errors through the existing user-visible path.
+            Self.logger.debug("Background Whisper warm-up skipped: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -271,7 +282,6 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                 scheduleIdleUnload()
                 return transcript
             } catch {
-                // A decode error should not force a costly model reload on the user's retry.
                 scheduleIdleUnload()
                 throw error
             }
@@ -288,6 +298,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     ) async throws -> Transcript {
         try checkCancellation(cancellation)
 
+        let overallStart = ProcessInfo.processInfo.systemUptime
         let (audioURL, duration) = try await resolveAudio(recording: recording, store: store)
         let plans = TranscriptionChunkPlanner.plans(
             duration: duration,
@@ -305,15 +316,23 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         let whisper = try await engine(resources: resources, progress: progress)
         try checkCancellation(cancellation)
 
-        return try await transcribeChunks(
+        let transcript = try await transcribeChunks(
             recordingID: recording.id,
             audioURL: audioURL,
+            recordingDuration: duration,
             plans: plans,
             whisper: whisper,
             modelID: await modelManager.selectedModelID(),
             cancellation: cancellation,
             progress: progress
         )
+
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
+        let realTimeFactor = duration > 0 ? elapsed / duration : 0
+        Self.logger.info(
+            "Whisper finished audioSeconds=\(duration) elapsedSeconds=\(elapsed) rtf=\(realTimeFactor) segments=\(transcript.segments.count)"
+        )
+        return transcript
     }
 
     private func engine(
@@ -326,14 +345,12 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         }
 
         progress(.init(stage: .loadingModel, fractionCompleted: 0))
+        let loadStart = ProcessInfo.processInfo.systemUptime
         let config = WhisperKitConfig(
             model: nil,
             modelFolder: resources.modelFolder.path,
             tokenizerFolder: resources.tokenizerFolder,
             verbose: false,
-            // WhisperKit documents prewarm as a load-unload-load sequence that roughly
-            // doubles load latency when Core ML's specialization cache is already warm.
-            // Bardo pays the real load once during setup/background warm-up, then retains it.
             prewarm: false,
             load: true,
             download: false
@@ -341,12 +358,16 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         let whisper = try await WhisperKit(config)
         loadedWhisper = whisper
         progress(.init(stage: .loadingModel, fractionCompleted: 1))
+
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - loadStart)
+        Self.logger.info("Whisper Core ML load finished elapsedSeconds=\(elapsed)")
         return whisper
     }
 
     private func transcribeChunks(
         recordingID: Recording.ID,
         audioURL: URL,
+        recordingDuration: TimeInterval,
         plans: [TranscriptionChunkPlan],
         whisper: WhisperKit,
         modelID: String,
@@ -355,6 +376,10 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     ) async throws -> Transcript {
         var segments: [TranscriptSegment] = []
         var detectedLanguage: String?
+        let profile = TranscriptionDecodingProfile.make(
+            duration: recordingDuration,
+            planCount: plans.count
+        )
 
         for (index, plan) in plans.enumerated() {
             try checkCancellation(cancellation)
@@ -366,20 +391,21 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             )
             guard !samples.isEmpty else { continue }
 
+            let shouldDetectLanguage = detectedLanguage == nil
             let options = DecodingOptions(
-                // Detect the language once per decode window and prefill Whisper's task/language
-                // tokens instead of asking the decoder to emit control tokens as normal output.
+                language: detectedLanguage,
+                temperatureFallbackCount: profile.temperatureFallbackCount,
                 usePrefillPrompt: true,
-                detectLanguage: true,
+                detectLanguage: shouldDetectLanguage,
                 skipSpecialTokens: true,
                 wordTimestamps: true,
-                chunkingStrategy: .vad
+                chunkingStrategy: profile.usesVAD ? .vad : nil
             )
             let results = try await whisper.transcribe(
                 audioArray: samples,
                 decodeOptions: options,
                 callback: { _ in
-                    cancellation.isCancelled ? false : true
+                    !cancellation.isCancelled
                 }
             )
             try checkCancellation(cancellation)
