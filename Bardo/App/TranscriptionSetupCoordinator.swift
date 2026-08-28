@@ -17,7 +17,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     private var isPreparing = false
 
     private static var completionKey: String {
-        "Bardo.FullAISetup.v2.\(TranscriptionModelManager.defaultModelID).\(SpeakerDiarizationService.modelID)"
+        "Bardo.FullAISetup.v3.\(TranscriptionModelManager.defaultModelID).\(SpeakerDiarizationService.modelID)"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -37,14 +37,16 @@ final class TranscriptionSetupCoordinator: ObservableObject {
 
         do {
             let transcription = try WhisperTranscriptionService.live()
+            let speakers = try SpeakerDiarizationService.live()
             let markedComplete = defaults.bool(forKey: Self.completionKey)
 
-            if !force, markedComplete, await transcription.hasInstalledModel() {
-                // Later launches enter Library immediately, then reload the already-installed
-                // AI runtimes in the background. First-run setup has already paid all downloads.
+            let transcriptionInstalled = await transcription.hasInstalledModel()
+            let speakersInstalled = await speakers.hasInstalledModels()
+
+            if !force, markedComplete, transcriptionInstalled, speakersInstalled {
                 state = .ready
                 async let transcriptionWarm: Void = transcription.warmUpIfInstalled()
-                async let speakerWarm: Void = warmSpeakerRuntime()
+                async let speakerWarm: Void = speakers.warmUpIfInstalled()
                 _ = await (transcriptionWarm, speakerWarm)
                 return
             }
@@ -58,7 +60,6 @@ final class TranscriptionSetupCoordinator: ObservableObject {
                 }
             }
 
-            let speakers = try SpeakerDiarizationService.live()
             try await speakers.prepareForUse { [weak self] snapshot in
                 Task { @MainActor in
                     self?.state = .installingSpeakers(snapshot)
@@ -67,6 +68,9 @@ final class TranscriptionSetupCoordinator: ObservableObject {
 
             defaults.set(true, forKey: Self.completionKey)
             state = .ready
+        } catch is CancellationError {
+            // Closing Bardo during first-run setup is safe. Partial downloads remain in the
+            // local caches and the next launch resumes/validates them before entering Library.
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -78,18 +82,11 @@ final class TranscriptionSetupCoordinator: ObservableObject {
         }
     }
 
-    /// Re-warm the installed transcription runtime when a long capture starts so its
-    /// eventual transcript is less likely to pay a cold Core ML load after recording ends.
     func warmForRecording() {
         guard isReady else { return }
         Task {
             guard let service = try? WhisperTranscriptionService.live() else { return }
             await service.warmUpIfInstalled()
         }
-    }
-
-    private func warmSpeakerRuntime() async {
-        guard let speakers = try? SpeakerDiarizationService.live() else { return }
-        try? await speakers.prepareForUse { _ in }
     }
 }
