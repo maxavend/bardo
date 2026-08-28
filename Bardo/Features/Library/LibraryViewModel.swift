@@ -77,7 +77,6 @@ final class LibraryViewModel: ObservableObject {
         defer { isImporting = false }
 
         var failures: [String] = []
-
         do {
             let activeImporter = try resolveImporter()
             for url in urls {
@@ -118,10 +117,7 @@ final class LibraryViewModel: ObservableObject {
 
         do {
             let activeStore = try resolveStore()
-            guard var recording = try await activeStore.read(id: id) else {
-                recordingManagementErrorMessage = "That recording is no longer available."
-                return false
-            }
+            var recording = try await activeStore.read(id: id)
             recording.title = title
             try await activeStore.update(recording)
             replaceRecording(recording)
@@ -180,7 +176,6 @@ final class LibraryViewModel: ObservableObject {
 
         let recordingID = recording.id
         var lastError: String?
-
         for asset in recording.playbackAudioAssets {
             do {
                 let activeStore = try resolveStore()
@@ -271,7 +266,7 @@ final class LibraryViewModel: ObservableObject {
 
         do {
             let activeRecordingStore = try resolveStore()
-            _ = try await persistProcessingState(.processing, recordingID: recordingID, fallback: recording)
+            _ = try await persistProcessingState(.processing, recordingID: recordingID)
 
             let activeTranscriber = try resolveTranscriber()
             let generated = try await activeTranscriber.transcribe(
@@ -291,7 +286,7 @@ final class LibraryViewModel: ObservableObject {
             try await activeTranscriptStore.save(generated)
 
             let state: ProcessingState = generated.metadata.coverage?.completion == .partial ? .partial : .completed
-            _ = try await persistProcessingState(state, recordingID: recordingID, fallback: recording)
+            _ = try await persistProcessingState(state, recordingID: recordingID)
             if selection == recordingID {
                 transcript = generated
                 if state == .partial {
@@ -300,18 +295,18 @@ final class LibraryViewModel: ObservableObject {
             }
             transcriptionProgress = .init(stage: .saving, fractionCompleted: 1)
         } catch is CancellationError {
-            try? await persistProcessingState(.pending, recordingID: recordingID, fallback: recording)
+            try? await persistProcessingState(.pending, recordingID: recordingID)
         } catch let partial as PartialTranscriptionFailure {
             if let activeTranscriptStore = try? resolveTranscriptStore() {
                 try? await activeTranscriptStore.save(partial.transcript)
             }
-            try? await persistProcessingState(.partial, recordingID: recordingID, fallback: recording)
+            try? await persistProcessingState(.partial, recordingID: recordingID)
             if selection == recordingID {
                 transcript = partial.transcript
                 transcriptErrorMessage = partial.localizedDescription
             }
         } catch {
-            try? await persistProcessingState(.failed, recordingID: recordingID, fallback: recording)
+            try? await persistProcessingState(.failed, recordingID: recordingID)
             if selection == recordingID {
                 transcriptErrorMessage = error.localizedDescription
             }
@@ -476,11 +471,10 @@ final class LibraryViewModel: ObservableObject {
     @discardableResult
     private func persistProcessingState(
         _ state: ProcessingState,
-        recordingID: Recording.ID,
-        fallback: Recording
+        recordingID: Recording.ID
     ) async throws -> Recording {
         let activeStore = try resolveStore()
-        var current = (try await activeStore.read(id: recordingID)) ?? fallback
+        var current = try await activeStore.read(id: recordingID)
         current.processingState = state
         try await activeStore.update(current)
         replaceRecording(current)
@@ -527,7 +521,6 @@ final class LibraryViewModel: ObservableObject {
         if let store {
             return store
         }
-
         let store = try RecordingStore.live()
         self.store = store
         return store
@@ -537,7 +530,6 @@ final class LibraryViewModel: ObservableObject {
         if let importer {
             return importer
         }
-
         let importer = AudioImportService(store: try resolveStore())
         self.importer = importer
         return importer
