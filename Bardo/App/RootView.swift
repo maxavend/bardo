@@ -64,7 +64,7 @@ struct RootView: View {
 
     @ToolbarContentBuilder
     private var captureToolbar: some ToolbarContent {
-        ToolbarItem {
+        ToolbarItem(placement: .automatic) {
             if microphone.isRecording {
                 Button {
                     Task { await stopMicrophoneRecording() }
@@ -116,8 +116,12 @@ struct RootView: View {
     private var captureStatusBar: some View {
         if microphone.phase != .idle && microphone.phase != .failed {
             microphoneStatusBar
+                .padding(.horizontal, 18)
+                .padding(.top, 8)
         } else if systemAudio.phase != .idle && systemAudio.phase != .failed {
             systemAudioStatusBar
+                .padding(.horizontal, 18)
+                .padding(.top, 8)
         } else {
             recoveryStatusBar
         }
@@ -127,17 +131,17 @@ struct RootView: View {
     private var microphoneStatusBar: some View {
         switch microphone.phase {
         case .requestingPermission:
-            transitionBar(
+            transitionPill(
                 title: "Waiting for Microphone Permission",
                 detail: "Respond to the macOS permission prompt."
             )
         case .preparing:
-            transitionBar(
+            transitionPill(
                 title: "Preparing Recording",
                 detail: "Preparing the microphone and managed capture file."
             )
         case .recording:
-            activeRecordingBar(
+            activeRecordingPill(
                 title: "Recording Microphone",
                 detail: microphone.inputDisplayName ?? "Default microphone",
                 duration: microphone.elapsedTime,
@@ -146,7 +150,7 @@ struct RootView: View {
                 }
             )
         case .finalizing:
-            transitionBar(
+            transitionPill(
                 title: "Finishing Recording",
                 detail: "Closing, validating, and adding the audio to Library."
             )
@@ -159,24 +163,24 @@ struct RootView: View {
     private var systemAudioStatusBar: some View {
         switch systemAudio.phase {
         case .requestingMicrophonePermission:
-            transitionBar(
+            transitionPill(
                 title: "Waiting for Microphone Permission",
                 detail: "Microphone access is required only for the combined recording mode."
             )
         case .selectingContent:
-            transitionBar(
+            transitionPill(
                 title: "Choose Audio to Capture",
                 detail: "Use the macOS sharing picker to choose a display, app, or window."
             )
         case .preparing:
-            transitionBar(
+            transitionPill(
                 title: "Preparing System Audio",
                 detail: systemAudio.includesMicrophone
                     ? "Preparing independent system and microphone tracks."
                     : "Preparing the system-audio capture file."
             )
         case .recording:
-            activeRecordingBar(
+            activeRecordingPill(
                 title: systemAudio.includesMicrophone ? "Recording System + Microphone" : "Recording System Audio",
                 detail: systemAudio.includesMicrophone
                     ? "Both original sources are being preserved separately."
@@ -190,7 +194,7 @@ struct RootView: View {
                 }
             )
         case .changingSelection:
-            activeRecordingBar(
+            activeRecordingPill(
                 title: "Recording — Choose New Source",
                 detail: "Capture continues while the macOS sharing picker is open.",
                 duration: systemAudio.elapsedTime,
@@ -199,7 +203,7 @@ struct RootView: View {
                 }
             )
         case .finalizing:
-            transitionBar(
+            transitionPill(
                 title: "Finishing System Audio",
                 detail: systemAudio.includesMicrophone
                     ? "Closing originals, aligning sources, and preparing playback."
@@ -212,26 +216,29 @@ struct RootView: View {
 
     @ViewBuilder
     private var recoveryStatusBar: some View {
-        let microphoneCount = microphone.recoveryIssues.count
-        let systemCount = systemAudio.recoveryIssues.count
-        let total = microphoneCount + systemCount
+        let total = microphone.recoveryIssues.count + systemAudio.recoveryIssues.count
 
         if total > 0 {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle")
+            HStack(spacing: 9) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
                 Text("Bardo preserved \(total) incomplete capture\(total == 1 ? "" : "s") for recovery.")
                     .font(.caption)
-                Spacer()
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(.bar)
+            .padding(.vertical, 9)
+            .frame(maxWidth: 640)
+            .bardoGlassSurface(cornerRadius: 14)
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity)
             .accessibilityLabel("Bardo preserved \(total) incomplete captures for recovery")
         }
     }
 
-    private func activeRecordingBar(
+    private func activeRecordingPill(
         title: String,
         detail: String,
         duration: TimeInterval,
@@ -240,21 +247,24 @@ struct RootView: View {
     ) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "record.circle.fill")
+                .font(.title3)
+                .symbolEffect(.pulse)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 8) {
                     Text(title)
-                        .fontWeight(.semibold)
-                    Text(durationText(duration))
-                        .monospacedDigit()
+                        .font(.callout.weight(.semibold))
+                    Text(LibraryFormatting.duration(duration))
+                        .font(.callout.monospacedDigit())
                 }
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
-            Spacer()
+            Spacer(minLength: 18)
 
             if let changeSourceAction {
                 Button("Change Source…", action: changeSourceAction)
@@ -264,29 +274,33 @@ struct RootView: View {
             Button("Stop", role: .destructive, action: stopAction)
                 .keyboardShortcut(.escape, modifiers: [])
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.bar)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 720)
+        .bardoGlassSurface(cornerRadius: 18, interactive: true)
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(durationText(duration)) elapsed. \(detail)")
+        .accessibilityLabel("\(title), \(LibraryFormatting.duration(duration)) elapsed. \(detail)")
     }
 
-    private func transitionBar(title: String, detail: String) -> some View {
+    private func transitionPill(title: String, detail: String) -> some View {
         HStack(spacing: 12) {
             ProgressView()
                 .controlSize(.small)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .fontWeight(.semibold)
+                    .font(.callout.weight(.semibold))
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.bar)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 640)
+        .bardoGlassSurface(cornerRadius: 18)
+        .frame(maxWidth: .infinity)
     }
 
     @MainActor
@@ -326,16 +340,4 @@ struct RootView: View {
             return "Microphone Recording Failed"
         }
     }
-}
-
-private func durationText(_ duration: TimeInterval) -> String {
-    let seconds = max(0, Int(duration.rounded()))
-    let hours = seconds / 3_600
-    let minutes = (seconds % 3_600) / 60
-    let remainingSeconds = seconds % 60
-
-    if hours > 0 {
-        return String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
-    }
-    return String(format: "%d:%02d", minutes, remainingSeconds)
 }

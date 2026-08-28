@@ -13,10 +13,10 @@ permissions:
 jobs:
   build-test-dmg:
     name: Build Bardo test DMG
-    runs-on: macos-15
-    timeout-minutes: 25
+    runs-on: macos-26
+    timeout-minutes: 30
     env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
     steps:
       - name: Check out repository
@@ -60,8 +60,8 @@ jobs:
           APP=.derived-data/Build/Products/Release/Bardo.app
           test -f "$APP/Contents/Info.plist"
           test -x "$APP/Contents/MacOS/Bardo"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$APP/Contents/Info.plist")" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP/Contents/Info.plist)" = "Bardo records microphone audio only when you choose to start a local recording."
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$APP/Contents/Info.plist)" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
 
       - name: Ad-hoc sign test app
         run: |

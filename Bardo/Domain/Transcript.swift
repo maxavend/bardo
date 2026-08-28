@@ -60,7 +60,7 @@ struct TranscriptSegment: Identifiable, Codable, Equatable, Sendable {
     }
 
     var displayText: String {
-        editedText ?? text
+        TranscriptTextSanitizer.sanitize(editedText ?? text)
     }
 }
 
@@ -129,6 +129,7 @@ struct Transcript: Codable, Equatable, Sendable {
     var text: String {
         segments
             .map(\.displayText)
+            .filter { !$0.isEmpty }
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }

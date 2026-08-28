@@ -17,8 +17,9 @@ struct BardoApp: App {
     var body: some Scene {
         Window("Bardo", id: "main") {
             RootView()
-                .frame(minWidth: 640, minHeight: 420)
+                .frame(minWidth: 760, minHeight: 520)
         }
-        .defaultSize(width: 900, height: 600)
+        .defaultSize(width: 1180, height: 760)
+        .windowResizability(.contentMinSize)
     }
 }
