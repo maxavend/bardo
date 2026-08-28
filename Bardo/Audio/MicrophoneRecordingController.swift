@@ -8,6 +8,7 @@ final class MicrophoneRecordingController: ObservableObject {
         case requestingPermission
         case preparing
         case recording
+        case paused
         case finalizing
         case failed
     }
@@ -19,11 +20,12 @@ final class MicrophoneRecordingController: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var recoveryIssues: [RecordingStoreIssue] = []
 
-    var isRecording: Bool { phase == .recording }
+    var isRecording: Bool { phase == .recording || phase == .paused }
+    var isPaused: Bool { phase == .paused }
 
     var isBusy: Bool {
         switch phase {
-        case .requestingPermission, .preparing, .recording, .finalizing:
+        case .requestingPermission, .preparing, .recording, .paused, .finalizing:
             return true
         case .idle, .failed:
             return false
@@ -31,7 +33,7 @@ final class MicrophoneRecordingController: ObservableObject {
     }
 
     var requiresTerminationFinalization: Bool {
-        phase == .recording || phase == .finalizing
+        phase == .recording || phase == .paused || phase == .finalizing
     }
 
     static var activeForApplicationTermination: MicrophoneRecordingController? {
@@ -117,9 +119,34 @@ final class MicrophoneRecordingController: ObservableObject {
         }
     }
 
+    func pause() {
+        guard phase == .recording else { return }
+        do {
+            refreshElapsedTime()
+            try backend.pause()
+            stopProgressUpdates()
+            phase = .paused
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func resume() {
+        guard phase == .paused else { return }
+        do {
+            try backend.resume()
+            phase = .recording
+            errorMessage = nil
+            startProgressUpdates()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     @discardableResult
     func stop() async -> Recording? {
-        guard phase == .recording, let session else { return nil }
+        guard (phase == .recording || phase == .paused), let session else { return nil }
 
         phase = .finalizing
         stopProgressUpdates()
@@ -130,6 +157,10 @@ final class MicrophoneRecordingController: ObservableObject {
             let store = try resolveStore()
             let stagingStore = try resolveStagingStore()
             let metadata = try metadataReader.read(from: session.stagingURL)
+            try CaptureDurationIntegrity.validate(
+                expected: capturedElapsed,
+                finalized: metadata.duration
+            )
             let asset = AudioAsset(
                 id: session.audioAssetID,
                 originalFileName: "Microphone Recording.\(session.fileExtension)",
@@ -175,7 +206,7 @@ final class MicrophoneRecordingController: ObservableObject {
     }
 
     func prepareForApplicationTermination() async {
-        if phase == .recording {
+        if phase == .recording || phase == .paused {
             _ = await stop()
         }
 
@@ -290,7 +321,7 @@ final class MicrophoneRecordingController: ObservableObject {
     }
 
     private func handleBackendEvent(_ event: AudioCaptureBackendEvent) {
-        guard phase == .recording, let session else { return }
+        guard (phase == .recording || phase == .paused), let session else { return }
 
         stopProgressUpdates()
         elapsedTime = max(elapsedTime, backend.currentTime)
