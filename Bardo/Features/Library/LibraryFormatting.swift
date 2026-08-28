@@ -2,8 +2,18 @@ import Foundation
 
 /// Presentation-only formatting shared by the Library feature.
 enum LibraryFormatting {
+    static var appLocale: Locale {
+        let raw = UserDefaults.standard.string(forKey: BardoLanguage.storageKey)
+            ?? BardoLanguage.preferredDefault.rawValue
+        return BardoLanguage.resolve(raw).locale
+    }
+
+    static func localized(_ key: String) -> String {
+        BardoL10n.string(key, locale: appLocale)
+    }
+
     static func duration(_ duration: TimeInterval?) -> String {
-        guard let duration else { return "Unknown" }
+        guard let duration else { return localized("Unknown") }
         return self.duration(duration)
     }
 
@@ -27,14 +37,14 @@ enum LibraryFormatting {
     }
 
     static func source(_ sources: Set<AudioSource>) -> String {
-        guard !sources.isEmpty else { return "Unknown source" }
+        guard !sources.isEmpty else { return localized("Unknown source") }
         return sources
             .sorted { $0.rawValue < $1.rawValue }
             .map { source in
                 switch source {
-                case .microphone: "Microphone"
-                case .systemAudio: "System Audio"
-                case .importedFile: "Imported File"
+                case .microphone: localized("Microphone")
+                case .systemAudio: localized("System Audio")
+                case .importedFile: localized("Imported File")
                 }
             }
             .joined(separator: " + ")
@@ -50,11 +60,11 @@ enum LibraryFormatting {
 
     static func state(_ state: ProcessingState) -> String {
         switch state {
-        case .pending: "Ready"
-        case .processing: "Processing"
-        case .completed: "Transcribed"
-        case .partial: "Partial Transcript"
-        case .failed: "Needs Attention"
+        case .pending: localized("Ready")
+        case .processing: localized("Processing")
+        case .completed: localized("Transcribed")
+        case .partial: localized("Partial Transcript")
+        case .failed: localized("Needs Attention")
         }
     }
 
@@ -69,8 +79,7 @@ enum LibraryFormatting {
     }
 
     static func language(_ code: String?) -> String {
-        guard let code, !code.isEmpty else { return "Auto-detected" }
-        let locale = Locale.current
-        return locale.localizedString(forLanguageCode: code)?.capitalized ?? code.uppercased()
+        guard let code, !code.isEmpty else { return localized("Auto-detected") }
+        return appLocale.localizedString(forLanguageCode: code)?.capitalized ?? code.uppercased()
     }
 }
