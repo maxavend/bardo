@@ -4,10 +4,55 @@ struct LibrarySidebar: View {
     @ObservedObject var model: LibraryViewModel
     let onImport: () -> Void
 
+    @State private var recordingToRename: Recording?
+    @State private var renameTitle = ""
+    @State private var recordingToDelete: Recording?
+
     var body: some View {
         content
             .navigationTitle("Bardo")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
+            .alert("Rename Recording", isPresented: renamePresented) {
+                TextField("Recording Name", text: $renameTitle)
+                Button("Cancel", role: .cancel) {
+                    recordingToRename = nil
+                }
+                Button("Rename") {
+                    guard let recording = recordingToRename else { return }
+                    Task {
+                        _ = await model.renameRecording(id: recording.id, to: renameTitle)
+                        recordingToRename = nil
+                    }
+                }
+                .disabled(renameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } message: {
+                Text("Choose a name you’ll recognize later.")
+            }
+            .alert("Delete Recording?", isPresented: deletePresented) {
+                Button("Cancel", role: .cancel) {
+                    recordingToDelete = nil
+                }
+                Button("Delete", role: .destructive) {
+                    guard let recording = recordingToDelete else { return }
+                    Task {
+                        _ = await model.deleteRecording(id: recording.id)
+                        recordingToDelete = nil
+                    }
+                }
+            } message: {
+                Text(deleteMessage)
+            }
+            .alert(
+                "Recording Couldn’t Be Changed",
+                isPresented: Binding(
+                    get: { model.recordingManagementErrorMessage != nil },
+                    set: { if !$0 { model.clearRecordingManagementError() } }
+                )
+            ) {
+                Button("OK") { model.clearRecordingManagementError() }
+            } message: {
+                Text(model.recordingManagementErrorMessage ?? "Try again.")
+            }
     }
 
     @ViewBuilder
@@ -42,7 +87,7 @@ struct LibrarySidebar: View {
             ContentUnavailableView {
                 Label("No Recordings", systemImage: "waveform")
             } description: {
-                Text("Record something, import an audio file, or drop audio into this window.")
+                Text("Start a new recording, import an audio file, or drop audio into this window.")
             } actions: {
                 Button("Import Audio", action: onImport)
             }
@@ -54,6 +99,21 @@ struct LibrarySidebar: View {
                     ForEach(model.recordings) { recording in
                         RecordingRowView(recording: recording)
                             .tag(recording.id)
+                            .contextMenu {
+                                Button {
+                                    beginRename(recording)
+                                } label: {
+                                    Label("Rename", systemImage: "pencil")
+                                }
+
+                                Divider()
+
+                                Button(role: .destructive) {
+                                    recordingToDelete = recording
+                                } label: {
+                                    Label("Delete Recording", systemImage: "trash")
+                                }
+                            }
                     }
                 }
             }
@@ -94,6 +154,35 @@ struct LibrarySidebar: View {
             }
         }
     }
+
+    private var renamePresented: Binding<Bool> {
+        Binding(
+            get: { recordingToRename != nil },
+            set: { if !$0 { recordingToRename = nil } }
+        )
+    }
+
+    private var deletePresented: Binding<Bool> {
+        Binding(
+            get: { recordingToDelete != nil },
+            set: { if !$0 { recordingToDelete = nil } }
+        )
+    }
+
+    private var deleteMessage: String {
+        guard let recording = recordingToDelete else {
+            return "This removes the recording and its transcript from this Mac."
+        }
+        if model.isProcessing(recordingID: recording.id) {
+            return "Bardo will stop the current processing task, then permanently remove this recording and its transcript from this Mac."
+        }
+        return "“\(recording.title)” and its transcript will be permanently removed from this Mac."
+    }
+
+    private func beginRename(_ recording: Recording) {
+        renameTitle = recording.title
+        recordingToRename = recording
+    }
 }
 
 private struct RecordingRowView: View {
@@ -117,7 +206,11 @@ private struct RecordingRowView: View {
 
                     Image(systemName: LibraryFormatting.stateSymbol(recording.processingState))
                         .font(.caption)
-                        .foregroundStyle(recording.processingState == .failed ? .primary : .secondary)
+                        .foregroundStyle(
+                            recording.processingState == .failed || recording.processingState == .partial
+                                ? .primary
+                                : .secondary
+                        )
                         .accessibilityLabel(LibraryFormatting.state(recording.processingState))
                 }
 
