@@ -6,6 +6,14 @@ private enum TestTokenizerFailure: Error, Sendable {
     case deliberate
 }
 
+private actor TokenizerPreparationCounter {
+    private(set) var value = 0
+
+    func increment() {
+        value += 1
+    }
+}
+
 final class TranscriptionModelManagerTests: XCTestCase {
     private var rootURL: URL!
 
@@ -23,7 +31,7 @@ final class TranscriptionModelManagerTests: XCTestCase {
     func testInstalledModelPreparesTokenizerAndReturnsCompleteResources() async throws {
         let modelFolder = rootURL
             .appendingPathComponent("cache", isDirectory: true)
-            .appendingPathComponent("openai_whisper-large-v3-v20240930_626MB", isDirectory: true)
+            .appendingPathComponent("openai_whisper-\(TranscriptionModelManager.defaultModelID)", isDirectory: true)
         try makeModelSkeleton(at: modelFolder)
 
         let manager = TranscriptionModelManager(
@@ -43,6 +51,28 @@ final class TranscriptionModelManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: rootURL.appendingPathComponent("tokenizer-ready").path))
         let selectedModelID = await manager.selectedModelID()
         XCTAssertEqual(selectedModelID, TranscriptionModelManager.defaultModelID)
+    }
+
+    func testPreparedResourcesAreCachedAcrossTranscriptions() async throws {
+        let modelFolder = rootURL
+            .appendingPathComponent("openai_whisper-\(TranscriptionModelManager.defaultModelID)", isDirectory: true)
+        try makeModelSkeleton(at: modelFolder)
+        let counter = TokenizerPreparationCounter()
+
+        let manager = TranscriptionModelManager(
+            downloadRoot: rootURL,
+            availableCapacity: { _ in 0 },
+            prepareTokenizer: { _ in
+                await counter.increment()
+            }
+        )
+
+        let first = try await manager.ensureResourcesAvailable()
+        let second = try await manager.ensureResourcesAvailable()
+
+        XCTAssertEqual(first, second)
+        let preparationCount = await counter.value
+        XCTAssertEqual(preparationCount, 1, "Tokenizer/cache resolution should not repeat for every short recording")
     }
 
     func testInsufficientDiskSpaceFailsBeforeTokenizerPreparation() async throws {
@@ -68,7 +98,7 @@ final class TranscriptionModelManagerTests: XCTestCase {
 
     func testIncompleteModelFolderIsNotTreatedAsInstalled() async throws {
         let incomplete = rootURL
-            .appendingPathComponent("openai_whisper-large-v3-v20240930_626MB", isDirectory: true)
+            .appendingPathComponent("openai_whisper-\(TranscriptionModelManager.defaultModelID)", isDirectory: true)
         try FileManager.default.createDirectory(at: incomplete, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: incomplete.appendingPathComponent("MelSpectrogram.mlmodelc", isDirectory: true),
@@ -93,7 +123,7 @@ final class TranscriptionModelManagerTests: XCTestCase {
 
     func testUnrelatedMLPackagesCannotMasqueradeAsInstalledWhisperModel() async throws {
         let folder = rootURL
-            .appendingPathComponent("openai_whisper-large-v3-v20240930_626MB", isDirectory: true)
+            .appendingPathComponent("openai_whisper-\(TranscriptionModelManager.defaultModelID)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         for name in ["UnrelatedOne", "UnrelatedTwo", "UnrelatedThree"] {
             try FileManager.default.createDirectory(
@@ -119,7 +149,7 @@ final class TranscriptionModelManagerTests: XCTestCase {
 
     func testTokenizerFailurePreservesInstalledCoreModelForRetry() async throws {
         let modelFolder = rootURL
-            .appendingPathComponent("openai_whisper-large-v3-v20240930_626MB", isDirectory: true)
+            .appendingPathComponent("openai_whisper-\(TranscriptionModelManager.defaultModelID)", isDirectory: true)
         try makeModelSkeleton(at: modelFolder)
 
         let manager = TranscriptionModelManager(
