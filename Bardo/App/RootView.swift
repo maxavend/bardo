@@ -70,8 +70,22 @@ struct RootView: View {
 
     @ToolbarContentBuilder
     private var captureToolbar: some ToolbarContent {
-        ToolbarItem(placement: .automatic) {
+        ToolbarItemGroup(placement: .automatic) {
             if microphone.isRecording {
+                Button {
+                    if microphone.isPaused {
+                        microphone.resume()
+                    } else {
+                        microphone.pause()
+                    }
+                } label: {
+                    Label(
+                        microphone.isPaused ? "Resume Recording" : "Pause Recording",
+                        systemImage: microphone.isPaused ? "play.fill" : "pause.fill"
+                    )
+                }
+                .help(microphone.isPaused ? "Resume microphone recording" : "Pause microphone recording")
+
                 Button {
                     Task { await stopMicrophoneRecording() }
                 } label: {
@@ -79,6 +93,23 @@ struct RootView: View {
                 }
                 .help("Stop microphone recording")
             } else if systemAudio.isRecording {
+                Button {
+                    Task {
+                        if systemAudio.isPaused {
+                            await systemAudio.resume()
+                        } else {
+                            await systemAudio.pause()
+                        }
+                    }
+                } label: {
+                    Label(
+                        systemAudio.isPaused ? "Resume Recording" : "Pause Recording",
+                        systemImage: systemAudio.isPaused ? "play.fill" : "pause.fill"
+                    )
+                }
+                .disabled(systemAudio.phase == .changingSelection)
+                .help(systemAudio.isPaused ? "Resume system audio recording" : "Pause system audio recording")
+
                 Button {
                     Task { await stopSystemRecording() }
                 } label: {
@@ -107,7 +138,7 @@ struct RootView: View {
                         Label("System Audio + Microphone", systemImage: "person.wave.2")
                     }
                 } label: {
-                    Label("Record", systemImage: "record.circle")
+                    Label("New Recording", systemImage: "record.circle")
                 }
                 .help("Start a new recording")
                 .disabled(microphone.isBusy || systemAudio.isBusy)
@@ -141,21 +172,26 @@ struct RootView: View {
         case .preparing:
             transitionPill(
                 title: "Preparing Recording",
-                detail: "Preparing the microphone and managed capture file."
+                detail: "Getting the microphone ready."
             )
         case .recording:
             activeRecordingPill(
                 title: "Recording Microphone",
                 detail: microphone.inputDisplayName ?? "Default microphone",
                 duration: microphone.elapsedTime,
-                stopAction: {
-                    Task { await stopMicrophoneRecording() }
-                }
+                isPaused: false
+            )
+        case .paused:
+            activeRecordingPill(
+                title: "Recording Paused",
+                detail: microphone.inputDisplayName ?? "Default microphone",
+                duration: microphone.elapsedTime,
+                isPaused: true
             )
         case .finalizing:
             transitionPill(
                 title: "Finishing Recording",
-                detail: "Closing, validating, and adding the audio to Library."
+                detail: "Making sure the full audio is safely stored."
             )
         case .idle, .failed:
             EmptyView()
@@ -168,49 +204,50 @@ struct RootView: View {
         case .requestingMicrophonePermission:
             transitionPill(
                 title: "Waiting for Microphone Permission",
-                detail: "Microphone access is required only for the combined recording mode."
+                detail: "Microphone access is only needed for the combined recording mode."
             )
         case .selectingContent:
             transitionPill(
-                title: "Choose Audio to Capture",
-                detail: "Use the macOS sharing picker to choose a display, app, or window."
+                title: "Choose What to Record",
+                detail: "Use the macOS picker to choose a display, app, or window."
             )
         case .preparing:
             transitionPill(
-                title: "Preparing System Audio",
+                title: "Preparing Recording",
                 detail: systemAudio.includesMicrophone
-                    ? "Preparing independent system and microphone tracks."
-                    : "Preparing the system-audio capture file."
+                    ? "Getting system audio and the microphone ready."
+                    : "Getting system audio ready."
             )
         case .recording:
             activeRecordingPill(
                 title: systemAudio.includesMicrophone ? "Recording System + Microphone" : "Recording System Audio",
                 detail: systemAudio.includesMicrophone
-                    ? "Both original sources are being preserved separately."
-                    : "Audio from the selected macOS content is being captured.",
+                    ? "Both original sources are being saved separately."
+                    : "Audio from the selected content is being recorded.",
                 duration: systemAudio.elapsedTime,
+                isPaused: false,
                 changeSourceAction: {
                     systemAudio.changeSelection()
-                },
-                stopAction: {
-                    Task { await stopSystemRecording() }
                 }
+            )
+        case .paused:
+            activeRecordingPill(
+                title: "Recording Paused",
+                detail: systemAudio.includesMicrophone ? "System audio and microphone are paused." : "System audio is paused.",
+                duration: systemAudio.elapsedTime,
+                isPaused: true
             )
         case .changingSelection:
             activeRecordingPill(
                 title: "Recording — Choose New Source",
-                detail: "Capture continues while the macOS sharing picker is open.",
+                detail: "Recording continues while the macOS picker is open.",
                 duration: systemAudio.elapsedTime,
-                stopAction: {
-                    Task { await stopSystemRecording() }
-                }
+                isPaused: false
             )
         case .finalizing:
             transitionPill(
-                title: "Finishing System Audio",
-                detail: systemAudio.includesMicrophone
-                    ? "Closing originals, aligning sources, and preparing playback."
-                    : "Closing, validating, and adding system audio to Library."
+                title: "Finishing Recording",
+                detail: "Making sure the full audio is safely stored."
             )
         case .idle, .failed:
             EmptyView()
@@ -237,7 +274,6 @@ struct RootView: View {
             .padding(.horizontal, 18)
             .padding(.top, 8)
             .frame(maxWidth: .infinity)
-            .accessibilityLabel("Bardo preserved \(total) incomplete captures for recovery")
         }
     }
 
@@ -245,14 +281,20 @@ struct RootView: View {
         title: String,
         detail: String,
         duration: TimeInterval,
-        changeSourceAction: (() -> Void)? = nil,
-        stopAction: @escaping () -> Void
+        isPaused: Bool,
+        changeSourceAction: (() -> Void)? = nil
     ) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "record.circle.fill")
-                .font(.title3)
-                .symbolEffect(.pulse)
-                .accessibilityHidden(true)
+            if isPaused {
+                Image(systemName: "pause.circle.fill")
+                    .font(.title3)
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: "record.circle.fill")
+                    .font(.title3)
+                    .symbolEffect(.pulse)
+                    .accessibilityHidden(true)
+            }
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 8) {
@@ -273,9 +315,6 @@ struct RootView: View {
                 Button("Change Source…", action: changeSourceAction)
                     .help("Choose different macOS content without restarting the recording")
             }
-
-            Button("Stop", role: .destructive, action: stopAction)
-                .keyboardShortcut(.escape, modifiers: [])
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -283,7 +322,6 @@ struct RootView: View {
         .bardoGlassSurface(cornerRadius: 18, interactive: true)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(LibraryFormatting.duration(duration)) elapsed. \(detail)")
     }
 
     private func transitionPill(title: String, detail: String) -> some View {
