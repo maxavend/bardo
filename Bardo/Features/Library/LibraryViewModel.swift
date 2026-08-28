@@ -155,7 +155,9 @@ final class LibraryViewModel: ObservableObject {
             guard selection == recordingID else { return }
             transcript = loaded
 
-            if loaded == nil {
+            if let loaded, loaded.metadata.coverage?.completion == .partial {
+                transcriptErrorMessage = "This transcript is partial. Bardo preserved the completed portion; retry transcription to process the full recording."
+            } else if loaded == nil {
                 let residues = await activeStore.temporaryArtifacts(recordingID: recordingID)
                 if !residues.isEmpty {
                     transcriptErrorMessage = "An interrupted transcription artifact was found and preserved. Retry transcription when ready."
@@ -224,11 +226,14 @@ final class LibraryViewModel: ObservableObject {
             let activeTranscriptStore = try resolveTranscriptStore()
             try await activeTranscriptStore.save(generated)
 
-            recording.processingState = .completed
+            recording.processingState = generated.metadata.coverage?.completion == .partial ? .partial : .completed
             try await activeRecordingStore.update(recording)
             replaceRecording(recording)
             if selection == recordingID {
                 transcript = generated
+                if recording.processingState == .partial {
+                    transcriptErrorMessage = "This transcript is partial. Retry transcription to process the full recording."
+                }
             }
             transcriptionProgress = .init(stage: .saving, fractionCompleted: 1)
         } catch is CancellationError {
@@ -237,6 +242,19 @@ final class LibraryViewModel: ObservableObject {
                 try? await activeStore.update(recording)
             }
             replaceRecording(recording)
+        } catch let partial as PartialTranscriptionFailure {
+            if let activeTranscriptStore = try? resolveTranscriptStore() {
+                try? await activeTranscriptStore.save(partial.transcript)
+            }
+            recording.processingState = .partial
+            if let activeStore = try? resolveStore() {
+                try? await activeStore.update(recording)
+            }
+            replaceRecording(recording)
+            if selection == recordingID {
+                transcript = partial.transcript
+                transcriptErrorMessage = partial.localizedDescription
+            }
         } catch {
             recording.processingState = .failed
             if let activeStore = try? resolveStore() {
@@ -408,10 +426,14 @@ final class LibraryViewModel: ObservableObject {
             var recovered = recordings[index]
             do {
                 let persistedTranscript = try await activeTranscriptStore.read(recordingID: recovered.id)
-                recovered.processingState = persistedTranscript == nil ? .failed : .completed
+                if let persistedTranscript {
+                    recovered.processingState = persistedTranscript.metadata.coverage?.completion == .partial
+                        ? .partial
+                        : .completed
+                } else {
+                    recovered.processingState = .failed
+                }
             } catch {
-                // A corrupt or incomplete transcript cannot be trusted as completed. Preserve it
-                // on disk and make the Recording retryable rather than leaving it stuck forever.
                 recovered.processingState = .failed
             }
             try await recordingStore.update(recovered)
