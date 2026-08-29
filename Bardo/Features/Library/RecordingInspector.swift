@@ -3,6 +3,8 @@ import SwiftUI
 struct RecordingInspector: View {
     let recording: Recording
     let transcript: Transcript?
+    let canEditSpeakers: Bool
+    let onRenameSpeaker: (Speaker.ID) -> Void
 
     var body: some View {
         Form {
@@ -49,6 +51,37 @@ struct RecordingInspector: View {
                 if let diarization = transcript.diarizationMetadata {
                     Section("Speakers") {
                         LabeledContent("Detected", value: String(transcript.speakers.count))
+
+                        ForEach(Array(transcript.speakers.enumerated()), id: \.element.id) { index, speaker in
+                            Button {
+                                onRenameSpeaker(speaker.id)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "person.crop.circle")
+                                        .font(.title3)
+                                        .foregroundStyle(.secondary)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(speakerDisplayName(speaker, index: index))
+                                            .foregroundStyle(.primary)
+                                        Text(defaultSpeakerName(index: index))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer(minLength: 8)
+
+                                    Image(systemName: "pencil")
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canEditSpeakers)
+                            .help("Rename this speaker")
+                        }
+
                         LabeledContent("Engine", value: "\(diarization.engine) \(diarization.engineVersion)")
                         LabeledContent("Model", value: diarization.modelID)
                     }
@@ -64,7 +97,21 @@ struct RecordingInspector: View {
             }
         }
         .formStyle(.grouped)
-        .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
+        .inspectorColumnWidth(min: 280, ideal: 320, max: 400)
+    }
+
+    private func defaultSpeakerName(index: Int) -> String {
+        String(
+            format: LibraryFormatting.localized("Speaker %@"),
+            String(index + 1)
+        )
+    }
+
+    private func speakerDisplayName(_ speaker: Speaker, index: Int) -> String {
+        guard let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+            return defaultSpeakerName(index: index)
+        }
+        return name
     }
 
     private func audioSectionTitle(index: Int) -> String {
