@@ -75,7 +75,8 @@ final class SystemAudioPauseResumeTests: XCTestCase {
 
         XCTAssertEqual(controller.phase, .idle)
         XCTAssertFalse(controller.requiresTerminationFinalization)
-        XCTAssertEqual((try await store.loadLibrary()).recordings.count, 1)
+        let library = try await store.loadLibrary()
+        XCTAssertEqual(library.recordings.count, 1)
     }
 
     @MainActor
