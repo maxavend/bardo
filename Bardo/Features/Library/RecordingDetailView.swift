@@ -6,8 +6,6 @@ struct RecordingDetailView: View {
     @ObservedObject var model: LibraryViewModel
     @ObservedObject var playback: AudioPlaybackController
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     @State private var transcriptSearch = ""
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
@@ -16,6 +14,7 @@ struct RecordingDetailView: View {
     @State private var isRenamePresented = false
     @State private var renameTitle = ""
     @State private var isDeletePresented = false
+    @State private var pendingFollowBlockID: TranscriptReadingBlock.ID?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -35,13 +34,10 @@ struct RecordingDetailView: View {
                                 return
                             }
 
-                            if reduceMotion {
-                                proxy.scrollTo(blockID, anchor: .center)
-                            } else {
-                                withAnimation(.spring(response: 0.38, dampingFraction: 1)) {
-                                    proxy.scrollTo(blockID, anchor: .center)
-                                }
-                            }
+                            // Never mutate AppKit's scroll/layout hierarchy from the same update
+                            // cycle that changed the active transcript row. The deferred task below
+                            // performs one stable, non-animated scroll after layout has settled.
+                            pendingFollowBlockID = blockID
                         }
                     )
                 }
@@ -50,6 +46,22 @@ struct RecordingDetailView: View {
                 .padding(.top, 34)
                 .padding(.bottom, 110)
                 .frame(maxWidth: .infinity, alignment: .top)
+            }
+            .task(id: pendingFollowBlockID) {
+                guard let blockID = pendingFollowBlockID else { return }
+
+                try? await Task.sleep(for: .milliseconds(40))
+                guard !Task.isCancelled,
+                      pendingFollowBlockID == blockID,
+                      transcriptSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return
+                }
+
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    proxy.scrollTo(blockID, anchor: .center)
+                }
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
@@ -89,6 +101,7 @@ struct RecordingDetailView: View {
             copyFeedback = nil
             isRenamePresented = false
             isDeletePresented = false
+            pendingFollowBlockID = nil
         }
         .sheet(item: $editor) { state in
             TranscriptEditorSheet(
