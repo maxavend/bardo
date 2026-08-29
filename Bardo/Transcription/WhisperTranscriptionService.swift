@@ -202,8 +202,9 @@ private final class TranscriptionCancellationFlag: @unchecked Sendable {
 }
 
 actor WhisperTranscriptionService: RecordingTranscribing {
-    static let engineVersion = "1.1.0"
+    static let engineVersion = "1.2.0"
     static let defaultIdleUnloadNanoseconds: UInt64 = 30 * 60 * 1_000_000_000
+    private static let maximumContextPromptTokens = 220
 
     private static let logger = Logger(
         subsystem: "com.maxavend.bardo",
@@ -407,6 +408,10 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     ) async throws -> Transcript {
         let languagePreference = TranscriptionLanguagePreference.current
         let preferredLanguageCode = languagePreference.whisperLanguageCode
+        let contextPromptTokens = makeContextPromptTokens(
+            from: TranscriptionContextPreferences.currentPromptText,
+            whisper: whisper
+        )
         var segments: [TranscriptSegment] = []
         var detectedLanguage: String?
         var processedThrough: TimeInterval = 0
@@ -450,6 +455,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                     skipSpecialTokens: true,
                     wordTimestamps: true,
                     windowClipTime: 0,
+                    promptTokens: contextPromptTokens,
                     chunkingStrategy: nil
                 )
                 let results = try await whisper.transcribe(
@@ -507,6 +513,28 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             processedDuration: recordingDuration,
             completion: .complete
         )
+    }
+
+    private func makeContextPromptTokens(
+        from promptText: String?,
+        whisper: WhisperKit
+    ) -> [Int]? {
+        guard let promptText,
+              !promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let tokenizer = whisper.tokenizer else {
+            return nil
+        }
+
+        let contentTokens = tokenizer.encode(
+            text: " " + promptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        .filter { $0 < tokenizer.specialTokens.specialTokenBegin }
+
+        // WhisperKit reserves at most half of Whisper's decoder context for conditioning.
+        // Preserve the user's first, highest-priority terms instead of allowing an oversized
+        // prompt to be suffix-trimmed internally.
+        let promptTokens = Array(contentTokens.prefix(Self.maximumContextPromptTokens))
+        return promptTokens.isEmpty ? nil : promptTokens
     }
 
     private func append(
