@@ -20,30 +20,47 @@ struct BardoSettingsView: View {
                 .pickerStyle(.radioGroup)
             }
 
-            Section("Transcription") {
-                Picker("Primary Spoken Language", selection: $transcriptionLanguageRaw) {
-                    Text("Automatic")
+            Section {
+                Picker(selection: $transcriptionLanguageRaw) {
+                    Text("Automatic", tableName: "TranscriptUI")
                         .tag(TranscriptionLanguagePreference.automatic.rawValue)
                     Text("Español")
                         .tag(TranscriptionLanguagePreference.spanish.rawValue)
                     Text("English")
                         .tag(TranscriptionLanguagePreference.english.rawValue)
+                } label: {
+                    Text("Primary Spoken Language", tableName: "TranscriptUI")
                 }
                 .pickerStyle(.radioGroup)
 
-                Text("Choose the main language you speak. Occasional words, names, and product terms from another language are still transcribed as spoken.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Choose the main language you speak. Occasional words, names, and product terms from another language are still transcribed as spoken.",
+                    tableName: "TranscriptUI"
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
 
-                Label("Bardo always transcribes. It never translates your recording into another language.", systemImage: "captions.bubble")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Label {
+                    Text(
+                        "Bardo always transcribes. It never translates your recording into another language.",
+                        tableName: "TranscriptUI"
+                    )
+                } icon: {
+                    Image(systemName: "captions.bubble")
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            } header: {
+                Text("Transcription", tableName: "TranscriptUI")
             }
 
             Section {
-                Text("The app language change applies immediately. Transcription language is used the next time you transcribe or transcribe again.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "The app language change applies immediately. Transcription language is used the next time you transcribe or transcribe again.",
+                    tableName: "TranscriptUI"
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
