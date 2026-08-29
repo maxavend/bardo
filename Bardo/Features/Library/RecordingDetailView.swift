@@ -92,7 +92,15 @@ struct RecordingDetailView: View {
             }
         }
         .inspector(isPresented: $isInspectorPresented) {
-            RecordingInspector(recording: recording, transcript: model.transcript)
+            RecordingInspector(
+                recording: recording,
+                transcript: model.transcript,
+                canEditSpeakers: !model.isTranscribing && !model.isDiarizing,
+                onRenameSpeaker: { speakerID in
+                    guard let transcript = selectedTranscript else { return }
+                    editor = speakerEditorState(speakerID: speakerID, transcript: transcript)
+                }
+            )
         }
         .onChange(of: recording.id) { _, _ in
             transcriptSearch = ""
@@ -288,6 +296,12 @@ struct RecordingDetailView: View {
         return transcript
     }
 
+    private func speakerEditorState(speakerID: Speaker.ID, transcript: Transcript) -> TranscriptEditorState? {
+        guard let speaker = transcript.speakers.first(where: { $0.id == speakerID }) else { return nil }
+        let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) ?? 0
+        return .speaker(speaker, fallbackName: "Speaker \(index + 1)")
+    }
+
     private var deleteMessage: String {
         if model.isProcessing(recordingID: recording.id) {
             return "Bardo will stop the current processing task, then permanently remove this recording and its transcript from this Mac."
@@ -311,7 +325,8 @@ struct RecordingDetailView: View {
     private func copyTranscript(_ transcript: Transcript) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        copyFeedback = pasteboard.setString(transcript.text, forType: .string) ? .copied : .failed
+        let exported = TranscriptExportFormatter.string(from: transcript)
+        copyFeedback = pasteboard.setString(exported, forType: .string) ? .copied : .failed
     }
 }
 
