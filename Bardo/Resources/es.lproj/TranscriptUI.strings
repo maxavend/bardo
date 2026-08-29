@@ -1,0 +1,11 @@
+"Transcription" = "Transcripción";
+"Primary Spoken Language" = "Idioma principal hablado";
+"Automatic" = "Automático";
+"Choose the main language you speak. Occasional words, names, and product terms from another language are still transcribed as spoken." = "Elige el idioma principal en el que hablas. Las palabras ocasionales, nombres y términos de productos en otro idioma se transcriben tal como se dicen.";
+"Bardo always transcribes. It never translates your recording into another language." = "Bardo siempre transcribe. Nunca traduce tu grabación a otro idioma.";
+"The app language change applies immediately. Transcription language is used the next time you transcribe or transcribe again." = "El idioma de la app cambia de inmediato. El idioma de transcripción se usará la próxima vez que transcribas o vuelvas a transcribir.";
+"Copy Block" = "Copiar bloque";
+"Edit Segment" = "Editar segmento";
+"Unfinished recording files found" = "Se encontraron archivos de grabación sin terminar";
+"Bardo left files from an interrupted recording untouched. They do not block new recordings." = "Bardo dejó intactos los archivos de una grabación interrumpida. No bloquean nuevas grabaciones.";
+"Dismiss recovery notice" = "Cerrar aviso de recuperación";
