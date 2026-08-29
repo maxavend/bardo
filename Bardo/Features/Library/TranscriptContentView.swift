@@ -264,11 +264,18 @@ private struct TranscriptReadingBlockRow: View {
                     .frame(height: 0)
                 }
 
-                Text(block.text)
-                    .font(.body)
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if isActive {
+                    TranscriptKaraokeText(
+                        block: block,
+                        timeline: playback.timeline
+                    )
+                } else {
+                    Text(block.text)
+                        .font(.body)
+                        .lineSpacing(4)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
                 if block.hasManualEdits {
                     Label("Edited", systemImage: "pencil.line")
