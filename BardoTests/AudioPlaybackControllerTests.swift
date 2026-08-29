@@ -60,28 +60,25 @@ final class AudioPlaybackControllerTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testTimelineTicksDoNotRepublishEntirePlaybackController() async throws {
         let url = directoryURL.appendingPathComponent("StableToolbar.wav")
         try AudioTestFixture.makeWAV(at: url, duration: 1.2)
 
-        let controller = await MainActor.run { AudioPlaybackController() }
+        let controller = AudioPlaybackController()
         let counter = PublicationCounter()
-        let cancellable = await MainActor.run {
-            controller.objectWillChange.sink {
-                counter.increment()
-            }
+        let cancellable = controller.objectWillChange.sink {
+            counter.increment()
         }
         defer { cancellable.cancel() }
 
-        await MainActor.run {
-            XCTAssertTrue(controller.load(url: url))
-            XCTAssertTrue(controller.play())
-        }
+        XCTAssertTrue(controller.load(url: url))
+        XCTAssertTrue(controller.play())
         counter.reset()
 
-        let startingPosition = await MainActor.run { controller.timeline.position }
+        let startingPosition = controller.timeline.position
         try await Task.sleep(for: .milliseconds(450))
-        let endingPosition = await MainActor.run { controller.timeline.position }
+        let endingPosition = controller.timeline.position
         let publications = counter.value
 
         XCTAssertGreaterThan(endingPosition, startingPosition + 0.2)
@@ -91,7 +88,7 @@ final class AudioPlaybackControllerTests: XCTestCase {
             "10 Hz timeline progress must not invalidate the whole detail/toolbar hierarchy"
         )
 
-        await MainActor.run { controller.pause() }
+        controller.pause()
     }
 
     func testLoadingAnotherRecordingStopsPreviousAndResetsPlaybackState() async throws {
