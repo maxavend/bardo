@@ -455,32 +455,40 @@ private struct BackgroundProcessingView: View {
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 20)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(title)
-                            .font(.callout.weight(.semibold))
-                        Text("\(Int((clampedProgress * 100).rounded()))%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
 
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                Text("\(Int((clampedProgress * 100).rounded()))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 8)
+
+                Button(role: .cancel, action: cancelAction) {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(cancelTitle)
+                .accessibilityLabel(cancelTitle)
+            }
 
-                Spacer(minLength: 12)
+            HStack(alignment: .top, spacing: 10) {
+                Color.clear
+                    .frame(width: 20, height: 1)
 
-                Button(cancelTitle, role: .cancel, action: cancelAction)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help(cancelTitle)
-                    .overlay {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                            .allowsHitTesting(false)
-                    }
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             ProgressView(value: clampedProgress)
