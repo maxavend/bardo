@@ -81,6 +81,57 @@ final class TranscriptPresentationTests: XCTestCase {
         )
     }
 
+    func testWordCuesMapWhisperWordTimestampsIntoCombinedBlockText() {
+        let firstWord = TranscriptWord(startTime: 0.1, endTime: 0.4, text: " Hola")
+        let secondWord = TranscriptWord(startTime: 0.45, endTime: 0.8, text: " mundo.")
+        let thirdWord = TranscriptWord(startTime: 1.1, endTime: 1.4, text: " Otra")
+        let fourthWord = TranscriptWord(startTime: 1.45, endTime: 1.8, text: " idea.")
+        let segments = [
+            segment(
+                start: 0,
+                end: 0.9,
+                text: "Hola mundo.",
+                words: [firstWord, secondWord]
+            ),
+            segment(
+                start: 1,
+                end: 2,
+                text: "Otra idea.",
+                words: [thirdWord, fourthWord]
+            )
+        ]
+
+        let block = TranscriptReadingBlockBuilder.blocks(from: segments)[0]
+
+        XCTAssertEqual(block.text, "Hola mundo. Otra idea.")
+        XCTAssertEqual(block.wordCues.count, 4)
+        XCTAssertEqual(String(block.text.charactersIn(block.wordCues[0].characterRange)), "Hola")
+        XCTAssertEqual(String(block.text.charactersIn(block.wordCues[1].characterRange)), "mundo.")
+        XCTAssertEqual(String(block.text.charactersIn(block.wordCues[2].characterRange)), "Otra")
+        XCTAssertEqual(String(block.text.charactersIn(block.wordCues[3].characterRange)), "idea.")
+        XCTAssertEqual(
+            TranscriptPlaybackMapping.activeWordCue(at: 1.2, in: block)?.id,
+            thirdWord.id
+        )
+    }
+
+    func testWordCueMappingDoesNotGuessAgainstManuallyEditedText() {
+        let originalWord = TranscriptWord(startTime: 0.1, endTime: 0.5, text: " Original")
+        let edited = TranscriptSegment(
+            startTime: 0,
+            endTime: 1,
+            text: "Original",
+            words: [originalWord],
+            editedText: "Corregido"
+        )
+
+        let block = TranscriptReadingBlockBuilder.blocks(from: [edited])[0]
+
+        XCTAssertEqual(block.text, "Corregido")
+        XCTAssertTrue(block.wordCues.isEmpty)
+        XCTAssertNil(TranscriptPlaybackMapping.activeWordCue(at: 0.3, in: block))
+    }
+
     func testManualEditStatusIsPreservedAtBlockLevel() {
         let original = TranscriptSegment(
             startTime: 0,
@@ -100,13 +151,23 @@ final class TranscriptPresentationTests: XCTestCase {
         start: TimeInterval,
         end: TimeInterval,
         speakerID: Speaker.ID? = nil,
-        text: String
+        text: String,
+        words: [TranscriptWord] = []
     ) -> TranscriptSegment {
         TranscriptSegment(
             startTime: start,
             endTime: end,
             speakerID: speakerID,
-            text: text
+            text: text,
+            words: words
         )
+    }
+}
+
+private extension String {
+    func charactersIn(_ range: Range<Int>) -> Substring {
+        let lower = index(startIndex, offsetBy: range.lowerBound)
+        let upper = index(startIndex, offsetBy: range.upperBound)
+        return self[lower..<upper]
     }
 }
