@@ -19,19 +19,24 @@ struct TranscriptContentView: View {
 
             transcriptErrors
 
-            if model.isTranscribing, model.transcriptionRecordingID == recording.id {
+            if let transcript = model.transcript,
+               transcript.recordingID == recording.id {
+                backgroundProcessingStatus
+                transcriptConversation(transcript)
+            } else if isCurrentTranscription {
                 transcriptionProgressView
-            } else if let transcript = model.transcript,
-                      transcript.recordingID == recording.id {
-                if model.isDiarizing, model.diarizationRecordingID == recording.id {
-                    diarizationProgressView
-                } else {
-                    transcriptConversation(transcript)
-                }
             } else {
                 emptyTranscriptView
             }
         }
+    }
+
+    private var isCurrentTranscription: Bool {
+        model.isTranscribing && model.transcriptionRecordingID == recording.id
+    }
+
+    private var isCurrentDiarization: Bool {
+        model.isDiarizing && model.diarizationRecordingID == recording.id
     }
 
     private var sectionHeader: some View {
@@ -78,6 +83,31 @@ struct TranscriptContentView: View {
         }
     }
 
+    @ViewBuilder
+    private var backgroundProcessingStatus: some View {
+        if isCurrentDiarization {
+            let progress = model.diarizationProgress
+            BackgroundProcessingView(
+                systemImage: "person.2.wave.2",
+                title: diarizationStageText(progress?.stage),
+                detail: "You can keep reading, searching, copying, and playing this transcript while Bardo analyzes the voices.",
+                fractionCompleted: progress?.fractionCompleted ?? 0,
+                cancelTitle: "Cancel Speaker Identification",
+                cancelAction: { model.cancelDiarization() }
+            )
+        } else if isCurrentTranscription {
+            let progress = model.transcriptionProgress
+            BackgroundProcessingView(
+                systemImage: "waveform",
+                title: transcriptionStageText(progress?.stage),
+                detail: "The current transcript stays available until the new transcription is ready.",
+                fractionCompleted: progress?.fractionCompleted ?? 0,
+                cancelTitle: "Cancel",
+                cancelAction: { model.cancelTranscription() }
+            )
+        }
+    }
+
     private var transcriptionProgressView: some View {
         let progress = model.transcriptionProgress
         return ProcessingView(
@@ -86,17 +116,6 @@ struct TranscriptContentView: View {
             fractionCompleted: progress?.fractionCompleted ?? 0,
             cancelTitle: "Cancel",
             cancelAction: { model.cancelTranscription() }
-        )
-    }
-
-    private var diarizationProgressView: some View {
-        let progress = model.diarizationProgress
-        return ProcessingView(
-            title: diarizationStageText(progress?.stage),
-            detail: "Bardo is telling the voices apart locally on this Mac.",
-            fractionCompleted: progress?.fractionCompleted ?? 0,
-            cancelTitle: "Cancel Speaker Identification",
-            cancelAction: { model.cancelDiarization() }
         )
     }
 
@@ -416,6 +435,63 @@ private struct TranscriptPlaybackTracker: View {
     }
 }
 
+private struct BackgroundProcessingView: View {
+    let systemImage: String
+    let title: String
+    let detail: String
+    let fractionCompleted: Double
+    let cancelTitle: String
+    let cancelAction: () -> Void
+
+    private var clampedProgress: Double {
+        min(1, max(0, fractionCompleted.isFinite ? fractionCompleted : 0))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(title)
+                            .font(.callout.weight(.semibold))
+                        Text("\(Int((clampedProgress * 100).rounded()))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 12)
+
+                Button(cancelTitle, role: .cancel, action: cancelAction)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help(cancelTitle)
+                    .overlay {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                            .allowsHitTesting(false)
+                    }
+            }
+
+            ProgressView(value: clampedProgress)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
 private struct ProcessingView: View {
     let title: String
     let detail: String
@@ -461,8 +537,8 @@ private func transcriptionStageText(_ stage: TranscriptionStage?) -> String {
     switch stage {
     case .preparingModel: "Preparing the transcription…"
     case .loadingModel: "Getting transcription ready…"
-    case .transcribing: "Transcribing your recording…"
-    case .saving: "Saving the transcript…"
+    case .transcribing: "Creating a new transcription…"
+    case .saving: "Replacing the transcript…"
     case nil: "Preparing the transcription…"
     }
 }
@@ -470,9 +546,9 @@ private func transcriptionStageText(_ stage: TranscriptionStage?) -> String {
 private func diarizationStageText(_ stage: DiarizationStage?) -> String {
     switch stage {
     case .preparingModel: "Preparing speaker identification…"
-    case .loadingModel: "Getting speaker identification ready…"
-    case .diarizing: "Figuring out who said what…"
-    case .saving: "Saving speaker labels…"
+    case .loadingModel: "Loading speaker models…"
+    case .diarizing: "Identifying speakers…"
+    case .saving: "Applying speaker labels…"
     case nil: "Preparing speaker identification…"
     }
 }
