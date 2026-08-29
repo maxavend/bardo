@@ -266,11 +266,14 @@ struct RootView: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Unfinished recording files found")
+                    Text("Unfinished recording files found", tableName: "TranscriptUI")
                         .font(.caption.weight(.semibold))
-                    Text("Bardo left files from an interrupted recording untouched. They do not block new recordings.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        "Bardo left files from an interrupted recording untouched. They do not block new recordings.",
+                        tableName: "TranscriptUI"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 12)
@@ -290,7 +293,7 @@ struct RootView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Dismiss recovery notice")
+                .help(Text("Dismiss recovery notice", tableName: "TranscriptUI"))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
