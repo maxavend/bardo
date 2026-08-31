@@ -12,11 +12,11 @@ struct TranscriptionSetupView: View {
                     .symbolRenderingMode(.hierarchical)
                     .accessibilityHidden(true)
 
-                Text(titleKey, tableName: nil)
+                Text(titleKey, tableName: "TranscriptUI")
                     .font(.title2.weight(.semibold))
                     .multilineTextAlignment(.center)
 
-                Text(detailKey, tableName: nil)
+                Text(detailKey, tableName: "TranscriptUI")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -42,14 +42,21 @@ struct TranscriptionSetupView: View {
             .frame(maxWidth: 470)
 
             if case .failed = state {
-                Button("Try Again", action: retry)
-                    .buttonStyle(.borderedProminent)
+                Button {
+                    retry()
+                } label: {
+                    Text("Try Again", tableName: "TranscriptUI")
+                }
+                .buttonStyle(.borderedProminent)
             }
 
-            Text("Transcription and speaker detection run locally on this Mac once setup is complete.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
+            Text(
+                "Transcription and speaker detection run locally on this Mac once setup is complete.",
+                tableName: "TranscriptUI"
+            )
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+            .multilineTextAlignment(.center)
         }
         .padding(40)
         .frame(minWidth: 660, minHeight: 470)
@@ -144,7 +151,7 @@ private struct SetupComponentRow: View {
                 .frame(width: 24)
                 .accessibilityHidden(true)
 
-            Text(title)
+            Text(title, tableName: "TranscriptUI")
                 .font(.body.weight(.medium))
 
             Spacer(minLength: 14)
@@ -159,7 +166,7 @@ private struct SetupComponentRow: View {
     private var statusView: some View {
         switch state {
         case .waiting:
-            Text("Waiting")
+            Text("Waiting", tableName: "TranscriptUI")
                 .font(.callout)
                 .foregroundStyle(.tertiary)
         case .working(let label, let progress):
@@ -176,18 +183,26 @@ private struct SetupComponentRow: View {
                         .controlSize(.small)
                 }
 
-                Text(label)
+                Text(label, tableName: "TranscriptUI")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
         case .complete:
-            Label("Ready", systemImage: "checkmark.circle.fill")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            Label {
+                Text("Ready", tableName: "TranscriptUI")
+            } icon: {
+                Image(systemName: "checkmark.circle.fill")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
         case .failed:
-            Label("Needs Attention", systemImage: "exclamationmark.triangle.fill")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            Label {
+                Text("Needs Attention", tableName: "TranscriptUI")
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
         }
     }
 }
