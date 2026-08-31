@@ -48,6 +48,7 @@ jobs:
           BUILD_SETTINGS="$(xcodebuild -project Bardo.xcodeproj -scheme Bardo -configuration Release -showBuildSettings)"
           grep -Fq 'CODE_SIGN_ENTITLEMENTS = Bardo/Bardo.entitlements' <<< "$BUILD_SETTINGS"
           grep -Fq 'ENABLE_HARDENED_RUNTIME = YES' <<< "$BUILD_SETTINGS"
+          grep -Fq 'ARCHS = arm64' <<< "$BUILD_SETTINGS"
 
       - name: Build Release app
         run: |
@@ -57,6 +58,8 @@ jobs:
             -configuration Release \
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath .derived-data \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
             build
 
@@ -71,6 +74,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$APP/Contents/Info.plist")" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
           test "$(sips -g pixelWidth "$APP/Contents/Resources/BardoIcon.png" | awk '/pixelWidth/ {print $2}')" = "256"
           test "$(sips -g pixelHeight "$APP/Contents/Resources/BardoIcon.png" | awk '/pixelHeight/ {print $2}')" = "256"
+          lipo -archs "$APP/Contents/MacOS/Bardo" | grep -Fxq arm64
 
       - name: Ad-hoc sign test app
         run: |
