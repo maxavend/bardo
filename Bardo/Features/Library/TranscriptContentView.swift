@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import SwiftUI
 
 struct TranscriptContentView: View {
@@ -14,7 +15,7 @@ struct TranscriptContentView: View {
     @State private var activeBlockID: TranscriptReadingBlock.ID?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 18) {
             sectionHeader
 
             transcriptErrors
@@ -40,26 +41,27 @@ struct TranscriptContentView: View {
     }
 
     private var sectionHeader: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("Transcript")
-                .font(.title2.weight(.semibold))
+                .font(.headline)
 
             if let transcript = model.transcript,
                transcript.recordingID == recording.id {
                 Text(LibraryFormatting.language(transcript.languageCode))
-                    .font(.callout)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 if transcript.diarizationMetadata != nil {
                     Text("·")
+                        .font(.caption)
                         .foregroundStyle(.tertiary)
                     Text("\(transcript.speakers.count) speaker\(transcript.speakers.count == 1 ? "" : "s")")
-                        .font(.callout)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 0)
         }
     }
 
@@ -130,26 +132,22 @@ struct TranscriptContentView: View {
             }
             .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
         }
-        .frame(maxWidth: .infinity, minHeight: 250)
+        .frame(maxWidth: .infinity, minHeight: 230)
     }
 
     @ViewBuilder
     private func transcriptConversation(_ transcript: Transcript) -> some View {
-        let allBlocks = TranscriptReadingBlockBuilder.blocks(from: transcript.segments)
-        let blocks = filteredBlocks(allBlocks, in: transcript)
+        let blocks = TranscriptReadingBlockBuilder.blocks(from: transcript.segments)
 
-        if transcript.segments.isEmpty || allBlocks.isEmpty {
+        if transcript.segments.isEmpty || blocks.isEmpty {
             ContentUnavailableView(
                 "No Speech Found",
                 systemImage: "text.bubble",
                 description: Text("Bardo processed the recording but didn’t find readable speech.")
             )
             .frame(maxWidth: .infinity, minHeight: 220)
-        } else if blocks.isEmpty {
-            ContentUnavailableView.search(text: searchText)
-                .frame(maxWidth: .infinity, minHeight: 220)
         } else {
-            LazyVStack(alignment: .leading, spacing: 10) {
+            LazyVStack(alignment: .leading, spacing: BardoDesignMetrics.transcriptBlockSpacing) {
                 ForEach(blocks) { block in
                     TranscriptReadingBlockRow(
                         block: block,
@@ -158,6 +156,7 @@ struct TranscriptContentView: View {
                         playback: playback,
                         isActive: activeBlockID == block.id,
                         canEdit: !model.isTranscribing && !model.isDiarizing,
+                        searchText: searchText,
                         onRenameSpeaker: {
                             guard let speakerID = block.speakerID else { return }
                             editor = speakerEditorState(speakerID: speakerID, transcript: transcript)
@@ -172,7 +171,7 @@ struct TranscriptContentView: View {
             .background(alignment: .topLeading) {
                 TranscriptPlaybackTracker(
                     timeline: playback.timeline,
-                    blocks: allBlocks,
+                    blocks: blocks,
                     isPlaying: playback.isPlaying
                 ) { blockID, shouldFollow in
                     if activeBlockID != blockID {
@@ -186,19 +185,6 @@ struct TranscriptContentView: View {
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
             }
-        }
-    }
-
-    private func filteredBlocks(
-        _ blocks: [TranscriptReadingBlock],
-        in transcript: Transcript
-    ) -> [TranscriptReadingBlock] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return blocks }
-
-        return blocks.filter { block in
-            block.text.localizedCaseInsensitiveContains(query)
-                || speakerLabel(for: block, in: transcript).localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -234,66 +220,56 @@ private struct TranscriptReadingBlockRow: View {
     let playback: AudioPlaybackController
     let isActive: Bool
     let canEdit: Bool
+    let searchText: String
     let onRenameSpeaker: () -> Void
     let onEditSegment: (TranscriptSegment) -> Void
 
     @State private var isHovering = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            Button(action: playFromBlock) {
-                VStack(spacing: 5) {
-                    Image(systemName: isActive && playback.isPlaying ? "waveform" : "play.fill")
-                        .font(.caption2.weight(.semibold))
-                        .frame(height: 12)
-                        .symbolEffect(.variableColor.iterative, isActive: isActive && playback.isPlaying)
+        HStack(alignment: .top, spacing: 14) {
+            VStack(spacing: 5) {
+                Text(LibraryFormatting.duration(block.startTime))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
 
-                    Text(LibraryFormatting.duration(block.startTime))
-                        .font(.caption.monospacedDigit())
+                Button(action: playFromBlock) {
+                    Image(systemName: isActive && playback.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.caption2.weight(.semibold))
+                        .frame(width: 24, height: 22)
+                        .contentShape(Rectangle())
                 }
-                .foregroundStyle(isActive ? .primary : .secondary)
-                .frame(width: 46, alignment: .center)
-                .padding(.top, speakerName == nil ? 2 : 1)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .opacity(isHovering || isActive ? 1 : 0.18)
+                .disabled(!playback.isLoaded)
+                .help("Play From Here")
+                .accessibilityLabel("Play From Here")
             }
-            .buttonStyle(.plain)
-            .disabled(!playback.isLoaded)
-            .help("Play From Here")
+            .frame(width: 44)
 
             VStack(alignment: .leading, spacing: 7) {
                 if let speakerName {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        if canRenameSpeaker {
-                            Button(speakerName, action: onRenameSpeaker)
-                                .buttonStyle(.plain)
-                                .font(.subheadline.weight(.semibold))
-                                .help("Rename this speaker")
-                        } else {
-                            Text(speakerName)
-                                .font(.subheadline.weight(.semibold))
-                        }
-
-                        Spacer(minLength: 12)
-                        blockEditControl
+                    if canRenameSpeaker {
+                        Button(speakerName, action: onRenameSpeaker)
+                            .buttonStyle(.plain)
+                            .font(.subheadline.weight(.semibold))
+                            .help("Rename this speaker")
+                            .padding(.trailing, 32)
+                    } else {
+                        Text(speakerName)
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.trailing, 32)
                     }
-                } else {
-                    HStack(alignment: .top, spacing: 8) {
-                        Spacer(minLength: 0)
-                        blockEditControl
-                    }
-                    .frame(height: 0)
                 }
 
-                if isActive {
+                if isActive && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     TranscriptKaraokeText(
                         block: block,
                         timeline: playback.timeline
                     )
                 } else {
-                    Text(block.text)
-                        .font(.body)
-                        .lineSpacing(4)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    TranscriptSearchHighlightedText(text: block.text, query: searchText)
                 }
 
                 if block.hasManualEdits {
@@ -302,23 +278,21 @@ private struct TranscriptReadingBlockRow: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                blockEditControl
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isActive ? Color.accentColor.opacity(0.075) : Color.clear)
-        }
+        .padding(.vertical, 9)
         .overlay(alignment: .leading) {
             Capsule()
                 .fill(Color.accentColor)
-                .frame(width: 3)
-                .padding(.vertical, 12)
+                .frame(width: 2)
+                .padding(.vertical, 8)
                 .opacity(isActive ? 1 : 0)
         }
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
-        .animation(.spring(response: 0.28, dampingFraction: 1), value: isActive)
+        .accessibilityValue(isActive ? "Playing" : "")
         .contextMenu {
             Button("Play From Here", action: playFromBlock)
                 .disabled(!playback.isLoaded)
@@ -347,9 +321,10 @@ private struct TranscriptReadingBlockRow: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .opacity(isHovering || block.hasManualEdits ? 1 : 0.16)
+            .opacity(isHovering || block.hasManualEdits ? 1 : 0.12)
             .disabled(!canEdit)
             .help("Edit transcript text")
+            .accessibilityLabel("Edit transcript text")
         } else {
             Menu {
                 editActions
@@ -360,7 +335,7 @@ private struct TranscriptReadingBlockRow: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .foregroundStyle(.secondary)
-            .opacity(isHovering || block.hasManualEdits ? 1 : 0.16)
+            .opacity(isHovering || block.hasManualEdits ? 1 : 0.12)
             .disabled(!canEdit)
             .help("Edit Transcript…")
         }
@@ -384,6 +359,10 @@ private struct TranscriptReadingBlockRow: View {
     }
 
     private func playFromBlock() {
+        if isActive && playback.isPlaying {
+            playback.pause()
+            return
+        }
         playback.seek(to: block.startTime)
         if !playback.isPlaying {
             _ = playback.play()
@@ -395,6 +374,37 @@ private struct TranscriptReadingBlockRow: View {
         let limit = 44
         let preview = text.count > limit ? String(text.prefix(limit)) + "…" : text
         return "\(LibraryFormatting.duration(segment.startTime)) · \(preview)"
+    }
+}
+
+private struct TranscriptSearchHighlightedText: View {
+    let text: String
+    let query: String
+
+    var body: some View {
+        renderedText
+            .font(.body)
+            .lineSpacing(4)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var renderedText: Text {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return Text(text) }
+
+        var remaining = text
+        var result = Text("")
+        while let range = remaining.range(
+            of: trimmed,
+            options: [.caseInsensitive, .diacriticInsensitive]
+        ) {
+            result = result
+                + Text(String(remaining[..<range.lowerBound]))
+                + Text(String(remaining[range])).foregroundColor(.accentColor).bold()
+            remaining = String(remaining[range.upperBound...])
+        }
+        return result + Text(remaining)
     }
 }
 
@@ -448,15 +458,16 @@ private struct BackgroundProcessingView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 9) {
                 Image(systemName: systemImage)
                     .font(.callout.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 20)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
 
                 Text(title)
-                    .font(.callout.weight(.semibold))
+                    .font(.callout.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
@@ -465,7 +476,7 @@ private struct BackgroundProcessingView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 6)
 
                 Button(role: .cancel, action: cancelAction) {
                     Image(systemName: "xmark")
@@ -479,24 +490,18 @@ private struct BackgroundProcessingView: View {
                 .accessibilityLabel(cancelTitle)
             }
 
-            HStack(alignment: .top, spacing: 10) {
-                Color.clear
-                    .frame(width: 20, height: 1)
-
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
             ProgressView(value: clampedProgress)
                 .controlSize(.small)
+
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: BardoDesignMetrics.compactCornerRadius, style: .continuous))
     }
 }
 
@@ -508,8 +513,8 @@ private struct ProcessingView: View {
     let cancelAction: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 9) {
                 ProgressView()
                     .controlSize(.small)
                 Text(title)
@@ -522,12 +527,12 @@ private struct ProcessingView: View {
                 Text(detail)
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                Spacer()
+                Spacer(minLength: 12)
                 Button(cancelTitle, role: .cancel, action: cancelAction)
             }
         }
-        .padding(16)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(14)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: BardoDesignMetrics.compactCornerRadius, style: .continuous))
     }
 }
 
@@ -538,6 +543,7 @@ private struct InlineIssueView: View {
         Label(message, systemImage: "exclamationmark.triangle.fill")
             .font(.callout)
             .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
