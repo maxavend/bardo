@@ -2,16 +2,19 @@ import SwiftUI
 
 struct LibrarySidebar: View {
     @ObservedObject var model: LibraryViewModel
+    let onNewRecording: () -> Void
     let onImport: () -> Void
 
+    @State private var searchText = ""
     @State private var recordingToRename: Recording?
     @State private var renameTitle = ""
     @State private var recordingToDelete: Recording?
 
     var body: some View {
         content
-            .navigationTitle("Bardo")
+            .navigationTitle("Recordings")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
+            .searchable(text: $searchText, prompt: "Search Recordings")
             .alert("Rename Recording", isPresented: renamePresented) {
                 TextField("Recording Name", text: $renameTitle)
                 Button("Cancel", role: .cancel) {
@@ -89,35 +92,47 @@ struct LibrarySidebar: View {
             } description: {
                 Text("Start a new recording, import an audio file, or drop audio into this window.")
             } actions: {
+                Button("New Recording", action: onNewRecording)
+                    .buttonStyle(.borderedProminent)
                 Button("Import Audio", action: onImport)
+                    .buttonStyle(.bordered)
             }
+        } else if filteredRecordings.isEmpty {
+            ContentUnavailableView.search(text: searchText)
         } else {
             List(selection: $model.selection) {
                 statusSections
 
-                Section("Recordings") {
-                    ForEach(model.recordings) { recording in
-                        RecordingRowView(recording: recording)
-                            .tag(recording.id)
-                            .contextMenu {
-                                Button {
-                                    beginRename(recording)
-                                } label: {
-                                    Label("Rename", systemImage: "pencil")
-                                }
-
-                                Divider()
-
-                                Button(role: .destructive) {
-                                    recordingToDelete = recording
-                                } label: {
-                                    Label("Delete Recording", systemImage: "trash")
-                                }
+                ForEach(filteredRecordings) { recording in
+                    RecordingRowView(recording: recording)
+                        .tag(recording.id)
+                        .contextMenu {
+                            Button {
+                                beginRename(recording)
+                            } label: {
+                                Label("Rename", systemImage: "pencil")
                             }
-                    }
+
+                            Divider()
+
+                            Button(role: .destructive) {
+                                recordingToDelete = recording
+                            } label: {
+                                Label("Delete Recording", systemImage: "trash")
+                            }
+                        }
                 }
             }
             .listStyle(.sidebar)
+        }
+    }
+
+    private var filteredRecordings: [Recording] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return model.recordings }
+        return model.recordings.filter { recording in
+            recording.title.localizedCaseInsensitiveContains(query)
+                || LibraryFormatting.source(recording.sources).localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -137,7 +152,7 @@ struct LibrarySidebar: View {
         }
 
         if let errorMessage = model.errorMessage {
-            Section("Library") {
+            Section {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -189,52 +204,67 @@ private struct RecordingRowView: View {
     let recording: Recording
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .center, spacing: 10) {
             Image(systemName: LibraryFormatting.sourceSymbol(recording.sources))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
-                .frame(width: 22, height: 22)
+                .frame(width: 20, height: 20)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(recording.title)
-                        .font(.headline)
-                        .lineLimit(1)
-
-                    Spacer(minLength: 4)
-
-                    Image(systemName: LibraryFormatting.stateSymbol(recording.processingState))
-                        .font(.caption)
-                        .foregroundStyle(
-                            recording.processingState == .failed || recording.processingState == .partial
-                                ? .primary
-                                : .secondary
-                        )
-                        .accessibilityLabel(LibraryFormatting.state(recording.processingState))
-                }
-
-                Text(recording.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(recording.title)
+                    .font(.body.weight(.medium))
                     .lineLimit(1)
 
                 HStack(spacing: 5) {
+                    Text(recording.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
+                    Text("·")
                     Text(LibraryFormatting.duration(recording.duration))
                         .monospacedDigit()
-                    Text("·")
-                    Text(LibraryFormatting.source(recording.sources))
-                        .lineLimit(1)
                 }
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             }
+
+            Spacer(minLength: 4)
+
+            stateIndicator
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(recording.title), \(LibraryFormatting.source(recording.sources)), \(LibraryFormatting.duration(recording.duration)), \(LibraryFormatting.state(recording.processingState))"
-        )
+        .accessibilityLabel(accessibilitySummary)
+    }
+
+    @ViewBuilder
+    private var stateIndicator: some View {
+        switch recording.processingState {
+        case .processing:
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel(LibraryFormatting.state(recording.processingState))
+        case .partial, .failed:
+            Image(systemName: LibraryFormatting.stateSymbol(recording.processingState))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel(LibraryFormatting.state(recording.processingState))
+        case .pending, .completed:
+            EmptyView()
+        }
+    }
+
+    private var accessibilitySummary: String {
+        var values = [
+            recording.title,
+            LibraryFormatting.source(recording.sources),
+            LibraryFormatting.duration(recording.duration)
+        ]
+        if recording.processingState == .processing
+            || recording.processingState == .partial
+            || recording.processingState == .failed {
+            values.append(LibraryFormatting.state(recording.processingState))
+        }
+        return values.joined(separator: ", ")
     }
 }

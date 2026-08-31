@@ -1,11 +1,18 @@
 import SwiftUI
 
 struct RootView: View {
+    private enum CaptureMode: String {
+        case microphone
+        case systemAudio
+        case systemAudioAndMicrophone
+    }
+
     private let warmTranscriptionForRecording: @MainActor () -> Void
 
     @StateObject private var library = LibraryViewModel()
     @StateObject private var microphone = MicrophoneRecordingController()
     @StateObject private var systemAudio = SystemAudioRecordingController()
+    @AppStorage("Bardo.LastCaptureMode") private var lastCaptureModeRaw = CaptureMode.microphone.rawValue
     @State private var isRecoveryNoticeDismissed = false
 
     init(warmTranscriptionForRecording: @escaping @MainActor () -> Void = {}) {
@@ -13,66 +20,77 @@ struct RootView: View {
     }
 
     var body: some View {
-        LibraryView(model: library)
-            .toolbar {
-                captureToolbar
+        LibraryView(
+            model: library,
+            onNewRecording: {
+                Task { await startLastRecording() }
             }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                captureStatusBar
-            }
-            .task {
-                microphone.refreshPermissionState()
-                await microphone.refreshRecoveryIssues()
-                await systemAudio.refreshRecoveryIssues()
-            }
-            .alert(
-                microphoneAlertTitle,
-                isPresented: Binding(
-                    get: { microphone.errorMessage != nil },
-                    set: { if !$0 { microphone.clearError() } }
-                )
-            ) {
-                if microphone.permissionState == .denied {
-                    Button("Open System Settings") {
-                        _ = microphone.openMicrophoneSystemSettings()
-                    }
-                }
-                Button("OK", role: .cancel) {
-                    microphone.clearError()
-                }
-            } message: {
-                Text(microphone.errorMessage ?? "Microphone recording could not continue.")
-            }
-            .alert(
-                "System Audio Recording",
-                isPresented: Binding(
-                    get: { systemAudio.errorMessage != nil },
-                    set: { if !$0 { systemAudio.clearError() } }
-                )
-            ) {
-                Button("OK", role: .cancel) {
-                    systemAudio.clearError()
-                }
-            } message: {
-                Text(systemAudio.errorMessage ?? "System audio recording could not continue.")
-            }
-            .onDisappear {
-                Task {
-                    if microphone.requiresTerminationFinalization {
-                        await microphone.prepareForApplicationTermination()
-                    }
-                    if systemAudio.requiresTerminationFinalization {
-                        await systemAudio.prepareForApplicationTermination()
-                    }
-                    await library.reload()
+        )
+        .toolbar {
+            captureToolbar
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            captureStatusBar
+        }
+        .task {
+            microphone.refreshPermissionState()
+            await microphone.refreshRecoveryIssues()
+            await systemAudio.refreshRecoveryIssues()
+        }
+        .alert(
+            microphoneAlertTitle,
+            isPresented: Binding(
+                get: { microphone.errorMessage != nil },
+                set: { if !$0 { microphone.clearError() } }
+            )
+        ) {
+            if microphone.permissionState == .denied {
+                Button("Open System Settings") {
+                    _ = microphone.openMicrophoneSystemSettings()
                 }
             }
+            Button("OK", role: .cancel) {
+                microphone.clearError()
+            }
+        } message: {
+            Text(microphone.errorMessage ?? "Microphone recording could not continue.")
+        }
+        .alert(
+            "System Audio Recording",
+            isPresented: Binding(
+                get: { systemAudio.errorMessage != nil },
+                set: { if !$0 { systemAudio.clearError() } }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                systemAudio.clearError()
+            }
+        } message: {
+            Text(systemAudio.errorMessage ?? "System audio recording could not continue.")
+        }
+        .onDisappear {
+            Task {
+                if microphone.requiresTerminationFinalization {
+                    await microphone.prepareForApplicationTermination()
+                }
+                if systemAudio.requiresTerminationFinalization {
+                    await systemAudio.prepareForApplicationTermination()
+                }
+                await library.reload()
+            }
+        }
     }
 
     @ToolbarContentBuilder
     private var captureToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
             if microphone.isRecording {
+                activeRecordingStatus(
+                    title: microphone.isPaused ? "Paused" : "Recording",
+                    duration: microphone.elapsedTime,
+                    help: microphone.inputDisplayName ?? "Default microphone"
+                )
+
                 Button {
                     if microphone.isPaused {
                         microphone.resume()
@@ -94,6 +112,12 @@ struct RootView: View {
                 }
                 .help("Stop microphone recording")
             } else if systemAudio.isRecording {
+                activeRecordingStatus(
+                    title: systemAudio.isPaused ? "Paused" : "Recording",
+                    duration: systemAudio.elapsedTime,
+                    help: systemAudio.includesMicrophone ? "System Audio + Microphone" : "System Audio"
+                )
+
                 Button {
                     Task {
                         if systemAudio.isPaused {
@@ -110,6 +134,15 @@ struct RootView: View {
                 }
                 .disabled(systemAudio.phase == .changingSelection)
                 .help(systemAudio.isPaused ? "Resume system audio recording" : "Pause system audio recording")
+
+                if !systemAudio.isPaused && systemAudio.phase != .changingSelection {
+                    Button {
+                        systemAudio.changeSelection()
+                    } label: {
+                        Label("Change Source…", systemImage: "rectangle.on.rectangle")
+                    }
+                    .help("Choose different macOS content without restarting the recording")
+                }
 
                 Button {
                     Task { await stopSystemRecording() }
@@ -147,14 +180,33 @@ struct RootView: View {
         }
     }
 
+    private func activeRecordingStatus(
+        title: String,
+        duration: TimeInterval,
+        help: String
+    ) -> some View {
+        Label {
+            HStack(spacing: 6) {
+                Text(title)
+                Text(LibraryFormatting.duration(duration))
+                    .monospacedDigit()
+            }
+            .font(.callout.weight(.medium))
+        } icon: {
+            Image(systemName: title == "Paused" ? "pause.circle.fill" : "record.circle.fill")
+        }
+        .help(help)
+        .accessibilityElement(children: .combine)
+    }
+
     @ViewBuilder
     private var captureStatusBar: some View {
         if microphone.phase != .idle && microphone.phase != .failed {
-            microphoneStatusBar
+            microphoneTransitionStatus
                 .padding(.horizontal, 18)
                 .padding(.top, 8)
         } else if systemAudio.phase != .idle && systemAudio.phase != .failed {
-            systemAudioStatusBar
+            systemAudioTransitionStatus
                 .padding(.horizontal, 18)
                 .padding(.top, 8)
         } else {
@@ -163,7 +215,7 @@ struct RootView: View {
     }
 
     @ViewBuilder
-    private var microphoneStatusBar: some View {
+    private var microphoneTransitionStatus: some View {
         switch microphone.phase {
         case .requestingPermission:
             transitionPill(
@@ -175,32 +227,18 @@ struct RootView: View {
                 title: "Preparing Recording",
                 detail: "Getting the microphone ready."
             )
-        case .recording:
-            activeRecordingPill(
-                title: "Recording Microphone",
-                detail: microphone.inputDisplayName ?? "Default microphone",
-                duration: microphone.elapsedTime,
-                isPaused: false
-            )
-        case .paused:
-            activeRecordingPill(
-                title: "Recording Paused",
-                detail: microphone.inputDisplayName ?? "Default microphone",
-                duration: microphone.elapsedTime,
-                isPaused: true
-            )
         case .finalizing:
             transitionPill(
                 title: "Finishing Recording",
                 detail: "Making sure the full audio is safely stored."
             )
-        case .idle, .failed:
+        case .recording, .paused, .idle, .failed:
             EmptyView()
         }
     }
 
     @ViewBuilder
-    private var systemAudioStatusBar: some View {
+    private var systemAudioTransitionStatus: some View {
         switch systemAudio.phase {
         case .requestingMicrophonePermission:
             transitionPill(
@@ -219,38 +257,17 @@ struct RootView: View {
                     ? "Getting system audio and the microphone ready."
                     : "Getting system audio ready."
             )
-        case .recording:
-            activeRecordingPill(
-                title: systemAudio.includesMicrophone ? "Recording System + Microphone" : "Recording System Audio",
-                detail: systemAudio.includesMicrophone
-                    ? "Both original sources are being saved separately."
-                    : "Audio from the selected content is being recorded.",
-                duration: systemAudio.elapsedTime,
-                isPaused: false,
-                changeSourceAction: {
-                    systemAudio.changeSelection()
-                }
-            )
-        case .paused:
-            activeRecordingPill(
-                title: "Recording Paused",
-                detail: systemAudio.includesMicrophone ? "System audio and microphone are paused." : "System audio is paused.",
-                duration: systemAudio.elapsedTime,
-                isPaused: true
-            )
         case .changingSelection:
-            activeRecordingPill(
-                title: "Recording — Choose New Source",
-                detail: "Recording continues while the macOS picker is open.",
-                duration: systemAudio.elapsedTime,
-                isPaused: false
+            transitionPill(
+                title: "Choose a New Source",
+                detail: "Recording continues while the macOS picker is open."
             )
         case .finalizing:
             transitionPill(
                 title: "Finishing Recording",
                 detail: "Making sure the full audio is safely stored."
             )
-        case .idle, .failed:
+        case .recording, .paused, .idle, .failed:
             EmptyView()
         }
     }
@@ -281,15 +298,13 @@ struct RootView: View {
                 Text("\(total)")
                     .font(.caption.monospacedDigit().weight(.medium))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(.quaternary, in: Capsule())
 
                 Button {
                     isRecoveryNoticeDismissed = true
                 } label: {
                     Image(systemName: "xmark")
                         .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -298,58 +313,11 @@ struct RootView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
             .frame(maxWidth: 680)
-            .bardoGlassSurface(cornerRadius: 14)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: BardoDesignMetrics.compactCornerRadius, style: .continuous))
             .padding(.horizontal, 18)
             .padding(.top, 8)
             .frame(maxWidth: .infinity)
         }
-    }
-
-    private func activeRecordingPill(
-        title: String,
-        detail: String,
-        duration: TimeInterval,
-        isPaused: Bool,
-        changeSourceAction: (() -> Void)? = nil
-    ) -> some View {
-        HStack(spacing: 12) {
-            if isPaused {
-                Image(systemName: "pause.circle.fill")
-                    .font(.title3)
-                    .accessibilityHidden(true)
-            } else {
-                Image(systemName: "record.circle.fill")
-                    .font(.title3)
-                    .symbolEffect(.pulse)
-                    .accessibilityHidden(true)
-            }
-
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 8) {
-                    Text(title)
-                        .font(.callout.weight(.semibold))
-                    Text(LibraryFormatting.duration(duration))
-                        .font(.callout.monospacedDigit())
-                }
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 18)
-
-            if let changeSourceAction {
-                Button("Change Source…", action: changeSourceAction)
-                    .help("Choose different macOS content without restarting the recording")
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(maxWidth: 720)
-        .bardoGlassSurface(cornerRadius: 18, interactive: true)
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
     }
 
     private func transitionPill(title: String, detail: String) -> some View {
@@ -362,18 +330,32 @@ struct RootView: View {
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
+            Spacer(minLength: 8)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
         .frame(maxWidth: 640)
-        .bardoGlassSurface(cornerRadius: 18)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: BardoDesignMetrics.compactCornerRadius, style: .continuous))
         .frame(maxWidth: .infinity)
     }
 
     @MainActor
+    private func startLastRecording() async {
+        switch CaptureMode(rawValue: lastCaptureModeRaw) ?? .microphone {
+        case .microphone:
+            await startMicrophoneRecording()
+        case .systemAudio:
+            await startSystemRecording(includeMicrophone: false)
+        case .systemAudioAndMicrophone:
+            await startSystemRecording(includeMicrophone: true)
+        }
+    }
+
+    @MainActor
     private func startMicrophoneRecording() async {
+        lastCaptureModeRaw = CaptureMode.microphone.rawValue
         warmTranscriptionForRecording()
         library.stopPlayback()
         await microphone.start()
@@ -381,6 +363,9 @@ struct RootView: View {
 
     @MainActor
     private func startSystemRecording(includeMicrophone: Bool) async {
+        lastCaptureModeRaw = includeMicrophone
+            ? CaptureMode.systemAudioAndMicrophone.rawValue
+            : CaptureMode.systemAudio.rawValue
         warmTranscriptionForRecording()
         library.stopPlayback()
         await systemAudio.start(includeMicrophone: includeMicrophone)

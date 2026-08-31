@@ -3,15 +3,26 @@ import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @ObservedObject var model: LibraryViewModel
+    let onNewRecording: () -> Void
 
     @State private var isFileImporterPresented = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
+    init(
+        model: LibraryViewModel,
+        onNewRecording: @escaping () -> Void = {}
+    ) {
+        self.model = model
+        self.onNewRecording = onNewRecording
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebar(model: model) {
-                isFileImporterPresented = true
-            }
+            LibrarySidebar(
+                model: model,
+                onNewRecording: onNewRecording,
+                onImport: { isFileImporterPresented = true }
+            )
             .toolbar {
                 sidebarToolbar
             }
