@@ -10,12 +10,15 @@ final class AudioPlaybackTimeline: ObservableObject {
 
 @MainActor
 final class AudioPlaybackController: ObservableObject {
+    static let supportedPlaybackRates: [Float] = [0.75, 1, 1.25, 1.5, 2]
+
     @Published private(set) var isPlaying = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var playbackRate: Float = 1
 
     /// Timeline ticks at 10 Hz while audio is playing. Keeping them in a dedicated observable
     /// prevents the recording detail, transcript rows, toolbar and inspector from being
-    /// invalidated on every playback tick. Only the compact player observes this object.
+    /// invalidated on every playback tick. Only playback-aware reading surfaces observe it.
     let timeline = AudioPlaybackTimeline()
 
     private var player: AVAudioPlayer?
@@ -34,6 +37,8 @@ final class AudioPlaybackController: ObservableObject {
 
         do {
             let player = try AVAudioPlayer(contentsOf: url)
+            player.enableRate = true
+            player.rate = playbackRate
             guard player.prepareToPlay() else {
                 throw AudioPlaybackError.couldNotPrepare
             }
@@ -55,6 +60,13 @@ final class AudioPlaybackController: ObservableObject {
         errorMessage = message
     }
 
+    func setPlaybackRate(_ rate: Float) {
+        guard Self.supportedPlaybackRates.contains(where: { abs($0 - rate) < 0.001 }) else { return }
+        playbackRate = rate
+        player?.enableRate = true
+        player?.rate = rate
+    }
+
     @discardableResult
     func play() -> Bool {
         guard let player else {
@@ -67,6 +79,8 @@ final class AudioPlaybackController: ObservableObject {
             updateTimeline(position: 0, duration: player.duration)
         }
 
+        player.enableRate = true
+        player.rate = playbackRate
         guard player.play() else {
             errorMessage = AudioPlaybackError.couldNotStart.localizedDescription
             isPlaying = false

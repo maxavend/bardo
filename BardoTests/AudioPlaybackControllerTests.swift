@@ -91,6 +91,25 @@ final class AudioPlaybackControllerTests: XCTestCase {
         controller.pause()
     }
 
+    @MainActor
+    func testPlaybackRateUsesSupportedValuesAndSurvivesReload() throws {
+        let firstURL = directoryURL.appendingPathComponent("RateFirst.wav")
+        let secondURL = directoryURL.appendingPathComponent("RateSecond.wav")
+        try AudioTestFixture.makeWAV(at: firstURL, duration: 0.8)
+        try AudioTestFixture.makeWAV(at: secondURL, duration: 0.4)
+
+        let controller = AudioPlaybackController()
+        XCTAssertTrue(controller.load(url: firstURL))
+        controller.setPlaybackRate(1.5)
+        XCTAssertEqual(controller.playbackRate, 1.5, accuracy: 0.001)
+
+        controller.setPlaybackRate(1.7)
+        XCTAssertEqual(controller.playbackRate, 1.5, accuracy: 0.001)
+
+        XCTAssertTrue(controller.load(url: secondURL))
+        XCTAssertEqual(controller.playbackRate, 1.5, accuracy: 0.001)
+    }
+
     func testLoadingAnotherRecordingStopsPreviousAndResetsPlaybackState() async throws {
         let firstURL = directoryURL.appendingPathComponent("First.wav")
         let secondURL = directoryURL.appendingPathComponent("Second.wav")
