@@ -83,14 +83,16 @@ struct RootView: View {
 
     @ToolbarContentBuilder
     private var captureToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .automatic) {
-            if microphone.isRecording {
+        if microphone.isRecording {
+            ToolbarItem(id: "bardo.capture.status", placement: .automatic) {
                 activeRecordingStatus(
                     title: microphone.isPaused ? "Paused" : "Recording",
                     duration: microphone.elapsedTime,
                     help: microphone.inputDisplayName ?? "Default microphone"
                 )
+            }
 
+            ToolbarItem(id: "bardo.capture.pause-resume", placement: .automatic) {
                 Button {
                     if microphone.isPaused {
                         microphone.resume()
@@ -104,20 +106,26 @@ struct RootView: View {
                     )
                 }
                 .help(microphone.isPaused ? "Resume microphone recording" : "Pause microphone recording")
+            }
 
+            ToolbarItem(id: "bardo.capture.stop", placement: .automatic) {
                 Button {
                     Task { await stopMicrophoneRecording() }
                 } label: {
                     Label("Stop Recording", systemImage: "stop.circle.fill")
                 }
                 .help("Stop microphone recording")
-            } else if systemAudio.isRecording {
+            }
+        } else if systemAudio.isRecording {
+            ToolbarItem(id: "bardo.capture.status", placement: .automatic) {
                 activeRecordingStatus(
                     title: systemAudio.isPaused ? "Paused" : "Recording",
                     duration: systemAudio.elapsedTime,
                     help: systemAudio.includesMicrophone ? "System Audio + Microphone" : "System Audio"
                 )
+            }
 
+            ToolbarItem(id: "bardo.capture.pause-resume", placement: .automatic) {
                 Button {
                     Task {
                         if systemAudio.isPaused {
@@ -134,8 +142,10 @@ struct RootView: View {
                 }
                 .disabled(systemAudio.phase == .changingSelection)
                 .help(systemAudio.isPaused ? "Resume system audio recording" : "Pause system audio recording")
+            }
 
-                if !systemAudio.isPaused && systemAudio.phase != .changingSelection {
+            if !systemAudio.isPaused && systemAudio.phase != .changingSelection {
+                ToolbarItem(id: "bardo.capture.change-source", placement: .automatic) {
                     Button {
                         systemAudio.changeSelection()
                     } label: {
@@ -143,14 +153,18 @@ struct RootView: View {
                     }
                     .help("Choose different macOS content without restarting the recording")
                 }
+            }
 
+            ToolbarItem(id: "bardo.capture.stop", placement: .automatic) {
                 Button {
                     Task { await stopSystemRecording() }
                 } label: {
                     Label("Stop Recording", systemImage: "stop.circle.fill")
                 }
                 .help("Stop system audio recording")
-            } else {
+            }
+        } else {
+            ToolbarItem(id: "bardo.capture.new", placement: .automatic) {
                 Menu {
                     Button {
                         Task { await startMicrophoneRecording() }
