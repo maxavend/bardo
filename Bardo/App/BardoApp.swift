@@ -23,7 +23,9 @@ struct BardoApp: App {
         Window("Bardo", id: "main") {
             BardoLaunchView()
                 .environment(\.locale, language.locale)
-                .frame(minWidth: 760, minHeight: 520)
+                // 840pt keeps the detail column useful with the sidebar visible,
+                // while remaining practical on smaller notebook displays.
+                .frame(minWidth: 840, minHeight: 540)
         }
         .defaultSize(width: 1180, height: 760)
         .windowResizability(.contentMinSize)
