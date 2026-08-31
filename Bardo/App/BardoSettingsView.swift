@@ -85,7 +85,7 @@ struct BardoSettingsView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 720, idealWidth: 800, minHeight: 500, idealHeight: 560)
+        .frame(minWidth: 720, idealWidth: 800, minHeight: 500, idealHeight: 620)
         .environment(\.locale, language.locale)
         .onChange(of: contextCategories) { _, categories in
             TranscriptionContextPreferences.save(categories)
@@ -163,13 +163,15 @@ struct BardoSettingsView: View {
                 .foregroundStyle(.secondary)
             }
 
+            TranscriptionQualitySettingsSection()
+
             Section {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Transcription only", tableName: "TranscriptUI")
                             .font(.body.weight(.medium))
                         Text(
-                            "Bardo always writes what was said. It never switches Whisper into translation mode.",
+                            "Bardo always transcribes. It never translates your recording into another language.",
                             tableName: "TranscriptUI"
                         )
                         .font(.caption)
@@ -221,7 +223,7 @@ struct BardoSettingsView: View {
             }
 
             Text(
-                "Language and context changes are used the next time you transcribe or transcribe again.",
+                "Language, quality, and context changes are used the next time you transcribe or transcribe again.",
                 tableName: "TranscriptUI"
             )
             .font(.footnote)

@@ -17,6 +17,7 @@
 " terms" = " términos";
 " active categories" = " categorías activas";
 "Language and context changes are used the next time you transcribe or transcribe again." = "Los cambios de idioma y contexto se usan la próxima vez que transcribas o vuelvas a transcribir.";
+"Language, quality, and context changes are used the next time you transcribe or transcribe again." = "Los cambios de idioma, calidad y contexto se usan la próxima vez que transcribas o vuelvas a transcribir.";
 "Organize the words and phrases Bardo should expect to hear." = "Organiza las palabras y frases que Bardo debería esperar escuchar.";
 "New Category" = "Nueva categoría";
 " active terms" = " términos activos";
@@ -40,6 +41,30 @@
 "Unfinished recording files found" = "Se encontraron archivos de grabación sin terminar";
 "Bardo left files from an interrupted recording untouched. They do not block new recordings." = "Bardo dejó intactos los archivos de una grabación interrumpida. No bloquean nuevas grabaciones.";
 "Dismiss recovery notice" = "Cerrar aviso de recuperación";
+
+"Transcription Quality" = "Calidad de transcripción";
+"Instant" = "Instantánea";
+"Balanced" = "Equilibrada";
+"Maximum Accuracy" = "Máxima precisión";
+"Recommended" = "Recomendada";
+"Prioritizes speed. Ideal for long meetings and near-immediate results. Context hints are limited in this mode." = "Prioriza la velocidad. Ideal para reuniones largas y resultados casi inmediatos. Las ayudas de contexto son más limitadas en este modo.";
+"Excellent accuracy without sacrificing speed. Best for most recordings." = "Excelente precisión sin sacrificar velocidad. Es la mejor opción para la mayoría de las grabaciones.";
+"Prioritizes accuracy for difficult audio, names, and multilingual speech." = "Prioriza la precisión para audio difícil, nombres y conversaciones con varios idiomas.";
+"Your Mac can run this model comfortably." = "Tu Mac puede ejecutar este modelo cómodamente.";
+"Uses more memory and may take longer on this Mac." = "Usa más memoria y puede tardar más en este Mac.";
+"Choose speed or accuracy, not a technical model. The change is used for future transcriptions and when you transcribe again." = "Elige velocidad o precisión, no un modelo técnico. El cambio se usa en futuras transcripciones y cuando vuelvas a transcribir.";
+"Downloaded Models" = "Modelos descargados";
+"Bardo downloads only the models you use. Model files stay on this Mac and can be removed at any time." = "Bardo descarga solo los modelos que usas. Los archivos permanecen en este Mac y puedes eliminarlos cuando quieras.";
+"Remove Downloaded Model?" = "¿Eliminar el modelo descargado?";
+"Remove" = "Eliminar";
+"Remove…" = "Eliminar…";
+"Download" = "Descargar";
+"Downloading Model" = "Descargando modelo";
+"The model can be downloaded again automatically the next time you use this quality." = "El modelo puede volver a descargarse automáticamente la próxima vez que uses esta calidad.";
+"Model Couldn’t Be Changed" = "No se pudo cambiar el modelo";
+"Selected" = "Seleccionado";
+"Installed" = "Instalado";
+"About %@" = "Aprox. %@";
 
 "Preparing Bardo" = "Preparando Bardo";
 "Bardo Is Ready" = "Bardo está listo";

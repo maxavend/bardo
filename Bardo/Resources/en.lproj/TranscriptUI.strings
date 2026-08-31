@@ -17,6 +17,7 @@
 " terms" = " terms";
 " active categories" = " active categories";
 "Language and context changes are used the next time you transcribe or transcribe again." = "Language and context changes are used the next time you transcribe or transcribe again.";
+"Language, quality, and context changes are used the next time you transcribe or transcribe again." = "Language, quality, and context changes are used the next time you transcribe or transcribe again.";
 "Organize the words and phrases Bardo should expect to hear." = "Organize the words and phrases Bardo should expect to hear.";
 "New Category" = "New Category";
 " active terms" = " active terms";
@@ -40,6 +41,30 @@
 "Unfinished recording files found" = "Unfinished recording files found";
 "Bardo left files from an interrupted recording untouched. They do not block new recordings." = "Bardo left files from an interrupted recording untouched. They do not block new recordings.";
 "Dismiss recovery notice" = "Dismiss recovery notice";
+
+"Transcription Quality" = "Transcription Quality";
+"Instant" = "Instant";
+"Balanced" = "Balanced";
+"Maximum Accuracy" = "Maximum Accuracy";
+"Recommended" = "Recommended";
+"Prioritizes speed. Ideal for long meetings and near-immediate results. Context hints are limited in this mode." = "Prioritizes speed. Ideal for long meetings and near-immediate results. Context hints are limited in this mode.";
+"Excellent accuracy without sacrificing speed. Best for most recordings." = "Excellent accuracy without sacrificing speed. Best for most recordings.";
+"Prioritizes accuracy for difficult audio, names, and multilingual speech." = "Prioritizes accuracy for difficult audio, names, and multilingual speech.";
+"Your Mac can run this model comfortably." = "Your Mac can run this model comfortably.";
+"Uses more memory and may take longer on this Mac." = "Uses more memory and may take longer on this Mac.";
+"Choose speed or accuracy, not a technical model. The change is used for future transcriptions and when you transcribe again." = "Choose speed or accuracy, not a technical model. The change is used for future transcriptions and when you transcribe again.";
+"Downloaded Models" = "Downloaded Models";
+"Bardo downloads only the models you use. Model files stay on this Mac and can be removed at any time." = "Bardo downloads only the models you use. Model files stay on this Mac and can be removed at any time.";
+"Remove Downloaded Model?" = "Remove Downloaded Model?";
+"Remove" = "Remove";
+"Remove…" = "Remove…";
+"Download" = "Download";
+"Downloading Model" = "Downloading Model";
+"The model can be downloaded again automatically the next time you use this quality." = "The model can be downloaded again automatically the next time you use this quality.";
+"Model Couldn’t Be Changed" = "Model Couldn’t Be Changed";
+"Selected" = "Selected";
+"Installed" = "Installed";
+"About %@" = "About %@";
 
 "Preparing Bardo" = "Preparing Bardo";
 "Bardo Is Ready" = "Bardo Is Ready";

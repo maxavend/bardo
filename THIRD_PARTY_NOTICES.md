@@ -5,12 +5,12 @@ Bardo uses the following open-source software.
 ## Argmax Open-Source SDK / WhisperKit + SpeakerKit
 
 - Repository: `argmaxinc/argmax-oss-swift`
-- Version used by Bardo: `1.0.0`
+- Version used by Bardo: `1.1.0`
 - Products linked by Bardo: `WhisperKit`, `SpeakerKit`
 - License: MIT
 - Copyright: © 2024 argmax, inc.
 
-Bardo links the `WhisperKit` and `SpeakerKit` products directly. It does not link the `ArgmaxOSS` umbrella product or `TTSKit` in Phase 6.
+Bardo links the `WhisperKit` and `SpeakerKit` products directly. It does not link the `ArgmaxOSS` umbrella product or `TTSKit`.
 
 ### MIT License
 
@@ -34,6 +34,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## FluidAudio
+
+- Repository: `FluidInference/FluidAudio`
+- Version used by Bardo: `0.15.6`
+- Product linked by Bardo: `FluidAudio`
+- License: Apache License 2.0
+
+Bardo uses FluidAudio for the optional Parakeet-powered Instant transcription quality. The full Apache License 2.0 text is included with the upstream package and is available in the FluidAudio repository `LICENSE` file.
+
 ## Runtime-downloaded model artifacts
 
-Phase 5 downloads Whisper model/tokenizer artifacts at runtime. Phase 6 additionally downloads SpeakerKit/Pyannote model artifacts at runtime. Bardo does not bundle those model files in the application. Their applicable upstream terms should be reviewed separately before any future distribution strategy that bundles or redistributes those artifacts.
+Bardo downloads Whisper, SpeakerKit/Pyannote, and optional Parakeet model artifacts at runtime. Bardo does not bundle those model files in the application. Their applicable upstream model terms should be reviewed separately before any future distribution strategy that bundles or redistributes those artifacts.
