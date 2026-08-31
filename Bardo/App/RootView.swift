@@ -174,6 +174,7 @@ struct RootView: View {
                 } label: {
                     Label("New Recording", systemImage: "record.circle")
                 }
+                .keyboardShortcut("n", modifiers: .command)
                 .help("Start a new recording")
                 .disabled(microphone.isBusy || systemAudio.isBusy)
             }
