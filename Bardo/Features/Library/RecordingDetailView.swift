@@ -245,11 +245,13 @@ struct RecordingDetailView: View {
     @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
         if !trimmedSearch.isEmpty {
-            ToolbarItemGroup(placement: .automatic) {
+            ToolbarItem(id: "bardo.detail.search.status", placement: .automatic) {
                 Text(searchResultLabel)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+            }
 
+            ToolbarItem(id: "bardo.detail.search.previous", placement: .automatic) {
                 Button {
                     moveSearch(by: -1)
                 } label: {
@@ -257,7 +259,9 @@ struct RecordingDetailView: View {
                 }
                 .disabled(searchMatchIDs.isEmpty)
                 .help("Previous Match")
+            }
 
+            ToolbarItem(id: "bardo.detail.search.next", placement: .automatic) {
                 Button {
                     moveSearch(by: 1)
                 } label: {
@@ -268,8 +272,8 @@ struct RecordingDetailView: View {
             }
         }
 
-        ToolbarItemGroup(placement: .primaryAction) {
-            if let transcript = selectedTranscript {
+        if let transcript = selectedTranscript {
+            ToolbarItem(id: "bardo.detail.copy", placement: .primaryAction) {
                 Menu {
                     Button("Copy Transcript") {
                         copyTranscript(transcript, style: .automatic)
@@ -289,7 +293,9 @@ struct RecordingDetailView: View {
                 }
                 .disabled(transcript.text.isEmpty)
                 .help("Copy Transcript")
+            }
 
+            ToolbarItem(id: "bardo.detail.speakers", placement: .primaryAction) {
                 Menu {
                     if transcript.diarizationMetadata != nil {
                         Button {
@@ -307,14 +313,18 @@ struct RecordingDetailView: View {
                 }
                 .help("Speakers")
             }
+        }
 
+        ToolbarItem(id: "bardo.detail.info", placement: .primaryAction) {
             Button {
                 isInspectorPresented.toggle()
             } label: {
                 Label("Recording Info", systemImage: "sidebar.trailing")
             }
             .help(isInspectorPresented ? "Hide recording info" : "Show recording info")
+        }
 
+        ToolbarItem(id: "bardo.detail.more", placement: .primaryAction) {
             Menu {
                 if selectedTranscript != nil {
                     Button {
