@@ -40,3 +40,21 @@
 "Unfinished recording files found" = "Se encontraron archivos de grabación sin terminar";
 "Bardo left files from an interrupted recording untouched. They do not block new recordings." = "Bardo dejó intactos los archivos de una grabación interrumpida. No bloquean nuevas grabaciones.";
 "Dismiss recovery notice" = "Cerrar aviso de recuperación";
+
+"Preparing Bardo" = "Preparando Bardo";
+"Bardo Is Ready" = "Bardo está listo";
+"Setup Couldn’t Finish" = "La preparación no pudo terminar";
+"Checking the local models Bardo needs." = "Revisando los modelos locales que Bardo necesita.";
+"Preparing private, on-device transcription." = "Preparando la transcripción privada en este Mac.";
+"Preparing local speaker detection." = "Preparando la detección local de hablantes.";
+"Everything Bardo needs is installed and ready." = "Todo lo que Bardo necesita está instalado y listo.";
+"Speaker Detection" = "Detección de hablantes";
+"Transcription and speaker detection run locally on this Mac once setup is complete." = "Cuando termine la preparación, la transcripción y la detección de hablantes se ejecutan localmente en este Mac.";
+"Try Again" = "Reintentar";
+"Checking…" = "Revisando…";
+"Installing…" = "Instalando…";
+"Preparing languages…" = "Preparando idiomas…";
+"Optimizing for this Mac…" = "Optimizando para este Mac…";
+"Waiting" = "En espera";
+"Ready" = "Listo";
+"Needs Attention" = "Requiere atención";
