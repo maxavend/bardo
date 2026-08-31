@@ -5,22 +5,22 @@ struct TranscriptionSetupView: View {
     let retry: () -> Void
 
     var body: some View {
-        VStack(spacing: 24) {
-            VStack(spacing: 7) {
+        VStack(spacing: 26) {
+            VStack(spacing: 8) {
                 Image(systemName: "waveform.badge.mic")
-                    .font(.system(size: 38, weight: .medium))
+                    .font(.system(size: 34, weight: .medium))
                     .symbolRenderingMode(.hierarchical)
                     .accessibilityHidden(true)
 
                 Text(titleKey, tableName: nil)
-                    .font(.title.weight(.semibold))
+                    .font(.title2.weight(.semibold))
                     .multilineTextAlignment(.center)
 
                 Text(detailKey, tableName: nil)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 470)
+                    .frame(maxWidth: 440)
             }
 
             VStack(spacing: 0) {
@@ -31,7 +31,7 @@ struct TranscriptionSetupView: View {
                 )
 
                 Divider()
-                    .padding(.leading, 44)
+                    .padding(.leading, 42)
 
                 SetupComponentRow(
                     title: "Speaker Detection",
@@ -39,21 +39,11 @@ struct TranscriptionSetupView: View {
                     state: speakerComponentState
                 )
             }
-            .frame(width: 470)
-            .padding(.horizontal, 16)
-            .background(
-                Color(nsColor: .controlBackgroundColor),
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-            }
+            .frame(maxWidth: 470)
 
             if case .failed = state {
                 Button("Try Again", action: retry)
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
             }
 
             Text("Transcription and speaker detection run locally on this Mac once setup is complete.")
@@ -61,10 +51,11 @@ struct TranscriptionSetupView: View {
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
         }
-        .padding(44)
-        .frame(minWidth: 680, minHeight: 500)
+        .padding(40)
+        .frame(minWidth: 660, minHeight: 470)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .accessibilityElement(children: .contain)
     }
 
     private var titleKey: LocalizedStringKey {
@@ -156,11 +147,12 @@ private struct SetupComponentRow: View {
             Text(title)
                 .font(.body.weight(.medium))
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 14)
 
             statusView
         }
-        .padding(.vertical, 14)
+        .padding(.vertical, 13)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
@@ -172,7 +164,10 @@ private struct SetupComponentRow: View {
                 .foregroundStyle(.tertiary)
         case .working(let label, let progress):
             HStack(spacing: 8) {
-                if let progress {
+                if let progress,
+                   progress.isFinite,
+                   progress > 0,
+                   progress < 1 {
                     ProgressView(value: min(1, max(0, progress)))
                         .frame(width: 76)
                         .controlSize(.small)
@@ -180,6 +175,7 @@ private struct SetupComponentRow: View {
                     ProgressView()
                         .controlSize(.small)
                 }
+
                 Text(label)
                     .font(.callout)
                     .foregroundStyle(.secondary)
