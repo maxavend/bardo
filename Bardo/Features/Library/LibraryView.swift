@@ -76,7 +76,7 @@ struct LibraryView: View {
 
     @ToolbarContentBuilder
     private var sidebarToolbar: some ToolbarContent {
-        ToolbarItem {
+        ToolbarItem(id: "bardo.library.import", placement: .automatic) {
             Button {
                 isFileImporterPresented = true
             } label: {
