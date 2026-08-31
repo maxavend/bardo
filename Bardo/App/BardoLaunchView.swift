@@ -2,11 +2,12 @@ import SwiftUI
 
 struct BardoLaunchView: View {
     @StateObject private var setup = TranscriptionSetupCoordinator()
-    @State private var completionMomentFinished = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isShowingLibrary = false
 
     var body: some View {
-        Group {
-            if shouldShowLibrary {
+        ZStack {
+            if isShowingLibrary {
                 RootView(warmTranscriptionForRecording: setup.warmForRecording)
                     .transition(.opacity)
             } else {
@@ -17,22 +18,29 @@ struct BardoLaunchView: View {
                 .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.22), value: shouldShowLibrary)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: isShowingLibrary)
         .task {
-            await setup.prepareIfNeeded()
-        }
-        .task(id: setup.isReady) {
-            guard setup.isReady, setup.completedSetupThisLaunch else { return }
-            do {
-                try await Task.sleep(nanoseconds: 850_000_000)
-            } catch {
-                return
+            if setup.isReady && !setup.completedSetupThisLaunch {
+                isShowingLibrary = true
             }
-            completionMomentFinished = true
+            await setup.prepareIfNeeded()
+            await showLibraryWhenReady()
+        }
+        .onChange(of: setup.state) { _, state in
+            guard case .ready = state else { return }
+            Task { @MainActor in
+                await showLibraryWhenReady()
+            }
         }
     }
 
-    private var shouldShowLibrary: Bool {
-        setup.isReady && (!setup.completedSetupThisLaunch || completionMomentFinished)
+    @MainActor
+    private func showLibraryWhenReady() async {
+        guard setup.isReady, !isShowingLibrary else { return }
+        if setup.completedSetupThisLaunch && !reduceMotion {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        guard setup.isReady else { return }
+        isShowingLibrary = true
     }
 }
