@@ -20,7 +20,10 @@ struct BardoApp: App {
     }
 
     var body: some Scene {
-        Window("Bardo", id: "main") {
+        // Version the scene identity once so macOS does not restore the anonymous toolbar
+        // layout written by older Bardo builds. The previous layout can contain generated
+        // SwiftUI item identifiers that are no longer valid after the toolbar redesign.
+        Window("Bardo", id: "main-v2-toolbar") {
             BardoLaunchView()
                 .environment(\.locale, language.locale)
                 // 840pt keeps the detail column useful with the sidebar visible,
