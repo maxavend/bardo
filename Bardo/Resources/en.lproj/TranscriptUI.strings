@@ -40,3 +40,21 @@
 "Unfinished recording files found" = "Unfinished recording files found";
 "Bardo left files from an interrupted recording untouched. They do not block new recordings." = "Bardo left files from an interrupted recording untouched. They do not block new recordings.";
 "Dismiss recovery notice" = "Dismiss recovery notice";
+
+"Preparing Bardo" = "Preparing Bardo";
+"Bardo Is Ready" = "Bardo Is Ready";
+"Setup Couldn’t Finish" = "Setup Couldn’t Finish";
+"Checking the local models Bardo needs." = "Checking the local models Bardo needs.";
+"Preparing private, on-device transcription." = "Preparing private, on-device transcription.";
+"Preparing local speaker detection." = "Preparing local speaker detection.";
+"Everything Bardo needs is installed and ready." = "Everything Bardo needs is installed and ready.";
+"Speaker Detection" = "Speaker Detection";
+"Transcription and speaker detection run locally on this Mac once setup is complete." = "Transcription and speaker detection run locally on this Mac once setup is complete.";
+"Try Again" = "Try Again";
+"Checking…" = "Checking…";
+"Installing…" = "Installing…";
+"Preparing languages…" = "Preparing languages…";
+"Optimizing for this Mac…" = "Optimizing for this Mac…";
+"Waiting" = "Waiting";
+"Ready" = "Ready";
+"Needs Attention" = "Needs Attention";
