@@ -93,7 +93,7 @@ final class DiarizationAlignmentTests: XCTestCase {
         XCTAssertEqual(aligned.segments[0].speakerID, aligned.speakers[1].id)
     }
 
-    func testGapWithoutOverlapRemainsUnassigned() throws {
+    func testDetectedSpeakersWithoutTranscriptOverlapFailsAsAlignmentProblem() {
         let transcript = Transcript(
             recordingID: UUID(),
             segments: [
@@ -102,14 +102,32 @@ final class DiarizationAlignmentTests: XCTestCase {
             metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: "fixture")
         )
 
+        XCTAssertThrowsError(
+            try TranscriptSpeakerAligner.applying(
+                intervals: [DiarizationInterval(speakerIndex: 0, startTime: 0, endTime: 1)],
+                to: transcript,
+                metadata: DiarizationMetadata(engine: "SpeakerKit", engineVersion: "1", modelID: "fixture")
+            )
+        ) { error in
+            XCTAssertEqual(error as? RecordingDiarizationError, .alignmentProducedNoAssignments)
+        }
+    }
+
+    func testSingleSpeakerResultIsValidWhenItAligns() throws {
+        let transcript = Transcript(
+            recordingID: UUID(),
+            segments: [TranscriptSegment(startTime: 0, endTime: 2, text: "Only one voice.")],
+            metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: "fixture")
+        )
+
         let aligned = try TranscriptSpeakerAligner.applying(
-            intervals: [DiarizationInterval(speakerIndex: 0, startTime: 0, endTime: 1)],
+            intervals: [DiarizationInterval(speakerIndex: 4, startTime: 0, endTime: 2)],
             to: transcript,
             metadata: DiarizationMetadata(engine: "SpeakerKit", engineVersion: "1", modelID: "fixture")
         )
 
         XCTAssertEqual(aligned.speakers.count, 1)
-        XCTAssertNil(aligned.segments[0].speakerID)
+        XCTAssertEqual(aligned.segments.first?.speakerID, aligned.speakers.first?.id)
     }
 
     func testNoValidSpeakerActivityFailsWithoutMutatingTranscript() {

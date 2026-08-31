@@ -1,6 +1,5 @@
 import Foundation
 
-
 enum BardoLanguage: String, CaseIterable, Identifiable, Sendable {
     case english = "en"
     case spanish = "es"
@@ -39,5 +38,11 @@ enum BardoL10n {
             return key
         }
         return NSLocalizedString(key, tableName: nil, bundle: bundle, value: key, comment: "")
+    }
+
+    static func current(_ key: String) -> String {
+        let raw = UserDefaults.standard.string(forKey: BardoLanguage.storageKey)
+            ?? BardoLanguage.preferredDefault.rawValue
+        return string(key, locale: BardoLanguage.resolve(raw).locale)
     }
 }

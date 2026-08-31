@@ -38,17 +38,26 @@ enum RecordingDiarizationError: Error, LocalizedError, Equatable, Sendable {
     case combinedAudioUnavailable(Recording.ID)
     case invalidDuration
     case noSpeakerActivity
+    case speakerKitReturnedNoSegments
+    case speakerKitReturnedNoUsableSpeakers
+    case alignmentProducedNoAssignments
 
     var errorDescription: String? {
         switch self {
-        case .noManagedAudio(let id):
-            return "Recording \(id.uuidString) has no readable managed audio to diarize."
+        case .noManagedAudio:
+            return BardoL10n.current("Bardo could not read this recording’s managed audio for speaker identification.")
         case .combinedAudioUnavailable:
-            return "The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before identifying speakers."
+            return BardoL10n.current("The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks.")
         case .invalidDuration:
-            return "Bardo could not determine a valid audio duration for speaker identification."
+            return BardoL10n.current("Bardo could not determine a valid audio duration for speaker identification.")
         case .noSpeakerActivity:
-            return "SpeakerKit completed without finding any speaker activity."
+            return BardoL10n.current("Bardo could not find clear speaker activity in this recording. The transcript is unchanged.")
+        case .speakerKitReturnedNoSegments:
+            return BardoL10n.current("Bardo could not find clear speaker turns in this recording. The transcript is unchanged.")
+        case .speakerKitReturnedNoUsableSpeakers:
+            return BardoL10n.current("Speaker detection finished, but the result did not contain usable speaker labels. The transcript is unchanged.")
+        case .alignmentProducedNoAssignments:
+            return BardoL10n.current("Bardo detected voices, but could not align them reliably with the transcript. The transcript is unchanged.")
         }
     }
 }
@@ -98,6 +107,11 @@ enum TranscriptSpeakerAligner {
             let segment = updated.segments[index]
             let speakerIndex = bestSpeakerIndex(for: segment, intervals: validIntervals)
             updated.segments[index].speakerID = speakerIndex.flatMap { speakerIDs[$0] }
+        }
+
+        if !updated.segments.isEmpty,
+           updated.segments.allSatisfy({ $0.speakerID == nil }) {
+            throw RecordingDiarizationError.alignmentProducedNoAssignments
         }
 
         return updated
@@ -322,6 +336,13 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         try Task.checkCancellation()
         progress(.init(stage: .diarizing, fractionCompleted: 1))
 
+        guard !result.segments.isEmpty else {
+            Self.logger.error(
+                "Speaker identification failed outcome=no-segments audioSeconds=\(duration) rawSegments=0"
+            )
+            throw RecordingDiarizationError.speakerKitReturnedNoSegments
+        }
+
         let intervals = result.segments.compactMap { segment -> DiarizationInterval? in
             guard let speakerIndex = segment.speaker.speakerId else { return nil }
             return DiarizationInterval(
@@ -331,21 +352,48 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             )
         }
 
-        let aligned = try TranscriptSpeakerAligner.applying(
-            intervals: intervals,
-            to: transcript,
-            metadata: DiarizationMetadata(
-                engine: "SpeakerKit",
-                engineVersion: Self.engineVersion,
-                modelID: Self.modelID
+        guard !intervals.isEmpty else {
+            Self.logger.error(
+                "Speaker identification failed outcome=no-usable-speakers rawSegments=\(result.segments.count) usableIntervals=0"
             )
+            throw RecordingDiarizationError.speakerKitReturnedNoUsableSpeakers
+        }
+
+        let uniqueSpeakerCount = Set(intervals.map(\.speakerIndex)).count
+        Self.logger.info(
+            "SpeakerKit result rawSegments=\(result.segments.count) usableIntervals=\(intervals.count) uniqueSpeakers=\(uniqueSpeakerCount)"
         )
+
+        let aligned: Transcript
+        do {
+            aligned = try TranscriptSpeakerAligner.applying(
+                intervals: intervals,
+                to: transcript,
+                metadata: DiarizationMetadata(
+                    engine: "SpeakerKit",
+                    engineVersion: Self.engineVersion,
+                    modelID: Self.modelID
+                )
+            )
+        } catch RecordingDiarizationError.alignmentProducedNoAssignments {
+            Self.logger.error(
+                "Speaker identification failed outcome=alignment-no-assignments rawSegments=\(result.segments.count) usableIntervals=\(intervals.count) transcriptSegments=\(transcript.segments.count)"
+            )
+            throw RecordingDiarizationError.alignmentProducedNoAssignments
+        }
 
         let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
         let realTimeFactor = duration > 0 ? elapsed / duration : 0
-        Self.logger.info(
-            "Speaker identification finished audioSeconds=\(duration) elapsedSeconds=\(elapsed) rtf=\(realTimeFactor) speakers=\(aligned.speakers.count)"
-        )
+        let assignedSegments = aligned.segments.filter { $0.speakerID != nil }.count
+        if aligned.speakers.count == 1 {
+            Self.logger.warning(
+                "Speaker identification finished outcome=single-speaker audioSeconds=\(duration) elapsedSeconds=\(elapsed) rtf=\(realTimeFactor) assignedSegments=\(assignedSegments)"
+            )
+        } else {
+            Self.logger.info(
+                "Speaker identification finished outcome=normal audioSeconds=\(duration) elapsedSeconds=\(elapsed) rtf=\(realTimeFactor) speakers=\(aligned.speakers.count) assignedSegments=\(assignedSegments)"
+            )
+        }
         return aligned
     }
 
