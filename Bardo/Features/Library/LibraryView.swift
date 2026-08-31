@@ -82,6 +82,7 @@ struct LibraryView: View {
             } label: {
                 Label("Import Audio", systemImage: "square.and.arrow.down")
             }
+            .keyboardShortcut("o", modifiers: .command)
             .disabled(model.isImporting)
             .help("Import audio")
         }
