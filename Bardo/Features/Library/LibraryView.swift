@@ -115,12 +115,17 @@ struct LibraryView: View {
                 model: model,
                 playback: model.playback
             )
+            .recordingDetailEnhancements(
+                recording: recording,
+                model: model,
+                playback: model.playback
+            )
             .id(recording.id)
         } else {
             ContentUnavailableView {
-                Label("Select a Recording", systemImage: "waveform")
+                Label("No Recording Selected", systemImage: "waveform")
             } description: {
-                Text("Choose a recording from the sidebar to play audio, read its transcript, or inspect details.")
+                Text("Select a recording from the library or start a new one.")
             }
         }
     }
