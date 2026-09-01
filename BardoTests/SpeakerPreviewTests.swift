@@ -81,6 +81,15 @@ final class SpeakerPreviewTests: XCTestCase {
         )
     }
 
+    func testSpeakerNamingDoesNotPromptForOneSpeaker() {
+        XCTAssertFalse(SpeakerNamingPolicy.shouldPrompt(speakerCount: 1))
+    }
+
+    func testSpeakerNamingPromptsForTwoOrMoreSpeakers() {
+        XCTAssertTrue(SpeakerNamingPolicy.shouldPrompt(speakerCount: 2))
+        XCTAssertTrue(SpeakerNamingPolicy.shouldPrompt(speakerCount: 5))
+    }
+
     private func segment(
         start: TimeInterval,
         end: TimeInterval,
