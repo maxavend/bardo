@@ -13,14 +13,16 @@ final class SpeakerPreviewTests: XCTestCase {
             segment(start: 10, end: 15.5, speakerID: speaker)
         ]
 
-        let clip = SpeakerPreviewClipSelector.clip(
+        guard let clip = SpeakerPreviewClipSelector.clip(
             for: speaker,
             in: segments,
             maximumDuration: 10
-        )
+        ) else {
+            return XCTFail("Expected a preview clip for the speaker")
+        }
 
-        XCTAssertEqual(clip?.startTime, 10, accuracy: 0.001)
-        XCTAssertEqual(clip?.endTime, 15.5, accuracy: 0.001)
+        XCTAssertEqual(clip.startTime, 10, accuracy: 0.001)
+        XCTAssertEqual(clip.endTime, 15.5, accuracy: 0.001)
     }
 
     func testPreviewNeverExceedsMaximumDuration() {
@@ -29,15 +31,17 @@ final class SpeakerPreviewTests: XCTestCase {
             segment(start: 20, end: 36, speakerID: speaker)
         ]
 
-        let clip = SpeakerPreviewClipSelector.clip(
+        guard let clip = SpeakerPreviewClipSelector.clip(
             for: speaker,
             in: segments,
             maximumDuration: 10
-        )
+        ) else {
+            return XCTFail("Expected a preview clip for the speaker")
+        }
 
-        XCTAssertEqual(clip?.startTime, 20, accuracy: 0.001)
-        XCTAssertEqual(clip?.endTime, 30, accuracy: 0.001)
-        XCTAssertEqual(clip?.duration, 10, accuracy: 0.001)
+        XCTAssertEqual(clip.startTime, 20, accuracy: 0.001)
+        XCTAssertEqual(clip.endTime, 30, accuracy: 0.001)
+        XCTAssertEqual(clip.duration, 10, accuracy: 0.001)
     }
 
     func testPreviewDoesNotBridgeAcrossAnotherSpeaker() {
@@ -49,14 +53,16 @@ final class SpeakerPreviewTests: XCTestCase {
             segment(start: 4.9, end: 9, speakerID: speaker)
         ]
 
-        let clip = SpeakerPreviewClipSelector.clip(
+        guard let clip = SpeakerPreviewClipSelector.clip(
             for: speaker,
             in: segments,
             maximumDuration: 10
-        )
+        ) else {
+            return XCTFail("Expected a preview clip for the speaker")
+        }
 
-        XCTAssertEqual(clip?.startTime, 4.9, accuracy: 0.001)
-        XCTAssertEqual(clip?.endTime, 9, accuracy: 0.001)
+        XCTAssertEqual(clip.startTime, 4.9, accuracy: 0.001)
+        XCTAssertEqual(clip.endTime, 9, accuracy: 0.001)
     }
 
     func testPreviewReturnsNilWhenSpeakerHasNoAssignedSegments() {
