@@ -43,7 +43,8 @@ private struct RecordingDetailEnhancements: ViewModifier {
                 }
             }
             .sheet(isPresented: $isSpeakerNamingPresented) {
-                if let transcript {
+                if let transcript,
+                   SpeakerNamingPolicy.shouldPrompt(speakerCount: transcript.speakers.count) {
                     SpeakerNamingSheet(
                         transcript: transcript,
                         audioURL: playback.loadedAudioURL,
@@ -76,7 +77,8 @@ private struct RecordingDetailEnhancements: ViewModifier {
                 }
                 openSpeakersAfterDiarization = false
                 if model.diarizationErrorMessage == nil,
-                   transcript?.speakers.isEmpty == false {
+                   let transcript,
+                   SpeakerNamingPolicy.shouldPrompt(speakerCount: transcript.speakers.count) {
                     playback.pause()
                     isSpeakerNamingPresented = true
                 }
@@ -101,7 +103,7 @@ private struct RecordingDetailEnhancements: ViewModifier {
                 }
                 .buttonStyle(.bordered)
                 .disabled(!transcript.isComplete || model.isTranscribing)
-            } else {
+            } else if SpeakerNamingPolicy.shouldPrompt(speakerCount: transcript.speakers.count) {
                 Button {
                     playback.pause()
                     isSpeakerNamingPresented = true
@@ -112,6 +114,10 @@ private struct RecordingDetailEnhancements: ViewModifier {
                     )
                 }
                 .buttonStyle(.bordered)
+            } else {
+                Label("1 Speaker", systemImage: "person")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             Button {
@@ -125,7 +131,7 @@ private struct RecordingDetailEnhancements: ViewModifier {
 
             Spacer(minLength: 0)
 
-            if !transcript.speakers.isEmpty {
+            if SpeakerNamingPolicy.shouldPrompt(speakerCount: transcript.speakers.count) {
                 Text("Listen to 10-second voice samples to rename participants anytime.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
