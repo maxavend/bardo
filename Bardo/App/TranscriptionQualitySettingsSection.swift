@@ -8,6 +8,7 @@ struct TranscriptionQualitySettingsSection: View {
     @State private var activeDownload: TranscriptionQuality?
     @State private var downloadProgress: Double = 0
     @State private var pendingRemoval: TranscriptionQuality?
+    @State private var failedDownloadQuality: TranscriptionQuality?
     @State private var errorMessage: String?
 
     private var selectedQuality: TranscriptionQuality {
@@ -43,7 +44,7 @@ struct TranscriptionQualitySettingsSection: View {
             Text("Downloaded Models", tableName: "TranscriptUI")
         } footer: {
             Text(
-                "Bardo downloads only the models you use. Model files stay on this Mac and can be removed at any time.",
+                "Each quality uses its own model variant. Bardo shows the exact model ID so downloaded state is unambiguous.",
                 tableName: "TranscriptUI"
             )
         }
@@ -80,10 +81,26 @@ struct TranscriptionQualitySettingsSection: View {
             Text("Model Couldn’t Be Changed", tableName: "TranscriptUI"),
             isPresented: Binding(
                 get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
+                set: {
+                    if !$0 {
+                        errorMessage = nil
+                        failedDownloadQuality = nil
+                    }
+                }
             )
         ) {
-            Button("OK") { errorMessage = nil }
+            if failedDownloadQuality == .instant {
+                Button("Reset & Download Again") {
+                    errorMessage = nil
+                    failedDownloadQuality = nil
+                    Task { await resetAndDownloadParakeet() }
+                }
+            }
+
+            Button("OK", role: .cancel) {
+                errorMessage = nil
+                failedDownloadQuality = nil
+            }
         } message: {
             Text(errorMessage ?? "")
         }
@@ -147,32 +164,42 @@ struct TranscriptionQualitySettingsSection: View {
         let state = modelStates[quality]
         let isDownloading = activeDownload == quality
 
-        return HStack(spacing: 12) {
+        return HStack(alignment: .top, spacing: 12) {
             Image(systemName: quality == .instant ? "bolt.fill" : "waveform")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 24)
+                .frame(width: 24, height: 24)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(titleKey(for: quality), tableName: "TranscriptUI")
+            VStack(alignment: .leading, spacing: 3) {
+                Text(quality.modelDisplayName)
                     .font(.body.weight(.medium))
 
                 HStack(spacing: 5) {
-                    Text(quality.engineDisplayName)
+                    Text(titleKey(for: quality), tableName: "TranscriptUI")
                     Text("·")
                     Text(storageDescription(for: quality, state: state))
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                Text(quality.modelID)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
             }
 
             Spacer(minLength: 10)
 
             if isDownloading {
-                ProgressView(value: downloadProgress)
-                    .frame(width: 72)
-                    .accessibilityLabel(Text("Downloading Model", tableName: "TranscriptUI"))
+                VStack(alignment: .trailing, spacing: 4) {
+                    ProgressView(value: downloadProgress)
+                        .frame(width: 82)
+                        .accessibilityLabel(Text("Downloading Model", tableName: "TranscriptUI"))
+                    Text("\(Int(downloadProgress * 100))%")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
             } else if state?.isInstalled == true {
                 Button(role: .destructive) {
                     pendingRemoval = quality
@@ -187,7 +214,7 @@ struct TranscriptionQualitySettingsSection: View {
                 }
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 6)
     }
 
     private func titleKey(for quality: TranscriptionQuality) -> LocalizedStringKey {
@@ -272,10 +299,28 @@ struct TranscriptionQualitySettingsSection: View {
                     downloadProgress = max(downloadProgress, snapshot.fractionCompleted)
                 }
             }
+            failedDownloadQuality = nil
             await refreshModelStates()
         } catch {
+            failedDownloadQuality = quality
             errorMessage = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func resetAndDownloadParakeet() async {
+        guard activeDownload == nil else { return }
+
+        do {
+            let service = try BardoTranscriptionService.live()
+            try await service.resetModel(for: .instant)
+        } catch {
+            failedDownloadQuality = .instant
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        await downloadModel(.instant)
     }
 
     @MainActor
