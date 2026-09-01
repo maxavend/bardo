@@ -23,6 +23,142 @@ struct RecordingDetailView: View {
     @State private var pendingSpeakerNamingDiarization: PendingSpeakerNamingDiarization?
 
     var body: some View {
+        detailChrome
+            .background(Color(nsColor: .windowBackgroundColor))
+            .navigationTitle("")
+            .overlay(alignment: .topTrailing) {
+                if let copyFeedback {
+                    copyFeedbackView(copyFeedback)
+                        .padding(.top, 14)
+                        .padding(.trailing, 18)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.14), value: copyFeedback)
+            .task(id: copyFeedback) {
+                guard copyFeedback != nil else { return }
+                try? await Task.sleep(for: .seconds(1.6))
+                if !Task.isCancelled {
+                    copyFeedback = nil
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !recording.audioAssets.isEmpty || playback.errorMessage != nil {
+                    FloatingPlaybackBar(playback: playback)
+                }
+            }
+            .inspector(isPresented: $isInspectorPresented) {
+                RecordingInspector(
+                    recording: recording,
+                    transcript: selectedTranscript,
+                    canEditSpeakers: !model.isTranscribing && !model.isDiarizing,
+                    onRenameSpeaker: { speakerID, name in
+                        Task { await model.renameSpeaker(speakerID, to: name) }
+                    }
+                )
+            }
+            .onChange(of: transcriptSearch) { _, _ in
+                synchronizeSearchSelection(scroll: true)
+            }
+            .onChange(of: model.isDiarizing) { wasDiarizing, isDiarizing in
+                handleDiarizationCompletion(
+                    wasDiarizing: wasDiarizing,
+                    isDiarizing: isDiarizing
+                )
+            }
+            .onChange(of: recording.id) { _, _ in
+                transcriptSearch = ""
+                searchMatchIndex = 0
+                editor = nil
+                pendingReplacementAction = nil
+                copyFeedback = nil
+                isEditingTitle = false
+                isDeletePresented = false
+                pendingScrollBlockID = nil
+                isSpeakerNamingPresented = false
+                pendingSpeakerNamingDiarization = nil
+            }
+            .sheet(isPresented: $isSpeakerNamingPresented) {
+                if let transcript = selectedTranscript, transcript.diarizationMetadata != nil {
+                    SpeakerNamingSheet(
+                        transcript: transcript,
+                        audioURL: playback.loadedAudioURL,
+                        onSave: { names in
+                            isSpeakerNamingPresented = false
+                            persistSpeakerNames(names, from: transcript)
+                        },
+                        onSkip: {
+                            isSpeakerNamingPresented = false
+                        }
+                    )
+                }
+            }
+            .sheet(item: $editor) { state in
+                TranscriptEditorSheet(
+                    state: state,
+                    onSave: { value in
+                        editor = nil
+                        Task {
+                            switch state.kind {
+                            case .speaker(let speakerID):
+                                await model.renameSpeaker(speakerID, to: value)
+                            case .segment(let segmentID):
+                                await model.updateTranscriptSegment(segmentID, text: value)
+                            }
+                        }
+                    },
+                    onRestore: state.canRestore ? {
+                        editor = nil
+                        if case .segment(let segmentID) = state.kind {
+                            Task { await model.restoreOriginalTranscriptSegment(segmentID) }
+                        }
+                    } : nil
+                )
+            }
+            .alert(item: $pendingReplacementAction) { action in
+                Alert(
+                    title: Text(action.title),
+                    message: Text(action.message),
+                    primaryButton: .destructive(Text(action.confirmLabel)) {
+                        switch action {
+                        case .retranscribe:
+                            model.beginTranscription()
+                        case .rediarize:
+                            beginDiarizationForSpeakerNaming()
+                        }
+                    },
+                    secondaryButton: .cancel()
+                )
+            }
+            .alert("Delete Recording?", isPresented: $isDeletePresented) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    Task {
+                        _ = await model.deleteRecording(id: recording.id)
+                    }
+                }
+            } message: {
+                Text(deleteMessage)
+            }
+    }
+
+    @ViewBuilder
+    private var detailChrome: some View {
+        if MacOSUICompatibility.usesNativeToolbar {
+            detailScrollContent
+                .searchable(text: $transcriptSearch, placement: .toolbar, prompt: "Search Transcript")
+                .toolbar {
+                    detailToolbar
+                }
+        } else {
+            detailScrollContent
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    detailCompatibilityBar
+                }
+        }
+    }
+
+    private var detailScrollContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -68,126 +204,6 @@ struct RecordingDetailView: View {
                     proxy.scrollTo(blockID, anchor: .center)
                 }
             }
-        }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle("")
-        .searchable(text: $transcriptSearch, placement: .toolbar, prompt: "Search Transcript")
-        .toolbar {
-            detailToolbar
-        }
-        .overlay(alignment: .topTrailing) {
-            if let copyFeedback {
-                copyFeedbackView(copyFeedback)
-                    .padding(.top, 14)
-                    .padding(.trailing, 18)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            }
-        }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.14), value: copyFeedback)
-        .task(id: copyFeedback) {
-            guard copyFeedback != nil else { return }
-            try? await Task.sleep(for: .seconds(1.6))
-            if !Task.isCancelled {
-                copyFeedback = nil
-            }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !recording.audioAssets.isEmpty || playback.errorMessage != nil {
-                FloatingPlaybackBar(playback: playback)
-            }
-        }
-        .inspector(isPresented: $isInspectorPresented) {
-            RecordingInspector(
-                recording: recording,
-                transcript: selectedTranscript,
-                canEditSpeakers: !model.isTranscribing && !model.isDiarizing,
-                onRenameSpeaker: { speakerID, name in
-                    Task { await model.renameSpeaker(speakerID, to: name) }
-                }
-            )
-        }
-        .onChange(of: transcriptSearch) { _, _ in
-            synchronizeSearchSelection(scroll: true)
-        }
-        .onChange(of: model.isDiarizing) { wasDiarizing, isDiarizing in
-            handleDiarizationCompletion(
-                wasDiarizing: wasDiarizing,
-                isDiarizing: isDiarizing
-            )
-        }
-        .onChange(of: recording.id) { _, _ in
-            transcriptSearch = ""
-            searchMatchIndex = 0
-            editor = nil
-            pendingReplacementAction = nil
-            copyFeedback = nil
-            isEditingTitle = false
-            isDeletePresented = false
-            pendingScrollBlockID = nil
-            isSpeakerNamingPresented = false
-            pendingSpeakerNamingDiarization = nil
-        }
-        .sheet(isPresented: $isSpeakerNamingPresented) {
-            if let transcript = selectedTranscript, transcript.diarizationMetadata != nil {
-                SpeakerNamingSheet(
-                    transcript: transcript,
-                    audioURL: playback.loadedAudioURL,
-                    onSave: { names in
-                        isSpeakerNamingPresented = false
-                        persistSpeakerNames(names, from: transcript)
-                    },
-                    onSkip: {
-                        isSpeakerNamingPresented = false
-                    }
-                )
-            }
-        }
-        .sheet(item: $editor) { state in
-            TranscriptEditorSheet(
-                state: state,
-                onSave: { value in
-                    editor = nil
-                    Task {
-                        switch state.kind {
-                        case .speaker(let speakerID):
-                            await model.renameSpeaker(speakerID, to: value)
-                        case .segment(let segmentID):
-                            await model.updateTranscriptSegment(segmentID, text: value)
-                        }
-                    }
-                },
-                onRestore: state.canRestore ? {
-                    editor = nil
-                    if case .segment(let segmentID) = state.kind {
-                        Task { await model.restoreOriginalTranscriptSegment(segmentID) }
-                    }
-                } : nil
-            )
-        }
-        .alert(item: $pendingReplacementAction) { action in
-            Alert(
-                title: Text(action.title),
-                message: Text(action.message),
-                primaryButton: .destructive(Text(action.confirmLabel)) {
-                    switch action {
-                    case .retranscribe:
-                        model.beginTranscription()
-                    case .rediarize:
-                        beginDiarizationForSpeakerNaming()
-                    }
-                },
-                secondaryButton: .cancel()
-            )
-        }
-        .alert("Delete Recording?", isPresented: $isDeletePresented) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                Task {
-                    _ = await model.deleteRecording(id: recording.id)
-                }
-            }
-        } message: {
-            Text(deleteMessage)
         }
     }
 
@@ -299,88 +315,178 @@ struct RecordingDetailView: View {
 
         if let transcript = selectedTranscript {
             ToolbarItem(id: "bardo.detail.copy", placement: .primaryAction) {
-                Menu {
-                    Button("Copy Transcript") {
-                        copyTranscript(transcript, style: .automatic)
-                    }
-
-                    if transcript.diarizationMetadata != nil {
-                        Button("Copy Without Speakers") {
-                            copyTranscript(transcript, style: .withoutSpeakers)
-                        }
-                    }
-
-                    Button("Copy With Timestamps") {
-                        copyTranscript(transcript, style: .withTimestamps)
-                    }
-                } label: {
-                    Label("Copy Transcript", systemImage: "doc.on.doc")
-                }
-                .disabled(transcript.text.isEmpty)
-                .help("Copy Transcript")
+                copyTranscriptMenu(transcript)
             }
 
             ToolbarItem(id: "bardo.detail.speakers", placement: .primaryAction) {
-                Menu {
-                    if transcript.diarizationMetadata != nil {
-                        Button {
-                            presentSpeakerNaming()
-                        } label: {
-                            Label("Manage Speakers", systemImage: "person.text.rectangle")
-                        }
-                        .disabled(transcript.speakers.isEmpty)
-
-                        Divider()
-                    }
-
-                    identifySpeakersAction(transcript)
-                } label: {
-                    Label("Speakers", systemImage: "person.2")
-                }
-                .help("Speakers")
+                speakersMenu(transcript)
             }
         }
 
         ToolbarItem(id: "bardo.detail.info", placement: .primaryAction) {
-            Button {
-                isInspectorPresented.toggle()
-            } label: {
-                Label("Recording Info", systemImage: "sidebar.trailing")
-            }
-            .help(isInspectorPresented ? "Hide recording info" : "Show recording info")
+            recordingInfoButton
         }
 
         ToolbarItem(id: "bardo.detail.more", placement: .primaryAction) {
-            Menu {
-                if selectedTranscript != nil {
-                    Button {
-                        if selectedTranscript?.hasManualChanges == true {
-                            pendingReplacementAction = .retranscribe
-                        } else {
-                            model.beginTranscription()
-                        }
-                    } label: {
-                        Label("Transcribe Again", systemImage: "arrow.clockwise")
-                    }
-                    .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
-
-                    Divider()
-                }
-
-                Button(action: beginTitleRename) {
-                    Label("Rename", systemImage: "pencil")
-                }
-
-                Button(role: .destructive) {
-                    isDeletePresented = true
-                } label: {
-                    Label("Delete Recording", systemImage: "trash")
-                }
-            } label: {
-                Label("More", systemImage: "ellipsis.circle")
-            }
-            .help("More recording actions")
+            moreActionsMenu
         }
+    }
+
+    private var detailCompatibilityBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+
+                TextField("Search Transcript", text: $transcriptSearch)
+                    .textFieldStyle(.plain)
+
+                if !trimmedSearch.isEmpty {
+                    Text(searchResultLabel)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+
+                    Button {
+                        moveSearch(by: -1)
+                    } label: {
+                        Label("Previous Match", systemImage: "chevron.up")
+                    }
+                    .buttonStyle(.plain)
+                    .labelStyle(.iconOnly)
+                    .disabled(searchMatchIDs.isEmpty)
+                    .help("Previous Match")
+
+                    Button {
+                        moveSearch(by: 1)
+                    } label: {
+                        Label("Next Match", systemImage: "chevron.down")
+                    }
+                    .buttonStyle(.plain)
+                    .labelStyle(.iconOnly)
+                    .disabled(searchMatchIDs.isEmpty)
+                    .help("Next Match")
+
+                    Button {
+                        transcriptSearch = ""
+                    } label: {
+                        Label("Clear Search", systemImage: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.secondary)
+                    .help("Clear Search")
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(minWidth: 220, idealWidth: 300, maxWidth: 360)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            Spacer(minLength: 12)
+
+            if let transcript = selectedTranscript {
+                copyTranscriptMenu(transcript)
+                    .labelStyle(.iconOnly)
+                speakersMenu(transcript)
+                    .labelStyle(.iconOnly)
+            }
+
+            recordingInfoButton
+                .labelStyle(.iconOnly)
+            moreActionsMenu
+                .labelStyle(.iconOnly)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.background)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+    }
+
+    private func copyTranscriptMenu(_ transcript: Transcript) -> some View {
+        Menu {
+            Button("Copy Transcript") {
+                copyTranscript(transcript, style: .automatic)
+            }
+
+            if transcript.diarizationMetadata != nil {
+                Button("Copy Without Speakers") {
+                    copyTranscript(transcript, style: .withoutSpeakers)
+                }
+            }
+
+            Button("Copy With Timestamps") {
+                copyTranscript(transcript, style: .withTimestamps)
+            }
+        } label: {
+            Label("Copy Transcript", systemImage: "doc.on.doc")
+        }
+        .disabled(transcript.text.isEmpty)
+        .help("Copy Transcript")
+    }
+
+    private func speakersMenu(_ transcript: Transcript) -> some View {
+        Menu {
+            if transcript.diarizationMetadata != nil {
+                Button {
+                    presentSpeakerNaming()
+                } label: {
+                    Label("Manage Speakers", systemImage: "person.text.rectangle")
+                }
+                .disabled(transcript.speakers.isEmpty)
+
+                Divider()
+            }
+
+            identifySpeakersAction(transcript)
+        } label: {
+            Label("Speakers", systemImage: "person.2")
+        }
+        .help("Speakers")
+    }
+
+    private var recordingInfoButton: some View {
+        Button {
+            isInspectorPresented.toggle()
+        } label: {
+            Label("Recording Info", systemImage: "sidebar.trailing")
+        }
+        .help(isInspectorPresented ? "Hide recording info" : "Show recording info")
+    }
+
+    private var moreActionsMenu: some View {
+        Menu {
+            if selectedTranscript != nil {
+                Button {
+                    if selectedTranscript?.hasManualChanges == true {
+                        pendingReplacementAction = .retranscribe
+                    } else {
+                        model.beginTranscription()
+                    }
+                } label: {
+                    Label("Transcribe Again", systemImage: "arrow.clockwise")
+                }
+                .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
+
+                Divider()
+            }
+
+            Button(action: beginTitleRename) {
+                Label("Rename", systemImage: "pencil")
+            }
+
+            Button(role: .destructive) {
+                isDeletePresented = true
+            } label: {
+                Label("Delete Recording", systemImage: "trash")
+            }
+        } label: {
+            Label("More", systemImage: "ellipsis.circle")
+        }
+        .help("More recording actions")
     }
 
     @ViewBuilder
