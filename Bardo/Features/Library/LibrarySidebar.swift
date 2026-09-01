@@ -11,10 +11,9 @@ struct LibrarySidebar: View {
     @State private var recordingToDelete: Recording?
 
     var body: some View {
-        content
+        searchableContent
             .navigationTitle("Recordings")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
-            .searchable(text: $searchText, prompt: "Search Recordings")
             .alert("Rename Recording", isPresented: renamePresented) {
                 TextField("Recording Name", text: $renameTitle)
                 Button("Cancel", role: .cancel) {
@@ -56,6 +55,53 @@ struct LibrarySidebar: View {
             } message: {
                 Text(model.recordingManagementErrorMessage ?? "Try again.")
             }
+    }
+
+    @ViewBuilder
+    private var searchableContent: some View {
+        if MacOSUICompatibility.usesNativeToolbar {
+            content
+                .searchable(text: $searchText, prompt: "Search Recordings")
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+
+                    TextField("Search Recordings", text: $searchText)
+                        .textFieldStyle(.plain)
+
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Clear Search")
+                    }
+
+                    Divider()
+                        .frame(height: 18)
+
+                    Button(action: onImport) {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("o", modifiers: .command)
+                    .disabled(model.isImporting)
+                    .help("Import Audio")
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+
+                Divider()
+
+                content
+            }
+        }
     }
 
     @ViewBuilder
