@@ -89,3 +89,12 @@ jobs:
             grep -E "Executed [0-9]+ tests|\*\* TEST SUCCEEDED \*\*" .xcode-test.log || true
           fi
           exit "$STATUS"
+
+      - name: Upload unit test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bardo-CI-Test-Log
+          path: .xcode-test.log
+          if-no-files-found: warn
+          retention-days: 7
