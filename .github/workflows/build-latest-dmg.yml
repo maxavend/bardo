@@ -31,6 +31,7 @@ jobs:
 
       - name: Build Release app
         run: |
+          set -o pipefail
           xcodebuild \
             -skipPackagePluginValidation \
             -skipMacroValidation \
@@ -42,7 +43,7 @@ jobs:
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build 2>&1 | tee xcodebuild-latest-dmg.log
 
       - name: Verify and sign app
         run: |
@@ -80,6 +81,35 @@ jobs:
             "$DMG"
           hdiutil verify "$DMG"
           shasum -a 256 "$DMG" | tee "$DMG.sha256"
+
+      - name: Validate mounted DMG
+        run: |
+          set -euo pipefail
+          DMG=Bardo-Latest.dmg
+          MOUNT_POINT="$(mktemp -d /tmp/bardo-latest-dmg.XXXXXX)"
+          cleanup() {
+            hdiutil detach "$MOUNT_POINT" -quiet >/dev/null 2>&1 || true
+            rmdir "$MOUNT_POINT" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$MOUNT_POINT"
+          test -d "$MOUNT_POINT/Bardo.app"
+          test -L "$MOUNT_POINT/Applications"
+          test "$(readlink "$MOUNT_POINT/Applications")" = "/Applications"
+          test -x "$MOUNT_POINT/Bardo.app/Contents/MacOS/Bardo"
+          codesign --verify --deep --strict --verbose=2 "$MOUNT_POINT/Bardo.app"
+          hdiutil detach "$MOUNT_POINT"
+          trap - EXIT
+          rmdir "$MOUNT_POINT"
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bardo-Latest-DMG-Build-Log
+          path: xcodebuild-latest-dmg.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
