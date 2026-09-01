@@ -148,6 +148,24 @@ final class AudioPlaybackControllerTests: XCTestCase {
             XCTAssertNotNil(controller.errorMessage)
         }
     }
+
+    @MainActor
+    func testLoadedAudioURLTracksSuccessfulLoadAndUnload() throws {
+        let url = directoryURL.appendingPathComponent("PreviewSource.wav")
+        try AudioTestFixture.makeWAV(at: url, duration: 0.4)
+        let missingURL = directoryURL.appendingPathComponent("MissingPreviewSource.wav")
+        let controller = AudioPlaybackController()
+
+        XCTAssertNil(controller.loadedAudioURL)
+        XCTAssertTrue(controller.load(url: url))
+        XCTAssertEqual(controller.loadedAudioURL, url)
+
+        controller.unload()
+        XCTAssertNil(controller.loadedAudioURL)
+
+        XCTAssertFalse(controller.load(url: missingURL))
+        XCTAssertNil(controller.loadedAudioURL)
+    }
 }
 
 private final class PublicationCounter: @unchecked Sendable {
