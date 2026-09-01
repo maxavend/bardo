@@ -80,14 +80,26 @@ jobs:
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath .derived-data \
             CODE_SIGNING_ALLOWED=NO \
-            test > .xcode-test.log 2>&1
+            test > xcode-test.log 2>&1
           STATUS=$?
+
           if [ "$STATUS" -ne 0 ]; then
             echo "---- XCTest failure summary ----"
-            grep -E "Test Case .* failed|error:|XCTAssert|failed -|\*\* TEST FAILED \*\*" .xcode-test.log || tail -n 160 .xcode-test.log
+            FAILURE_SUMMARY="$(grep -E "Test Case .* failed|error:|XCTAssert|failed -|\\*\\* TEST FAILED \\*\\*" xcode-test.log || true)"
+            if [ -z "$FAILURE_SUMMARY" ]; then
+              FAILURE_SUMMARY="$(tail -n 160 xcode-test.log)"
+            fi
+            printf '%s\n' "$FAILURE_SUMMARY"
+            {
+              echo '## XCTest failure summary'
+              echo '```text'
+              printf '%s\n' "$FAILURE_SUMMARY"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
           else
-            grep -E "Executed [0-9]+ tests|\*\* TEST SUCCEEDED \*\*" .xcode-test.log || true
+            grep -E "Executed [0-9]+ tests|\\*\\* TEST SUCCEEDED \\*\\*" xcode-test.log || true
           fi
+
           exit "$STATUS"
 
       - name: Upload unit test log on failure
@@ -95,6 +107,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Bardo-CI-Test-Log
-          path: .xcode-test.log
-          if-no-files-found: warn
+          path: xcode-test.log
+          if-no-files-found: error
           retention-days: 7
