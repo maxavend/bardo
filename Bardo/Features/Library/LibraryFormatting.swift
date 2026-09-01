@@ -29,6 +29,10 @@ enum LibraryFormatting {
         return String(format: "%d:%02d", minutes, remainingSeconds)
     }
 
+    static func timecode(_ time: TimeInterval) -> String {
+        duration(time)
+    }
+
     static func sampleRate(_ sampleRate: Double) -> String {
         if sampleRate >= 1_000 {
             return String(format: "%.1f kHz", sampleRate / 1_000)
