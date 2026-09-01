@@ -19,6 +19,8 @@ struct RecordingDetailView: View {
     @FocusState private var titleFieldFocused: Bool
     @State private var isDeletePresented = false
     @State private var pendingScrollBlockID: TranscriptReadingBlock.ID?
+    @State private var isSpeakerNamingPresented = false
+    @State private var pendingSpeakerNamingDiarization: PendingSpeakerNamingDiarization?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -107,6 +109,12 @@ struct RecordingDetailView: View {
         .onChange(of: transcriptSearch) { _, _ in
             synchronizeSearchSelection(scroll: true)
         }
+        .onChange(of: model.isDiarizing) { wasDiarizing, isDiarizing in
+            handleDiarizationCompletion(
+                wasDiarizing: wasDiarizing,
+                isDiarizing: isDiarizing
+            )
+        }
         .onChange(of: recording.id) { _, _ in
             transcriptSearch = ""
             searchMatchIndex = 0
@@ -116,6 +124,23 @@ struct RecordingDetailView: View {
             isEditingTitle = false
             isDeletePresented = false
             pendingScrollBlockID = nil
+            isSpeakerNamingPresented = false
+            pendingSpeakerNamingDiarization = nil
+        }
+        .sheet(isPresented: $isSpeakerNamingPresented) {
+            if let transcript = selectedTranscript, transcript.diarizationMetadata != nil {
+                SpeakerNamingSheet(
+                    transcript: transcript,
+                    audioURL: playback.loadedAudioURL,
+                    onSave: { names in
+                        isSpeakerNamingPresented = false
+                        persistSpeakerNames(names, from: transcript)
+                    },
+                    onSkip: {
+                        isSpeakerNamingPresented = false
+                    }
+                )
+            }
         }
         .sheet(item: $editor) { state in
             TranscriptEditorSheet(
@@ -148,7 +173,7 @@ struct RecordingDetailView: View {
                     case .retranscribe:
                         model.beginTranscription()
                     case .rediarize:
-                        model.beginDiarization()
+                        beginDiarizationForSpeakerNaming()
                     }
                 },
                 secondaryButton: .cancel()
@@ -299,10 +324,11 @@ struct RecordingDetailView: View {
                 Menu {
                     if transcript.diarizationMetadata != nil {
                         Button {
-                            isInspectorPresented = true
+                            presentSpeakerNaming()
                         } label: {
                             Label("Manage Speakers", systemImage: "person.text.rectangle")
                         }
+                        .disabled(transcript.speakers.isEmpty)
 
                         Divider()
                     }
@@ -363,7 +389,7 @@ struct RecordingDetailView: View {
             if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
                 pendingReplacementAction = .rediarize
             } else {
-                model.beginDiarization()
+                beginDiarizationForSpeakerNaming()
             }
         } label: {
             Label(
@@ -382,6 +408,55 @@ struct RecordingDetailView: View {
     private var selectedTranscript: Transcript? {
         guard let transcript = model.transcript, transcript.recordingID == recording.id else { return nil }
         return transcript
+    }
+
+    private func beginDiarizationForSpeakerNaming() {
+        pendingSpeakerNamingDiarization = PendingSpeakerNamingDiarization(
+            recordingID: recording.id,
+            baselineDiarizationCreatedAt: selectedTranscript?.diarizationMetadata?.createdAt
+        )
+        model.beginDiarization()
+    }
+
+    private func handleDiarizationCompletion(wasDiarizing: Bool, isDiarizing: Bool) {
+        guard wasDiarizing,
+              !isDiarizing,
+              let pending = pendingSpeakerNamingDiarization else {
+            return
+        }
+        pendingSpeakerNamingDiarization = nil
+
+        guard pending.recordingID == recording.id,
+              model.diarizationErrorMessage == nil,
+              let transcript = selectedTranscript,
+              let diarization = transcript.diarizationMetadata,
+              diarization.createdAt != pending.baselineDiarizationCreatedAt,
+              !transcript.speakers.isEmpty else {
+            return
+        }
+
+        presentSpeakerNaming()
+    }
+
+    private func presentSpeakerNaming() {
+        guard selectedTranscript?.diarizationMetadata != nil else { return }
+        if playback.isPlaying {
+            playback.pause()
+        }
+        isSpeakerNamingPresented = true
+    }
+
+    private func persistSpeakerNames(_ names: [Speaker.ID: String], from transcript: Transcript) {
+        Task {
+            for speaker in transcript.speakers {
+                let proposed = names[speaker.id]?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let existing = speaker.name?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard proposed != existing else { continue }
+                await model.renameSpeaker(speaker.id, to: proposed)
+            }
+        }
     }
 
     private var trimmedSearch: String {
@@ -483,6 +558,11 @@ struct RecordingDetailView: View {
         let exported = TranscriptExportFormatter.string(from: transcript, style: style)
         copyFeedback = pasteboard.setString(exported, forType: .string) ? .copied : .failed
     }
+}
+
+private struct PendingSpeakerNamingDiarization: Equatable {
+    let recordingID: Recording.ID
+    let baselineDiarizationCreatedAt: Date?
 }
 
 private enum CopyFeedback: Hashable {
