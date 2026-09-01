@@ -24,8 +24,24 @@ actor ParakeetTranscriptionService: RecordingTranscribing {
         self.idleUnloadNanoseconds = idleUnloadNanoseconds
     }
 
+    /// Bardo deliberately owns its Parakeet cache. FluidAudio's default cache is shared
+    /// across apps and old experiments on the same Mac; using it made Settings report a
+    /// model as installed even when Bardo had never downloaded it and made Reset capable
+    /// of deleting another client's files.
     nonisolated static var modelDirectory: URL {
-        AsrModels.defaultCacheDirectory(for: .v3)
+        let fileManager = FileManager.default
+        let applicationSupport = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+
+        return applicationSupport
+            .appendingPathComponent("Bardo", isDirectory: true)
+            .appendingPathComponent("Models", isDirectory: true)
+            .appendingPathComponent("Parakeet", isDirectory: true)
+            .appendingPathComponent(modelID, isDirectory: true)
     }
 
     nonisolated static func hasInstalledModelOnDisk() -> Bool {
@@ -47,30 +63,15 @@ actor ParakeetTranscriptionService: RecordingTranscribing {
         idleUnloadTask = nil
 
         progress(.init(stage: .checking, fractionCompleted: 0))
-
-        let models: AsrModels
-        if Self.hasInstalledModelOnDisk() {
-            progress(.init(stage: .preparingLanguageSupport, fractionCompleted: 1))
-            models = try await AsrModels.load(
-                from: Self.modelDirectory,
-                version: .v3,
-                encoderPrecision: .int8
-            )
-        } else {
-            models = try await AsrModels.downloadAndLoad(
-                to: Self.modelDirectory,
-                version: .v3,
-                encoderPrecision: .int8,
-                progressHandler: { snapshot in
-                    progress(
-                        .init(
-                            stage: .downloading,
-                            fractionCompleted: Self.clamped(snapshot.fractionCompleted)
-                        )
-                    )
-                }
+        let models = try await loadModelsWithRepair { fraction in
+            progress(
+                .init(
+                    stage: .downloading,
+                    fractionCompleted: fraction
+                )
             )
         }
+        try Task.checkCancellation()
 
         progress(.init(stage: .optimizingForMac, fractionCompleted: 0))
         try await installManager(models)
@@ -188,24 +189,10 @@ actor ParakeetTranscriptionService: RecordingTranscribing {
             return manager
         }
 
-        let models: AsrModels
-        if Self.hasInstalledModelOnDisk() {
-            progress(0.1)
-            models = try await AsrModels.load(
-                from: Self.modelDirectory,
-                version: .v3,
-                encoderPrecision: .int8
-            )
-        } else {
-            models = try await AsrModels.downloadAndLoad(
-                to: Self.modelDirectory,
-                version: .v3,
-                encoderPrecision: .int8,
-                progressHandler: { snapshot in
-                    progress(Self.clamped(snapshot.fractionCompleted * 0.9))
-                }
-            )
+        let models = try await loadModelsWithRepair { fraction in
+            progress(Self.clamped(fraction * 0.9))
         }
+        try Task.checkCancellation()
         progress(0.92)
         try await installManager(models)
         progress(1)
@@ -214,6 +201,78 @@ actor ParakeetTranscriptionService: RecordingTranscribing {
             throw RecordingTranscriptionError.decoderReturnedNoResult
         }
         return manager
+    }
+
+    /// Load a complete private cache, repair a partial cache, and perform at most one
+    /// forced clean retry when FluidAudio cannot load an apparently complete download.
+    /// Cancellation never starts a repair retry.
+    private func loadModelsWithRepair(
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> AsrModels {
+        if Self.hasInstalledModelOnDisk() {
+            progress(0.1)
+            do {
+                let models = try await AsrModels.load(
+                    from: Self.modelDirectory,
+                    version: .v3,
+                    encoderPrecision: .int8
+                )
+                progress(1)
+                return models
+            } catch {
+                if Task.isCancelled { throw CancellationError() }
+                Self.logger.warning(
+                    "Parakeet private cache could not be loaded; rebuilding it: \(error.localizedDescription, privacy: .public)"
+                )
+                try removePrivateModelDirectoryIfPresent()
+            }
+        }
+
+        do {
+            let models = try await AsrModels.downloadAndLoad(
+                to: Self.modelDirectory,
+                version: .v3,
+                encoderPrecision: .int8,
+                progressHandler: { snapshot in
+                    progress(Self.clamped(snapshot.fractionCompleted))
+                }
+            )
+            try Task.checkCancellation()
+            progress(1)
+            return models
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+
+            Self.logger.warning(
+                "Parakeet download/load failed; retrying once from a clean Bardo cache: \(error.localizedDescription, privacy: .public)"
+            )
+            try removePrivateModelDirectoryIfPresent()
+
+            let directory = try await AsrModels.download(
+                to: Self.modelDirectory,
+                force: true,
+                version: .v3,
+                encoderPrecision: .int8,
+                progressHandler: { snapshot in
+                    progress(Self.clamped(snapshot.fractionCompleted))
+                }
+            )
+            try Task.checkCancellation()
+
+            let models = try await AsrModels.load(
+                from: directory,
+                version: .v3,
+                encoderPrecision: .int8
+            )
+            progress(1)
+            return models
+        }
+    }
+
+    private func removePrivateModelDirectoryIfPresent() throws {
+        let directory = Self.modelDirectory
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        try FileManager.default.removeItem(at: directory)
     }
 
     private func installManager(_ models: AsrModels) async throws {
@@ -384,7 +443,7 @@ enum ParakeetTranscriptBuilder {
 
     private static func attachesToPrevious(_ word: String) -> Bool {
         guard let first = word.first else { return false }
-        return ".,!?;:%)]}…'’".contains(first)
+        return ".,!?;:%)]}…'’\"".contains(first)
     }
 
     private static func isOpeningPunctuation(_ character: Character) -> Bool {
