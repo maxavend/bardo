@@ -22,6 +22,23 @@ final class TranscriptionQualityTests: XCTestCase {
         )
     }
 
+    func testWhisperQualityLabelsMakeTurboAndMaximumDistinct() {
+        XCTAssertEqual(TranscriptionQuality.balanced.modelDisplayName, "Whisper large-v3 Turbo")
+        XCTAssertEqual(TranscriptionQuality.maximum.modelDisplayName, "Whisper large-v3")
+        XCTAssertNotEqual(
+            TranscriptionQuality.balanced.modelDisplayName,
+            TranscriptionQuality.maximum.modelDisplayName
+        )
+        XCTAssertNotEqual(
+            TranscriptionQuality.balanced.modelID,
+            TranscriptionQuality.maximum.modelID
+        )
+    }
+
+    func testParakeetHasExplicitModelDisplayName() {
+        XCTAssertEqual(TranscriptionQuality.instant.modelDisplayName, "Parakeet TDT 0.6B v3")
+    }
+
     func testEveryQualityHasAStorageEstimate() {
         for quality in TranscriptionQuality.allCases {
             XCTAssertGreaterThan(quality.approximateDownloadBytes, 0)
