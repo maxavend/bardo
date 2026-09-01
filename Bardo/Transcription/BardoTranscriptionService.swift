@@ -140,13 +140,18 @@ actor BardoTranscriptionService: RecordingTranscribing {
     }
 
     func removeModel(for quality: TranscriptionQuality) async throws {
+        try await resetModel(for: quality)
+    }
+
+    /// User-initiated repair path. For Parakeet this deliberately removes the cache
+    /// directory even when FluidAudio does not consider the model fully installed,
+    /// so interrupted or partial downloads can be recovered cleanly.
+    func resetModel(for quality: TranscriptionQuality) async throws {
         let url: URL?
         switch quality {
         case .instant:
             await instant.unload()
-            url = ParakeetTranscriptionService.hasInstalledModelOnDisk()
-                ? ParakeetTranscriptionService.modelDirectory
-                : nil
+            url = ParakeetTranscriptionService.modelDirectory
         case .balanced:
             url = try await balancedManager.installedModelURL()
         case .maximum:
