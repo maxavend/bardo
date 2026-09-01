@@ -26,11 +26,22 @@ enum TranscriptionQuality: String, CaseIterable, Identifiable, Sendable {
     var modelID: String {
         switch self {
         case .instant:
-            "parakeet-tdt-0.6b-v3-coreml"
+            ParakeetTranscriptionService.modelID
         case .balanced:
             TranscriptionModelManager.fastModelID
         case .maximum:
             TranscriptionModelManager.maximumAccuracyModelID
+        }
+    }
+
+    var modelDisplayName: String {
+        switch self {
+        case .instant:
+            "Parakeet TDT 0.6B v3"
+        case .balanced:
+            "Whisper large-v3 Turbo"
+        case .maximum:
+            "Whisper large-v3"
         }
     }
 
