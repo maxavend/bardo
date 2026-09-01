@@ -1,0 +1,91 @@
+name: Build Latest DMG
+
+"on":
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-latest-dmg:
+    name: Build latest Bardo DMG
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build Release app
+        run: |
+          xcodebuild \
+            -skipPackagePluginValidation \
+            -project Bardo.xcodeproj \
+            -scheme Bardo \
+            -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath .derived-data \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Verify and sign app
+        run: |
+          set -euo pipefail
+          APP=.derived-data/Build/Products/Release/Bardo.app
+          test -f "$APP/Contents/Info.plist"
+          test -x "$APP/Contents/MacOS/Bardo"
+          lipo -archs "$APP/Contents/MacOS/Bardo" | grep -Fxq arm64
+          codesign \
+            --force \
+            --deep \
+            --sign - \
+            --options runtime \
+            --entitlements Bardo/Bardo.entitlements \
+            "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Create DMG
+        run: |
+          set -euo pipefail
+          APP=.derived-data/Build/Products/Release/Bardo.app
+          ROOT=.latest-dmg-root
+          DMG=Bardo-Latest.dmg
+          rm -rf "$ROOT" "$DMG" "$DMG.sha256"
+          mkdir -p "$ROOT"
+          ditto "$APP" "$ROOT/Bardo.app"
+          ln -s /Applications "$ROOT/Applications"
+          hdiutil create \
+            -volname "Bardo" \
+            -srcfolder "$ROOT" \
+            -fs HFS+ \
+            -format UDZO \
+            -imagekey zlib-level=9 \
+            -ov \
+            "$DMG"
+          hdiutil verify "$DMG"
+          shasum -a 256 "$DMG" | tee "$DMG.sha256"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bardo-Latest-DMG
+          path: |
+            Bardo-Latest.dmg
+            Bardo-Latest.dmg.sha256
+          if-no-files-found: error
+          retention-days: 14
