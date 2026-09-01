@@ -55,7 +55,8 @@ final class MeetingMinutesStoreTests: XCTestCase {
         try await store.save(minutes)
 
         try await store.delete(recordingID: recordingID)
+        let loaded = try await store.load(recordingID: recordingID)
 
-        XCTAssertNil(try await store.load(recordingID: recordingID))
+        XCTAssertNil(loaded)
     }
 }
