@@ -19,6 +19,12 @@ struct AppleIntelligenceMeetingMinutesGenerator {
                 return .appleIntelligenceNotEnabled
             case .unavailable(.modelNotReady):
                 return .modelNotReady
+            case .unavailable:
+                // FoundationModels may add new unavailability reasons without
+                // introducing a new top-level Availability case. Treat unknown
+                // reasons as temporarily unavailable instead of making Release
+                // builds fail when the SDK gains a new reason.
+                return .modelNotReady
             }
         }
         #endif
