@@ -23,6 +23,7 @@ final class AudioPlaybackController: ObservableObject {
 
     private var player: AVAudioPlayer?
     private var progressTask: Task<Void, Never>?
+    private(set) var loadedAudioURL: URL?
 
     var position: TimeInterval { timeline.position }
     var duration: TimeInterval { timeline.duration }
@@ -43,11 +44,13 @@ final class AudioPlaybackController: ObservableObject {
                 throw AudioPlaybackError.couldNotPrepare
             }
             self.player = player
+            loadedAudioURL = url
             updateTimeline(position: player.currentTime, duration: player.duration)
             errorMessage = nil
             return true
         } catch {
             player = nil
+            loadedAudioURL = nil
             updateTimeline(position: 0, duration: 0)
             isPlaying = false
             errorMessage = AudioPlaybackError.unreadableAudio(error.localizedDescription).localizedDescription
@@ -126,6 +129,7 @@ final class AudioPlaybackController: ObservableObject {
         stopProgressUpdates()
         player?.stop()
         player = nil
+        loadedAudioURL = nil
         isPlaying = false
         updateTimeline(position: 0, duration: 0)
         errorMessage = nil
