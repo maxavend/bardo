@@ -53,14 +53,14 @@ struct SpeakerNamingSheet: View {
             Divider()
 
             HStack(spacing: 12) {
-                Button("Skip for Now") {
+                Button(SpeakerNamingL10n.string("Skip for Now")) {
                     stopPreview(unload: true)
                     onSkip()
                 }
 
                 Spacer()
 
-                Button("Done") {
+                Button(SpeakerNamingL10n.string("Done")) {
                     stopPreview(unload: true)
                     onSave(names)
                 }
@@ -87,10 +87,10 @@ struct SpeakerNamingSheet: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text("Who’s speaking?")
+                Text(SpeakerNamingL10n.string("Who’s speaking?"))
                     .font(.title2.weight(.semibold))
 
-                Text("Listen to a short sample from each detected voice, then add the names you recognize.")
+                Text(SpeakerNamingL10n.string("Listen to a short sample from each detected voice, then add the names you recognize."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -124,9 +124,12 @@ struct SpeakerNamingSheet: View {
                         .foregroundStyle(.secondary)
                         .frame(minWidth: 86, alignment: .leading)
 
-                    TextField("Name this speaker", text: nameBinding(for: speaker.id))
-                        .textFieldStyle(.roundedBorder)
-                        .accessibilityLabel(defaultSpeakerName(index: index))
+                    TextField(
+                        SpeakerNamingL10n.string("Name this speaker"),
+                        text: nameBinding(for: speaker.id)
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel(defaultSpeakerName(index: index))
                 }
 
                 if let clip, previewAudioAvailable {
@@ -139,8 +142,16 @@ struct SpeakerNamingSheet: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .help(isActive && previewPlayback.isPlaying ? "Pause Sample" : "Play Sample")
-                        .accessibilityLabel(isActive && previewPlayback.isPlaying ? "Pause Sample" : "Play Sample")
+                        .help(
+                            SpeakerNamingL10n.string(
+                                isActive && previewPlayback.isPlaying ? "Pause Sample" : "Play Sample"
+                            )
+                        )
+                        .accessibilityLabel(
+                            SpeakerNamingL10n.string(
+                                isActive && previewPlayback.isPlaying ? "Pause Sample" : "Play Sample"
+                            )
+                        )
 
                         SpeakerPreviewTimeline(
                             timeline: previewPlayback.timeline,
@@ -150,7 +161,9 @@ struct SpeakerNamingSheet: View {
                     }
                 } else {
                     Label(
-                        clip == nil ? "No clear sample available" : "Audio sample unavailable",
+                        SpeakerNamingL10n.string(
+                            clip == nil ? "No clear sample available" : "Audio sample unavailable"
+                        ),
                         systemImage: clip == nil ? "waveform.slash" : "speaker.slash"
                     )
                     .font(.caption)
@@ -272,8 +285,10 @@ private struct SpeakerPreviewTimeline: View {
             ProgressView(value: elapsed, total: max(clip.duration, 0.01))
                 .progressViewStyle(.linear)
                 .frame(maxWidth: .infinity)
-                .accessibilityLabel("Speaker sample")
-                .accessibilityValue("\(LibraryFormatting.duration(elapsed)) of \(LibraryFormatting.duration(clip.duration))")
+                .accessibilityLabel(SpeakerNamingL10n.string("Speaker sample"))
+                .accessibilityValue(
+                    "\(LibraryFormatting.duration(elapsed)) / \(LibraryFormatting.duration(clip.duration))"
+                )
 
             Text("\(LibraryFormatting.duration(elapsed)) / \(LibraryFormatting.duration(clip.duration))")
                 .font(.caption.monospacedDigit())
@@ -285,5 +300,15 @@ private struct SpeakerPreviewTimeline: View {
     private var elapsed: TimeInterval {
         guard isActive else { return 0 }
         return min(max(0, timeline.position - clip.startTime), clip.duration)
+    }
+}
+
+private enum SpeakerNamingL10n {
+    static func string(_ key: String) -> String {
+        BardoL10n.string(
+            key,
+            tableName: "SpeakerNaming",
+            locale: LibraryFormatting.appLocale
+        )
     }
 }
