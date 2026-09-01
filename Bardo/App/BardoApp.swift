@@ -1,3 +1,4 @@
+import Foundation
 import OSLog
 import SwiftUI
 
@@ -16,14 +17,14 @@ struct BardoApp: App {
     }
 
     init() {
+        Self.resetPersistedToolbarConfigurations()
         Self.logger.debug("Bardo application initialized")
     }
 
     var body: some Scene {
-        // Version the scene identity once so macOS does not restore the anonymous toolbar
-        // layout written by older Bardo builds. The previous layout can contain generated
-        // SwiftUI item identifiers that are no longer valid after the toolbar redesign.
-        Window("Bardo", id: "main-v2-toolbar") {
+        // Keep the scene identity versioned as an additional boundary against stale
+        // window restoration state from older builds.
+        Window("Bardo", id: "main-v3-toolbar-reset") {
             BardoLaunchView()
                 .environment(\.locale, language.locale)
                 // 840pt keeps the detail column useful with the sidebar visible,
@@ -36,5 +37,19 @@ struct BardoApp: App {
         Settings {
             BardoSettingsView()
         }
+    }
+
+    private static func resetPersistedToolbarConfigurations() {
+        let defaults = UserDefaults.standard
+        let toolbarKeys = defaults.dictionaryRepresentation().keys.filter {
+            $0.hasPrefix("NSToolbar Configuration")
+        }
+
+        guard !toolbarKeys.isEmpty else { return }
+        for key in toolbarKeys {
+            defaults.removeObject(forKey: key)
+        }
+
+        logger.notice("Reset \(toolbarKeys.count, privacy: .public) persisted toolbar configuration(s)")
     }
 }
