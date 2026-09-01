@@ -43,6 +43,33 @@ SOFTWARE.
 
 Bardo uses FluidAudio for the optional Parakeet-powered Instant transcription quality. The full Apache License 2.0 text is included with the upstream package and is available in the FluidAudio repository `LICENSE` file.
 
+## MLX Swift LM
+
+- Repository: `ml-explore/mlx-swift-lm`
+- Version used by Bardo: `3.31.4`
+- Products linked by Bardo: `MLXLLM`, `MLXHuggingFace`
+- License: MIT
+
+Bardo uses MLX Swift LM to run the optional local meeting-minutes language model efficiently on Apple Silicon.
+
+## Hugging Face Swift libraries
+
+- Repository: `huggingface/swift-huggingface`
+- Version used by Bardo: `0.9.0`
+- Product linked by Bardo: `HuggingFace`
+- License: Apache License 2.0
+
+- Repository: `huggingface/swift-transformers`
+- Version used by Bardo: `1.3.3`
+- Product linked by Bardo: `Tokenizers`
+- License: Apache License 2.0
+
+Bardo uses these libraries to download/cache the selected local model and load its tokenizer. The full Apache License 2.0 text is included with the upstream packages.
+
 ## Runtime-downloaded model artifacts
 
-Bardo downloads Whisper, SpeakerKit/Pyannote, and optional Parakeet model artifacts at runtime. Bardo does not bundle those model files in the application. Their applicable upstream model terms should be reviewed separately before any future distribution strategy that bundles or redistributes those artifacts.
+Bardo downloads Whisper, SpeakerKit/Pyannote, optional Parakeet, and optional meeting-minutes model artifacts at runtime. Bardo does not bundle those model files in the application.
+
+The initial local meeting-minutes model is `mlx-community/Qwen3.5-0.8B-MLX-4bit`, a 4-bit MLX conversion of `Qwen/Qwen3.5-0.8B` for Apple Silicon. The model is licensed under Apache License 2.0 and is cached locally after the first download.
+
+The applicable upstream model terms should be reviewed separately before any future distribution strategy that bundles or redistributes runtime-downloaded model artifacts.
