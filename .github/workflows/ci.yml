@@ -50,6 +50,8 @@ jobs:
       - name: Build Bardo
         run: |
           xcodebuild \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
             -project Bardo.xcodeproj \
             -scheme Bardo \
             -configuration Debug \
@@ -70,6 +72,8 @@ jobs:
         run: |
           set +e
           xcodebuild \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
             -project Bardo.xcodeproj \
             -scheme Bardo \
             -configuration Debug \
