@@ -17,61 +17,80 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebar(
-                model: model,
-                onNewRecording: onNewRecording,
-                onImport: { isFileImporterPresented = true }
-            )
-            .toolbar {
-                sidebarToolbar
+        libraryContainer
+            .task {
+                await model.reload()
             }
-        } detail: {
-            detail
-        }
-        .navigationSplitViewStyle(.balanced)
-        .task {
-            await model.reload()
-        }
-        .task(id: model.selection) {
-            await model.prepareSelection()
-        }
-        .fileImporter(
-            isPresented: $isFileImporterPresented,
-            allowedContentTypes: [.audio],
-            allowsMultipleSelection: true
-        ) { result in
-            switch result {
-            case .success(let urls):
+            .task(id: model.selection) {
+                await model.prepareSelection()
+            }
+            .fileImporter(
+                isPresented: $isFileImporterPresented,
+                allowedContentTypes: [.audio],
+                allowsMultipleSelection: true
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    Task { await model.importAudio(from: urls) }
+                case .failure(let error):
+                    model.reportImportFailure(error)
+                }
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                guard !model.isImporting,
+                      !urls.isEmpty else {
+                    return false
+                }
                 Task { await model.importAudio(from: urls) }
-            case .failure(let error):
-                model.reportImportFailure(error)
+                return true
+            }
+            .alert(
+                "Audio Import Failed",
+                isPresented: Binding(
+                    get: { model.importErrorMessage != nil },
+                    set: { if !$0 { model.clearImportError() } }
+                )
+            ) {
+                Button("OK") { model.clearImportError() }
+            } message: {
+                Text(model.importErrorMessage ?? "The audio could not be imported.")
+            }
+            .onDisappear {
+                // Transcription and diarization are recording-scoped jobs, not view-scoped jobs.
+                // Navigating or rebuilding the split view must never cancel important processing.
+                model.stopPlayback()
+            }
+    }
+
+    @ViewBuilder
+    private var libraryContainer: some View {
+        if MacOSUICompatibility.usesNativeToolbar {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                sidebar
+                    .toolbar {
+                        sidebarToolbar
+                    }
+            } detail: {
+                detail
+            }
+            .navigationSplitViewStyle(.balanced)
+        } else {
+            HSplitView {
+                sidebar
+                    .frame(minWidth: 220, idealWidth: 260, maxWidth: 340)
+
+                detail
+                    .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard !model.isImporting,
-                  !urls.isEmpty else {
-                return false
-            }
-            Task { await model.importAudio(from: urls) }
-            return true
-        }
-        .alert(
-            "Audio Import Failed",
-            isPresented: Binding(
-                get: { model.importErrorMessage != nil },
-                set: { if !$0 { model.clearImportError() } }
-            )
-        ) {
-            Button("OK") { model.clearImportError() }
-        } message: {
-            Text(model.importErrorMessage ?? "The audio could not be imported.")
-        }
-        .onDisappear {
-            // Transcription and diarization are recording-scoped jobs, not view-scoped jobs.
-            // Navigating or rebuilding the split view must never cancel important processing.
-            model.stopPlayback()
-        }
+    }
+
+    private var sidebar: some View {
+        LibrarySidebar(
+            model: model,
+            onNewRecording: onNewRecording,
+            onImport: { isFileImporterPresented = true }
+        )
     }
 
     @ToolbarContentBuilder
