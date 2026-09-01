@@ -20,65 +20,84 @@ struct RootView: View {
     }
 
     var body: some View {
+        rootContent
+            .task {
+                microphone.refreshPermissionState()
+                await microphone.refreshRecoveryIssues()
+                await systemAudio.refreshRecoveryIssues()
+            }
+            .alert(
+                microphoneAlertTitle,
+                isPresented: Binding(
+                    get: { microphone.errorMessage != nil },
+                    set: { if !$0 { microphone.clearError() } }
+                )
+            ) {
+                if microphone.permissionState == .denied {
+                    Button("Open System Settings") {
+                        _ = microphone.openMicrophoneSystemSettings()
+                    }
+                }
+                Button("OK", role: .cancel) {
+                    microphone.clearError()
+                }
+            } message: {
+                Text(microphone.errorMessage ?? "Microphone recording could not continue.")
+            }
+            .alert(
+                "System Audio Recording",
+                isPresented: Binding(
+                    get: { systemAudio.errorMessage != nil },
+                    set: { if !$0 { systemAudio.clearError() } }
+                )
+            ) {
+                Button("OK", role: .cancel) {
+                    systemAudio.clearError()
+                }
+            } message: {
+                Text(systemAudio.errorMessage ?? "System audio recording could not continue.")
+            }
+            .onDisappear {
+                Task {
+                    if microphone.requiresTerminationFinalization {
+                        await microphone.prepareForApplicationTermination()
+                    }
+                    if systemAudio.requiresTerminationFinalization {
+                        await systemAudio.prepareForApplicationTermination()
+                    }
+                    await library.reload()
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        if MacOSUICompatibility.usesNativeToolbar {
+            libraryView
+                .toolbar {
+                    captureToolbar
+                }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    captureStatusBar
+                }
+        } else {
+            libraryView
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    VStack(spacing: 0) {
+                        captureCompatibilityBar
+                        captureStatusBar
+                    }
+                }
+        }
+    }
+
+    private var libraryView: some View {
         LibraryView(
             model: library,
             onNewRecording: {
                 Task { await startLastRecording() }
             }
         )
-        .toolbar {
-            captureToolbar
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            captureStatusBar
-        }
-        .task {
-            microphone.refreshPermissionState()
-            await microphone.refreshRecoveryIssues()
-            await systemAudio.refreshRecoveryIssues()
-        }
-        .alert(
-            microphoneAlertTitle,
-            isPresented: Binding(
-                get: { microphone.errorMessage != nil },
-                set: { if !$0 { microphone.clearError() } }
-            )
-        ) {
-            if microphone.permissionState == .denied {
-                Button("Open System Settings") {
-                    _ = microphone.openMicrophoneSystemSettings()
-                }
-            }
-            Button("OK", role: .cancel) {
-                microphone.clearError()
-            }
-        } message: {
-            Text(microphone.errorMessage ?? "Microphone recording could not continue.")
-        }
-        .alert(
-            "System Audio Recording",
-            isPresented: Binding(
-                get: { systemAudio.errorMessage != nil },
-                set: { if !$0 { systemAudio.clearError() } }
-            )
-        ) {
-            Button("OK", role: .cancel) {
-                systemAudio.clearError()
-            }
-        } message: {
-            Text(systemAudio.errorMessage ?? "System audio recording could not continue.")
-        }
-        .onDisappear {
-            Task {
-                if microphone.requiresTerminationFinalization {
-                    await microphone.prepareForApplicationTermination()
-                }
-                if systemAudio.requiresTerminationFinalization {
-                    await systemAudio.prepareForApplicationTermination()
-                }
-                await library.reload()
-            }
-        }
     }
 
     @ToolbarContentBuilder
@@ -165,34 +184,130 @@ struct RootView: View {
             }
         } else {
             ToolbarItem(id: "bardo.capture.new", placement: .automatic) {
-                Menu {
-                    Button {
-                        Task { await startMicrophoneRecording() }
-                    } label: {
-                        Label("Microphone", systemImage: "mic")
-                    }
-
-                    Divider()
-
-                    Button {
-                        Task { await startSystemRecording(includeMicrophone: false) }
-                    } label: {
-                        Label("System Audio", systemImage: "macbook.and.iphone")
-                    }
-
-                    Button {
-                        Task { await startSystemRecording(includeMicrophone: true) }
-                    } label: {
-                        Label("System Audio + Microphone", systemImage: "person.wave.2")
-                    }
-                } label: {
-                    Label("New Recording", systemImage: "record.circle")
-                }
-                .keyboardShortcut("n", modifiers: .command)
-                .help("Start a new recording")
-                .disabled(microphone.isBusy || systemAudio.isBusy)
+                newRecordingMenu
             }
         }
+    }
+
+    @ViewBuilder
+    private var captureCompatibilityBar: some View {
+        HStack(spacing: 10) {
+            if microphone.isRecording {
+                activeRecordingStatus(
+                    title: microphone.isPaused ? "Paused" : "Recording",
+                    duration: microphone.elapsedTime,
+                    help: microphone.inputDisplayName ?? "Default microphone"
+                )
+
+                Spacer(minLength: 12)
+
+                Button {
+                    if microphone.isPaused {
+                        microphone.resume()
+                    } else {
+                        microphone.pause()
+                    }
+                } label: {
+                    Label(
+                        microphone.isPaused ? "Resume Recording" : "Pause Recording",
+                        systemImage: microphone.isPaused ? "play.fill" : "pause.fill"
+                    )
+                }
+                .labelStyle(.iconOnly)
+                .help(microphone.isPaused ? "Resume microphone recording" : "Pause microphone recording")
+
+                Button {
+                    Task { await stopMicrophoneRecording() }
+                } label: {
+                    Label("Stop Recording", systemImage: "stop.circle.fill")
+                }
+                .labelStyle(.iconOnly)
+                .help("Stop microphone recording")
+            } else if systemAudio.isRecording {
+                activeRecordingStatus(
+                    title: systemAudio.isPaused ? "Paused" : "Recording",
+                    duration: systemAudio.elapsedTime,
+                    help: systemAudio.includesMicrophone ? "System Audio + Microphone" : "System Audio"
+                )
+
+                Spacer(minLength: 12)
+
+                Button {
+                    Task {
+                        if systemAudio.isPaused {
+                            await systemAudio.resume()
+                        } else {
+                            await systemAudio.pause()
+                        }
+                    }
+                } label: {
+                    Label(
+                        systemAudio.isPaused ? "Resume Recording" : "Pause Recording",
+                        systemImage: systemAudio.isPaused ? "play.fill" : "pause.fill"
+                    )
+                }
+                .labelStyle(.iconOnly)
+                .disabled(systemAudio.phase == .changingSelection)
+                .help(systemAudio.isPaused ? "Resume system audio recording" : "Pause system audio recording")
+
+                if !systemAudio.isPaused && systemAudio.phase != .changingSelection {
+                    Button {
+                        systemAudio.changeSelection()
+                    } label: {
+                        Label("Change Source…", systemImage: "rectangle.on.rectangle")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Choose different macOS content without restarting the recording")
+                }
+
+                Button {
+                    Task { await stopSystemRecording() }
+                } label: {
+                    Label("Stop Recording", systemImage: "stop.circle.fill")
+                }
+                .labelStyle(.iconOnly)
+                .help("Stop system audio recording")
+            } else {
+                Spacer(minLength: 0)
+                newRecordingMenu
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity)
+        .background(.background)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+    }
+
+    private var newRecordingMenu: some View {
+        Menu {
+            Button {
+                Task { await startMicrophoneRecording() }
+            } label: {
+                Label("Microphone", systemImage: "mic")
+            }
+
+            Divider()
+
+            Button {
+                Task { await startSystemRecording(includeMicrophone: false) }
+            } label: {
+                Label("System Audio", systemImage: "macbook.and.iphone")
+            }
+
+            Button {
+                Task { await startSystemRecording(includeMicrophone: true) }
+            } label: {
+                Label("System Audio + Microphone", systemImage: "person.wave.2")
+            }
+        } label: {
+            Label("New Recording", systemImage: "record.circle")
+        }
+        .keyboardShortcut("n", modifiers: .command)
+        .help("Start a new recording")
+        .disabled(microphone.isBusy || systemAudio.isBusy)
     }
 
     private func activeRecordingStatus(
