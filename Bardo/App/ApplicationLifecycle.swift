@@ -25,6 +25,14 @@ final class BardoAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func stabilizeToolbar(in window: NSWindow) {
+        if !MacOSUICompatibility.usesNativeToolbar {
+            // macOS 27 currently crashes while SwiftUI bridges toolbar preferences into
+            // NSToolbar. The compatibility UI renders those controls inside content,
+            // so no window toolbar should survive on this OS path.
+            window.toolbar = nil
+            return
+        }
+
         guard let toolbar = window.toolbar else { return }
 
         // Bardo owns a state-driven toolbar; persisting an AppKit representation of
