@@ -27,17 +27,27 @@ enum BardoLanguage: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum BardoL10n {
-    /// Resolves dynamic strings from the same Localizable.strings resources SwiftUI uses for
+    /// Resolves dynamic strings from the same localized resources SwiftUI uses for
     /// literal Text/Button labels. The explicit locale is what makes the in-app language
     /// setting update immediately without changing macOS language preferences.
-    static func string(_ key: String, locale: Locale) -> String {
+    static func string(
+        _ key: String,
+        tableName: String? = nil,
+        locale: Locale
+    ) -> String {
         let languageCode = locale.language.languageCode?.identifier ?? BardoLanguage.english.rawValue
         let supported = BardoLanguage(rawValue: languageCode) ?? .english
         guard let path = Bundle.main.path(forResource: supported.rawValue, ofType: "lproj"),
               let bundle = Bundle(path: path) else {
             return key
         }
-        return NSLocalizedString(key, tableName: nil, bundle: bundle, value: key, comment: "")
+        return NSLocalizedString(
+            key,
+            tableName: tableName,
+            bundle: bundle,
+            value: key,
+            comment: ""
+        )
     }
 
     static func current(_ key: String) -> String {
