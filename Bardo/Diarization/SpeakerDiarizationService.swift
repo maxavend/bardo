@@ -24,6 +24,24 @@ struct DiarizationSetupProgressSnapshot: Equatable, Sendable {
     let fractionCompleted: Double
 }
 
+protocol SpeakerDiarizationEngine: AnyObject, Sendable {
+    var isLoaded: Bool { get }
+
+    func downloadModels(
+        progressCallback: (@Sendable (Progress) -> Void)?
+    ) async throws
+
+    func loadModels() async throws
+
+    func diarize(
+        audioArray: [Float],
+        options: (any DiarizationOptions)?,
+        progressCallback: (@Sendable (Progress) -> Void)?
+    ) async throws -> DiarizationResult
+}
+
+extension SpeakerKitDiarizer: SpeakerDiarizationEngine {}
+
 protocol RecordingDiarizing: Sendable {
     func diarize(
         recording: Recording,
@@ -38,6 +56,7 @@ enum RecordingDiarizationError: Error, LocalizedError, Equatable, Sendable {
     case combinedAudioUnavailable(Recording.ID)
     case invalidDuration
     case noSpeakerActivity
+    case speakerModelsNotLoaded
 
     var errorDescription: String? {
         switch self {
@@ -49,6 +68,8 @@ enum RecordingDiarizationError: Error, LocalizedError, Equatable, Sendable {
             return "Bardo could not determine a valid audio duration for speaker identification."
         case .noSpeakerActivity:
             return "SpeakerKit completed without finding any speaker activity."
+        case .speakerModelsNotLoaded:
+            return "Bardo could not load the private SpeakerKit models. Reset the SpeakerKit models and download them again."
         }
     }
 }
@@ -189,56 +210,71 @@ actor SpeakerDiarizationService: RecordingDiarizing {
     )
 
     private static let sharedServiceResult: Result<SpeakerDiarizationService, Error> = Result {
-        let applicationSupport = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
+        SpeakerDiarizationService(
+            modelStore: try BardoModelStore.live(),
+            operations: .live
         )
-        let root = applicationSupport
-            .appendingPathComponent("Bardo", isDirectory: true)
-            .appendingPathComponent("Models", isDirectory: true)
-            .appendingPathComponent("SpeakerKit", isDirectory: true)
-        return SpeakerDiarizationService(modelRoot: root)
     }
 
+    private let modelStore: BardoModelStore
     private let modelRoot: URL
-    private var loadedDiarizer: SpeakerKitDiarizer?
+    private let operations: SpeakerDiarizationOperations
+    private var loadedDiarizer: (any SpeakerDiarizationEngine)?
+    private var modelState: ManagedModelState = .notInstalled
 
-    init(modelRoot: URL) {
-        self.modelRoot = modelRoot
+    init(
+        modelStore: BardoModelStore,
+        operations: SpeakerDiarizationOperations = .live
+    ) {
+        self.modelStore = modelStore
+        self.modelRoot = modelStore.root(for: .speakerKit).standardizedFileURL
+        self.operations = operations
     }
 
     static func live() throws -> SpeakerDiarizationService {
         try sharedServiceResult.get()
     }
 
-    func hasInstalledModels() -> Bool {
-        guard FileManager.default.fileExists(atPath: modelRoot.path),
-              let enumerator = FileManager.default.enumerator(
-                at: modelRoot,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-              ) else {
+    func hasInstalledModels() async -> Bool {
+        if let loadedDiarizer, loadedDiarizer.isLoaded {
+            modelState = .installed
+            return true
+        }
+
+        guard hasCompleteModelCache() else {
+            modelState = .notInstalled
             return false
         }
 
-        var found = Set<String>()
-        for case let url as URL in enumerator {
-            let baseName = url.deletingPathExtension().lastPathComponent
-            if Self.requiredModelNames.contains(baseName) {
-                found.insert(baseName)
-                if found == Self.requiredModelNames { return true }
+        do {
+            let diarizer = makeEngine(allowsDownload: false)
+            try Task.checkCancellation()
+            modelState = .preparing(0)
+            try await diarizer.loadModels()
+            try Task.checkCancellation()
+            guard diarizer.isLoaded else {
+                throw RecordingDiarizationError.speakerModelsNotLoaded
             }
+            loadedDiarizer = diarizer
+            modelState = .installed
+            return true
+        } catch {
+            loadedDiarizer = nil
+            modelState = .failed(error.localizedDescription)
+            return false
         }
-        return false
     }
 
     func warmUpIfInstalled() async {
-        guard hasInstalledModels() else { return }
+        guard hasCompleteModelCache() else {
+            modelState = .notInstalled
+            return
+        }
+
         do {
             try await prepareForUse { _ in }
         } catch {
+            modelState = .failed(error.localizedDescription)
             Self.logger.debug("Background speaker warm-up skipped: \(error.localizedDescription, privacy: .public)")
         }
     }
@@ -246,34 +282,73 @@ actor SpeakerDiarizationService: RecordingDiarizing {
     func prepareForUse(
         progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void
     ) async throws {
+        try Task.checkCancellation()
         try ensureModelDirectory()
-        let diarizer = engine()
 
-        if diarizer.isLoaded {
+        if let loadedDiarizer, loadedDiarizer.isLoaded {
+            modelState = .installed
             progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
             return
         }
 
-        progress(.init(stage: .downloading, fractionCompleted: 0))
-        let downloadProgressHandler: @Sendable (Progress) -> Void = { downloadProgress in
-            progress(
-                .init(
-                    stage: .downloading,
-                    fractionCompleted: Self.clamped(downloadProgress.fractionCompleted)
-                )
-            )
-        }
-        let downloadModels: ((@Sendable (Progress) -> Void)?) async throws -> Void =
-            diarizer.downloadModels(progressCallback:)
-        try await downloadModels(downloadProgressHandler)
-        progress(.init(stage: .downloading, fractionCompleted: 1))
+        let wasComplete = hasCompleteModelCache()
+        do {
+            if wasComplete {
+                do {
+                    try await loadExistingModels(progress: progress)
+                    return
+                } catch {
+                    let decision = Self.recoveryDecision(
+                        wasComplete: true,
+                        phase: .loading,
+                        isCancellation: Self.isCancellation(error),
+                        errorKind: Self.errorKind(error)
+                    )
+                    guard decision == .retryLoadAfterRepair else {
+                        modelState = .failed(error.localizedDescription)
+                        throw error
+                    }
 
-        progress(.init(stage: .optimizingForMac, fractionCompleted: 0))
-        let loadStart = ProcessInfo.processInfo.systemUptime
-        try await diarizer.loadModels()
-        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - loadStart)
-        Self.logger.info("Speaker Core ML load finished elapsedSeconds=\(elapsed)")
-        progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
+                    // Drop invalid Core ML state before removing its files and
+                    // before creating the repair engine.
+                    loadedDiarizer = nil
+                    try reset()
+                    try Task.checkCancellation()
+                    try await downloadAndLoadModels(progress: progress, allowsDownload: true)
+                    return
+                }
+            }
+
+            try await downloadAndLoadModels(progress: progress, allowsDownload: true)
+        } catch {
+            loadedDiarizer = nil
+            modelState = .failed(error.localizedDescription)
+            throw error
+        }
+    }
+
+    func state() -> ManagedModelState {
+        modelState
+    }
+
+    func reset() throws {
+        loadedDiarizer = nil
+        try modelStore.reset(.speakerKit)
+        modelState = .notInstalled
+    }
+
+    nonisolated static func recoveryDecision(
+        wasComplete: Bool,
+        phase: ModelOperationPhase,
+        isCancellation: Bool,
+        errorKind: ModelErrorKind
+    ) -> ModelRecoveryDecision {
+        ModelRecoveryPolicy.decision(
+            wasComplete: wasComplete,
+            phase: phase,
+            isCancellation: isCancellation,
+            errorKind: errorKind
+        )
     }
 
     func diarize(
@@ -289,28 +364,19 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             throw RecordingDiarizationError.invalidDuration
         }
 
-        try ensureModelDirectory()
-        let diarizer = engine()
-
-        progress(.init(stage: .preparingModel, fractionCompleted: 0))
-        let downloadProgressHandler: @Sendable (Progress) -> Void = { downloadProgress in
-            progress(
-                .init(
-                    stage: .preparingModel,
-                    fractionCompleted: Self.clamped(downloadProgress.fractionCompleted)
-                )
-            )
+        try await prepareForUse { snapshot in
+            let stage: DiarizationStage
+            switch snapshot.stage {
+            case .downloading:
+                stage = .preparingModel
+            case .optimizingForMac:
+                stage = .loadingModel
+            }
+            progress(.init(stage: stage, fractionCompleted: snapshot.fractionCompleted))
         }
-        let downloadModels: ((@Sendable (Progress) -> Void)?) async throws -> Void =
-            diarizer.downloadModels(progressCallback:)
-        try await downloadModels(downloadProgressHandler)
-        try Task.checkCancellation()
-        progress(.init(stage: .preparingModel, fractionCompleted: 1))
-
-        progress(.init(stage: .loadingModel, fractionCompleted: 0))
-        try await diarizer.loadModels()
-        try Task.checkCancellation()
-        progress(.init(stage: .loadingModel, fractionCompleted: 1))
+        guard let diarizer = loadedDiarizer, diarizer.isLoaded else {
+            throw RecordingDiarizationError.speakerModelsNotLoaded
+        }
 
         progress(.init(stage: .diarizing, fractionCompleted: 0))
         let result = try await runSpeakerKitDiarization(
@@ -349,18 +415,8 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         return aligned
     }
 
-    private func engine() -> SpeakerKitDiarizer {
-        if let loadedDiarizer { return loadedDiarizer }
-
-        let config = PyannoteConfig(
-            downloadBase: modelRoot.path,
-            download: true,
-            load: false,
-            verbose: false
-        )
-        let diarizer = SpeakerKitDiarizer.pyannote(config: config)
-        loadedDiarizer = diarizer
-        return diarizer
+    private func makeEngine(allowsDownload: Bool) -> any SpeakerDiarizationEngine {
+        operations.makeEngine(modelRoot, allowsDownload)
     }
 
     private func ensureModelDirectory() throws {
@@ -370,8 +426,85 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         )
     }
 
+    private func hasCompleteModelCache() -> Bool {
+        guard modelRoot.resolvingSymlinksInPath() == modelRoot,
+              let values = try? modelRoot.resourceValues(forKeys: [.isDirectoryKey]),
+              values.isDirectory == true,
+              let enumerator = FileManager.default.enumerator(
+                  at: modelRoot,
+                  includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            return false
+        }
+
+        var found = Set<String>()
+        for case let url as URL in enumerator {
+            guard url.resolvingSymlinksInPath() == url,
+                  let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                  values.isSymbolicLink != true,
+                  values.isDirectory == true else {
+                continue
+            }
+
+            let baseName = url.deletingPathExtension().lastPathComponent
+            if Self.requiredModelNames.contains(baseName) {
+                found.insert(baseName)
+            }
+        }
+        return found == Self.requiredModelNames
+    }
+
+    private func loadExistingModels(
+        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void
+    ) async throws {
+        let diarizer = makeEngine(allowsDownload: false)
+        modelState = .preparing(0)
+        progress(.init(stage: .optimizingForMac, fractionCompleted: 0))
+        let loadStart = ProcessInfo.processInfo.systemUptime
+        try await diarizer.loadModels()
+        try Task.checkCancellation()
+        guard diarizer.isLoaded else {
+            throw RecordingDiarizationError.speakerModelsNotLoaded
+        }
+        loadedDiarizer = diarizer
+        modelState = .installed
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - loadStart)
+        Self.logger.info("Speaker Core ML load finished elapsedSeconds=\(elapsed)")
+        progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
+    }
+
+    private func downloadAndLoadModels(
+        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void,
+        allowsDownload: Bool
+    ) async throws {
+        let diarizer = makeEngine(allowsDownload: allowsDownload)
+        progress(.init(stage: .downloading, fractionCompleted: 0))
+        modelState = .downloading(0)
+        try await diarizer.downloadModels { downloadProgress in
+            let fraction = Self.clamped(downloadProgress.fractionCompleted)
+            progress(.init(stage: .downloading, fractionCompleted: fraction))
+        }
+        try Task.checkCancellation()
+        progress(.init(stage: .downloading, fractionCompleted: 1))
+
+        progress(.init(stage: .optimizingForMac, fractionCompleted: 0))
+        modelState = .preparing(0)
+        let loadStart = ProcessInfo.processInfo.systemUptime
+        try await diarizer.loadModels()
+        try Task.checkCancellation()
+        guard diarizer.isLoaded else {
+            throw RecordingDiarizationError.speakerModelsNotLoaded
+        }
+        loadedDiarizer = diarizer
+        modelState = .installed
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - loadStart)
+        Self.logger.info("Speaker Core ML load finished elapsedSeconds=\(elapsed)")
+        progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
+    }
+
     private func runSpeakerKitDiarization(
-        diarizer: SpeakerKitDiarizer,
+        diarizer: any SpeakerDiarizationEngine,
         audioURL: URL,
         duration: TimeInterval,
         progress: @escaping @Sendable (DiarizationProgressSnapshot) -> Void
@@ -436,5 +569,49 @@ actor SpeakerDiarizationService: RecordingDiarizing {
 
     nonisolated private static func clamped(_ value: Double) -> Double {
         min(1, max(0, value.isFinite ? value : 0))
+    }
+
+    nonisolated private static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || Task.isCancelled
+    }
+
+    nonisolated private static func errorKind(_ error: Error) -> ModelErrorKind {
+        if error is URLError || (error as NSError).domain == NSURLErrorDomain {
+            return .network
+        }
+        return .load
+    }
+}
+
+struct SpeakerDiarizationOperations: Sendable {
+    let makeEngine: @Sendable (URL, Bool) -> any SpeakerDiarizationEngine
+
+    init(
+        makeEngine: @escaping @Sendable (URL, Bool) -> any SpeakerDiarizationEngine
+    ) {
+        self.makeEngine = makeEngine
+    }
+
+    static let live = SpeakerDiarizationOperations { modelRoot, allowsDownload in
+        let config: PyannoteConfig
+        if allowsDownload {
+            config = PyannoteConfig(
+                downloadBase: modelRoot.path,
+                download: true,
+                load: false,
+                verbose: false
+            )
+        } else {
+            config = PyannoteConfig(
+                // Keep validation pointed at the same private Hub root used by
+                // downloads, but disable network resolution. This loads the
+                // repository snapshot under Bardo/Models/SpeakerKit only.
+                downloadBase: modelRoot.path,
+                download: false,
+                load: false,
+                verbose: false
+            )
+        }
+        return SpeakerKitDiarizer.pyannote(config: config)
     }
 }

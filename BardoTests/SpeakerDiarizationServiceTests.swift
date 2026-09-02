@@ -6,8 +6,12 @@ final class SpeakerDiarizationServiceTests: XCTestCase {
     func testInstalledModelsRequireCompleteSpeakerKitAssets() async throws {
         let root = try makeTemporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
+        let store = BardoModelStore(rootURL: root)
 
-        let service = SpeakerDiarizationService(modelRoot: root)
+        let service = SpeakerDiarizationService(
+            modelStore: store,
+            operations: .testLoaded
+        )
         let initiallyInstalled = await service.hasInstalledModels()
         XCTAssertFalse(initiallyInstalled)
 
@@ -17,7 +21,8 @@ final class SpeakerDiarizationServiceTests: XCTestCase {
             "SpeakerEmbedder",
             "PldaProjector"
         ] {
-            let folder = root.appendingPathComponent("\(name).mlmodelc", isDirectory: true)
+            let folder = store.root(for: .speakerKit)
+                .appendingPathComponent("\(name).mlmodelc", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
 
@@ -28,13 +33,18 @@ final class SpeakerDiarizationServiceTests: XCTestCase {
     func testPartialSpeakerModelCacheIsNotReportedReady() async throws {
         let root = try makeTemporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
+        let store = BardoModelStore(rootURL: root)
 
         for name in ["SpeakerSegmenter", "SpeakerEmbedder"] {
-            let folder = root.appendingPathComponent("\(name).mlmodelc", isDirectory: true)
+            let folder = store.root(for: .speakerKit)
+                .appendingPathComponent("\(name).mlmodelc", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
 
-        let service = SpeakerDiarizationService(modelRoot: root)
+        let service = SpeakerDiarizationService(
+            modelStore: store,
+            operations: .testLoaded
+        )
         let installed = await service.hasInstalledModels()
         XCTAssertFalse(installed)
     }
