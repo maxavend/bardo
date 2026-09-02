@@ -45,22 +45,26 @@ struct SettingsView: View {
                     .disabled(model.isRefreshing)
                 }
             } footer: {
-                Text("Installed means Bardo found a complete model in its private model folder. Other applications’ caches are not used for this status.")
+                Text("Bardo uses only models stored in its private folder.")
             }
 
             Section {
                 Button {
                     model.revealModelsFolder()
                 } label: {
-                    Label("Show Model Folder in Finder", systemImage: "folder")
+                    LabeledContent("Model folder") {
+                        Button("Show in Finder") {
+                            model.revealModelsFolder()
+                        }
+                    }
                 }
             } header: {
                 Label("Storage", systemImage: "externaldrive")
             } footer: {
-                Text("Model files stay inside Bardo’s private application-support folder. Reset removes only the selected model.")
+                Text("Bardo uses only models stored in its private folder.")
             }
         }
-        .formStyle(.grouped)
+        .formStyle(.columns)
         .frame(minWidth: 620, idealWidth: 680, minHeight: 560, idealHeight: 640)
         .padding(20)
         .task {
@@ -97,6 +101,8 @@ struct SettingsView: View {
             pendingReset = PendingModelReset(model: modelID, reinstall: false)
         case .resetAndInstall:
             pendingReset = PendingModelReset(model: modelID, reinstall: true)
+        case .reveal:
+            model.revealModelFolder(modelID)
         case .unavailable:
             break
         }
@@ -176,13 +182,20 @@ private struct ModelSettingsRow: View {
                 .controlSize(.small)
         case .reset, .resetAndInstall:
             Menu {
+                Button("Show in Finder") { action(.reveal) }
+                Divider()
                 Button("Reset and Download", role: .destructive) { action(.resetAndInstall) }
                 Button("Reset", role: .destructive) { action(.reset) }
             } label: {
-                Label("Manage", systemImage: "ellipsis.circle")
+                Image(systemName: "ellipsis")
+                    .frame(width: 24, height: 24)
             }
             .menuStyle(.borderlessButton)
             .controlSize(.small)
+            .accessibilityLabel("Manage \(row.title)")
+            .help("Show model actions")
+        case .reveal:
+            EmptyView()
         case .unavailable:
             Text("On demand")
                 .font(.callout)
@@ -205,7 +218,9 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
     var stateLabel: String {
         switch state {
         case .notInstalled:
-            return String(localized: "Not Installed")
+            return supportsInstallation
+                ? String(localized: "Not Installed")
+                : String(localized: "Available on demand")
         case .downloading(let fraction):
             return String.localizedStringWithFormat(String(localized: "Downloading %@"), percentage(fraction))
         case .preparing(let fraction):
@@ -228,8 +243,8 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
 
     var symbol: String {
         switch state {
-        case .notInstalled: return "circle"
-        case .downloading: return "arrow.down.circle"
+        case .notInstalled: return "arrow.down.circle"
+        case .downloading: return "arrow.down.circle.fill"
         case .preparing: return "gearshape"
         case .installed: return "checkmark.circle.fill"
         case .failed: return "exclamationmark.circle.fill"
@@ -239,7 +254,7 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
     var stateColor: Color {
         switch state {
         case .notInstalled: return .secondary
-        case .downloading, .preparing: return .accentColor
+        case .downloading, .preparing: return .secondary
         case .installed: return .green
         case .failed: return .orange
         }
@@ -318,6 +333,11 @@ private final class ModelSettingsViewModel: ObservableObject {
         guard let store = try? BardoModelStore.live() else { return }
         let root = store.root(for: .qwen).deletingLastPathComponent()
         NSWorkspace.shared.activateFileViewerSelecting([root])
+    }
+
+    func revealModelFolder(_ model: ManagedModel) {
+        guard let store = try? BardoModelStore.live() else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([store.root(for: model)])
     }
 
     private func runInstall(_ model: ManagedModel) async {
@@ -475,7 +495,7 @@ private final class ModelSettingsViewModel: ObservableObject {
         case .speakerKit:
             return ModelSettingsRowState(id: model, title: String(localized: "SpeakerKit / Pyannote"), detail: String(localized: "Local speaker identification and voice previews"), supportsInstallation: true, state: state)
         case .qwen:
-            return ModelSettingsRowState(id: model, title: String(localized: "Qwen 3.5 0.8B MLX 4-bit"), detail: String(localized: "Meeting minutes only; downloads when you generate minutes"), supportsInstallation: false, state: state)
+            return ModelSettingsRowState(id: model, title: String(localized: "Qwen 3.5 0.8B MLX 4-bit"), detail: String(localized: "Downloads automatically when you generate your first meeting minute."), supportsInstallation: false, state: state)
         }
     }
 

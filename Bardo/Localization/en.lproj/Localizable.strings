@@ -60,3 +60,9 @@
 "Bardo will remove only this model’s private files. You can download it again later." = "Bardo will remove only this model’s private files. You can download it again later.";
 "Reset and Download" = "Reset and Download";
 "Reset" = "Reset";
+"Bardo uses only models stored in its private folder." = "Bardo uses only models stored in its private folder.";
+"Model folder" = "Model folder";
+"Show in Finder" = "Show in Finder";
+"Available on demand" = "Available on demand";
+"Downloads automatically when you generate your first meeting minute." = "Downloads automatically when you generate your first meeting minute.";
+"Show model actions" = "Show model actions";

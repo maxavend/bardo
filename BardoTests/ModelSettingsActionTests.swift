@@ -33,4 +33,28 @@ final class ModelSettingsActionTests: XCTestCase {
             .unavailable
         )
     }
+
+    func testQwenNotInstalledUsesOneOnDemandState() {
+        let row = ModelSettingsRowState(
+            id: .qwen,
+            title: "Qwen",
+            detail: "Downloads when needed",
+            supportsInstallation: false,
+            state: .notInstalled
+        )
+
+        XCTAssertEqual(row.stateLabel, String(localized: "Available on demand"))
+    }
+
+    func testNotInstalledModelUsesDownloadSymbolInsteadOfSelectionCircle() {
+        let row = ModelSettingsRowState(
+            id: .parakeet,
+            title: "Parakeet",
+            detail: "Fast transcription",
+            supportsInstallation: true,
+            state: .notInstalled
+        )
+
+        XCTAssertEqual(row.symbol, "arrow.down.circle")
+    }
 }

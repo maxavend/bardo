@@ -60,3 +60,9 @@
 "Bardo will remove only this model’s private files. You can download it again later." = "Bardo eliminará únicamente los archivos privados de este modelo. Puedes descargarlo de nuevo más tarde.";
 "Reset and Download" = "Restablecer y descargar";
 "Reset" = "Restablecer";
+"Bardo uses only models stored in its private folder." = "Bardo utiliza únicamente los modelos almacenados en su carpeta privada.";
+"Model folder" = "Carpeta de modelos";
+"Show in Finder" = "Mostrar en Finder";
+"Available on demand" = "Disponible bajo demanda";
+"Downloads automatically when you generate your first meeting minute." = "Se descargará automáticamente al generar tu primera minuta.";
+"Show model actions" = "Mostrar acciones del modelo";

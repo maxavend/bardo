@@ -6,6 +6,7 @@ enum ModelSettingsAction: Equatable, Sendable {
     case retry
     case reset
     case resetAndInstall
+    case reveal
     case unavailable
 }
 
