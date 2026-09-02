@@ -19,6 +19,14 @@ struct LibraryView: View {
             detail
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                SettingsLink {
+                    Label(String(localized: "Settings"), systemImage: "gearshape")
+                }
+                .help(String(localized: "Open Bardo Settings"))
+            }
+        }
         .task {
             await model.reload()
         }

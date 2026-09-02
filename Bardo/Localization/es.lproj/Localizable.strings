@@ -18,3 +18,5 @@
 "An incomplete microphone capture was preserved for recovery." = "Se conservó una captura incompleta del micrófono para su recuperación.";
 "An incomplete system-audio capture was preserved for recovery." = "Se conservó una captura incompleta del audio del sistema para su recuperación.";
 "%@ will be moved to the macOS Trash. You can recover it from there if needed." = "%@ se moverá a la Papelera de macOS. Podrás recuperarla desde allí si la necesitas.";
+"Settings" = "Ajustes";
+"Open Bardo Settings" = "Abrir los ajustes de Bardo";

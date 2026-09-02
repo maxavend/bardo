@@ -18,3 +18,5 @@
 "An incomplete microphone capture was preserved for recovery." = "An incomplete microphone capture was preserved for recovery.";
 "An incomplete system-audio capture was preserved for recovery." = "An incomplete system-audio capture was preserved for recovery.";
 "%@ will be moved to the macOS Trash. You can recover it from there if needed." = "%@ will be moved to the macOS Trash. You can recover it from there if needed.";
+"Settings" = "Settings";
+"Open Bardo Settings" = "Open Bardo Settings";
