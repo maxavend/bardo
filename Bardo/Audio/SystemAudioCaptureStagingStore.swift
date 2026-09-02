@@ -106,6 +106,16 @@ actor SystemAudioCaptureStagingStore {
         if activeRecordingID == recordingID { activeRecordingID = nil }
     }
 
+    func moveToTrash(recordingID: UUID) throws {
+        let directory = rootURL.appendingPathComponent(recordingID.uuidString, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            if activeRecordingID == recordingID { activeRecordingID = nil }
+            return
+        }
+        try FileManager.default.trashItem(at: directory, resultingItemURL: nil)
+        if activeRecordingID == recordingID { activeRecordingID = nil }
+    }
+
     func recoveryIssues() throws -> [RecordingStoreIssue] {
         guard FileManager.default.fileExists(atPath: rootURL.path) else { return [] }
         let entries = try FileManager.default.contentsOfDirectory(

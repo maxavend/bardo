@@ -46,6 +46,8 @@ targets:
         excludes:
           - Models
       - path: Bardo/Models
+    resources:
+      - path: Bardo/Localization
     dependencies:
       - package: ArgmaxOSS
         product: WhisperKit

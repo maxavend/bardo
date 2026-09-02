@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct RootView: View {
@@ -62,8 +63,8 @@ struct RootView: View {
                     systemAudioIssues: systemAudio.recoveryIssues,
                     openMicrophoneFolder: { microphone.openRecoveryFolder() },
                     openSystemAudioFolder: { systemAudio.openRecoveryFolder() },
-                    discardMicrophoneIssue: { issue in Task { await microphone.discardRecoveryIssue(issue) } },
-                    discardSystemAudioIssue: { issue in Task { await systemAudio.discardRecoveryIssue(issue) } }
+                    moveMicrophoneIssueToTrash: { issue in Task { await microphone.moveRecoveryIssueToTrash(issue) } },
+                    moveSystemAudioIssueToTrash: { issue in Task { await systemAudio.moveRecoveryIssueToTrash(issue) } }
                 )
             }
             .onDisappear {
@@ -243,7 +244,7 @@ struct RootView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Recovery files need your attention")
                         .font(.callout.weight(.semibold))
-                    Text("\(total) interrupted capture\(total == 1 ? "" : "s") are safe in Bardo")
+                    Text(RecoveryCopy.countDescription(total))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -264,7 +265,7 @@ struct RootView: View {
             .padding(.top, 8)
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("Recovery files need your attention. \(total) interrupted capture\(total == 1 ? "" : "s") are safe in Bardo. Review files.")
+            .accessibilityLabel("Recovery files need your attention. \(RecoveryCopy.countDescription(total)). Review files.")
         }
     }
 
@@ -382,65 +383,182 @@ struct RootView: View {
     }
 }
 
+private enum RecoveryCopy {
+    static let title = String(localized: "Interrupted captures")
+    static let close = String(localized: "Close")
+    static let reviewDescription = String(localized: "Bardo found incomplete captures after an interruption. They are still safe on your Mac. Review them in Finder or move the ones you do not need to the Trash.")
+    static let openInFinder = String(localized: "Open in Finder")
+    static let moveToTrash = String(localized: "Move to Trash…")
+    static let moveToTrashTitle = String(localized: "Move capture to the Trash?")
+    static let moveToTrashAction = String(localized: "Move to Trash")
+    static let cancel = String(localized: "Cancel")
+    static let allClearTitle = String(localized: "All clear")
+    static let allClearDescription = String(localized: "There are no incomplete captures waiting for review.")
+
+    static func countDescription(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "1 interrupted capture is safe in Bardo")
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "%lld interrupted captures are safe in Bardo"),
+            count
+        )
+    }
+
+    static func sectionTitle(for source: RecoveryReviewView.Source) -> String {
+        switch source {
+        case .microphone:
+            return String(localized: "Microphone capture")
+        case .systemAudio:
+            return String(localized: "System audio capture")
+        }
+    }
+
+    static func technicalID(_ id: String) -> String {
+        String.localizedStringWithFormat(String(localized: "Technical ID: %@"), id)
+    }
+
+    static func preservedMessage(for source: RecoveryReviewView.Source) -> String {
+        switch source {
+        case .microphone:
+            return String(localized: "An incomplete microphone capture was preserved for recovery.")
+        case .systemAudio:
+            return String(localized: "An incomplete system-audio capture was preserved for recovery.")
+        }
+    }
+
+    static func moveToTrashMessage(for source: RecoveryReviewView.Source) -> String {
+        String.localizedStringWithFormat(
+            String(localized: "%@ will be moved to the macOS Trash. You can recover it from there if needed."),
+            sectionTitle(for: source)
+        )
+    }
+}
+
 private struct RecoveryReviewView: View {
+    enum Source: Hashable {
+        case microphone
+        case systemAudio
+    }
+
+    private struct PendingDiscard: Identifiable {
+        let issue: RecordingStoreIssue
+        let source: Source
+
+        var id: String { "\(source)-\(issue.id)" }
+    }
+
     let microphoneIssues: [RecordingStoreIssue]
     let systemAudioIssues: [RecordingStoreIssue]
     let openMicrophoneFolder: () -> Bool
     let openSystemAudioFolder: () -> Bool
-    let discardMicrophoneIssue: (RecordingStoreIssue) -> Void
-    let discardSystemAudioIssue: (RecordingStoreIssue) -> Void
+    let moveMicrophoneIssueToTrash: (RecordingStoreIssue) -> Void
+    let moveSystemAudioIssueToTrash: (RecordingStoreIssue) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var pendingDiscard: PendingDiscard?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                Label("Recovery", systemImage: "exclamationmark.triangle.fill")
+                Label(RecoveryCopy.title, systemImage: "arrow.triangle.2.circlepath")
                     .font(.title2.weight(.semibold))
                 Spacer()
-                Button("Done") { dismiss() }
+                Button(RecoveryCopy.close) { dismiss() }
                     .keyboardShortcut(.escape, modifiers: [])
             }
-            Text("Bardo preserved these incomplete capture files after an interruption. Review them in Finder, or discard only the items you no longer need.")
+            Text(RecoveryCopy.reviewDescription)
                 .foregroundStyle(.secondary)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    issueSection("Microphone captures", issues: microphoneIssues, openFolder: openMicrophoneFolder, discard: discardMicrophoneIssue)
-                    issueSection("System audio captures", issues: systemAudioIssues, openFolder: openSystemAudioFolder, discard: discardSystemAudioIssue)
+
+            if microphoneIssues.isEmpty && systemAudioIssues.isEmpty {
+                ContentUnavailableView {
+                    Label(RecoveryCopy.allClearTitle, systemImage: "checkmark.circle")
+                } description: {
+                    Text(RecoveryCopy.allClearDescription)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        issueSection(
+                            source: .microphone,
+                            issues: microphoneIssues,
+                            openFolder: openMicrophoneFolder
+                        )
+                        issueSection(
+                            source: .systemAudio,
+                            issues: systemAudioIssues,
+                            openFolder: openSystemAudioFolder
+                        )
+                    }
+                }
+            }
+
+            Divider()
+            HStack {
+                Spacer()
+                Button(RecoveryCopy.close) { dismiss() }
+                    .keyboardShortcut(.defaultAction)
             }
         }
         .padding(24)
-        .frame(width: 560, height: 420)
+        .frame(minWidth: 560, idealHeight: 390, maxHeight: 620)
+        .alert(item: $pendingDiscard) { pending in
+            Alert(
+                title: Text(RecoveryCopy.moveToTrashTitle),
+                message: Text(RecoveryCopy.moveToTrashMessage(for: pending.source)),
+                primaryButton: .destructive(Text(RecoveryCopy.moveToTrashAction)) {
+                    switch pending.source {
+                    case .microphone:
+                        moveMicrophoneIssueToTrash(pending.issue)
+                    case .systemAudio:
+                        moveSystemAudioIssueToTrash(pending.issue)
+                    }
+                },
+                secondaryButton: .cancel(Text(RecoveryCopy.cancel))
+            )
+        }
     }
 
     @ViewBuilder
     private func issueSection(
-        _ title: String,
+        source: Source,
         issues: [RecordingStoreIssue],
-        openFolder: @escaping () -> Bool,
-        discard: @escaping (RecordingStoreIssue) -> Void
+        openFolder: @escaping () -> Bool
     ) -> some View {
         if !issues.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text(title).font(.headline)
+                    Label(RecoveryCopy.sectionTitle(for: source), systemImage: source == .microphone ? "mic" : "waveform")
+                        .font(.headline)
                     Spacer()
-                    Button("Open in Finder") { _ = openFolder() }
+                    Button(RecoveryCopy.openInFinder) { _ = openFolder() }
                 }
                 ForEach(issues) { issue in
                     HStack(spacing: 10) {
-                        Image(systemName: "doc.fill").foregroundStyle(.secondary)
+                        Image(systemName: source == .microphone ? "mic.fill" : "waveform")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(issue.entryName).lineLimit(1)
-                            Text(issue.message).font(.caption).foregroundStyle(.secondary)
+                            Text(RecoveryCopy.sectionTitle(for: source))
+                                .font(.body.weight(.medium))
+                            Text(RecoveryCopy.technicalID(issue.entryName))
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                            Text(RecoveryCopy.preservedMessage(for: source))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
                         }
                         Spacer()
                         if issue.recordingID != nil {
-                            Button("Discard", role: .destructive) { discard(issue) }
+                            Button(RecoveryCopy.moveToTrash) {
+                                pendingDiscard = PendingDiscard(issue: issue, source: source)
+                            }
                         }
                     }
                     .padding(10)
-                    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                    .background(.quaternary.opacity(0.28), in: RoundedRectangle(cornerRadius: 10))
                 }
             }
         }

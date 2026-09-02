@@ -61,6 +61,20 @@ actor MicrophoneCaptureStagingStore {
         }
     }
 
+    func moveToTrash(recordingID: UUID) throws {
+        let directory = captureDirectoryURL(for: recordingID)
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            if activeCaptureID == recordingID { activeCaptureID = nil }
+            return
+        }
+        do {
+            try FileManager.default.trashItem(at: directory, resultingItemURL: nil)
+            if activeCaptureID == recordingID { activeCaptureID = nil }
+        } catch {
+            throw MicrophoneCaptureStagingError.fileSystem(error.localizedDescription)
+        }
+    }
+
     func preserveInterruptedCapture(recordingID: UUID) {
         if activeCaptureID == recordingID {
             activeCaptureID = nil

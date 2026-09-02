@@ -182,6 +182,16 @@ final class SystemAudioRecordingController: ObservableObject {
         }
     }
 
+    func moveRecoveryIssueToTrash(_ issue: RecordingStoreIssue) async {
+        guard let recordingID = issue.recordingID else { return }
+        do {
+            try await resolveStagingStore().moveToTrash(recordingID: recordingID)
+            await refreshRecoveryIssues()
+        } catch {
+            errorMessage = "Bardo could not move (issue.entryName) to the Trash: (error.localizedDescription)"
+        }
+    }
+
     @discardableResult
     func openRecoveryFolder() -> Bool {
         guard let root = try? SystemAudioCaptureStagingStore.liveRootURL() else { return false }
