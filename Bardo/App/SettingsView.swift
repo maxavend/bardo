@@ -38,7 +38,7 @@ struct SettingsView: View {
                         ProgressView()
                             .controlSize(.small)
                     }
-                    Button("Refresh") {
+                    Button("Check Models") {
                         model.refresh()
                     }
                     .buttonStyle(.link)
@@ -61,7 +61,7 @@ struct SettingsView: View {
             } header: {
                 Label("Storage", systemImage: "externaldrive")
             } footer: {
-                Text("Bardo uses only models stored in its private folder.")
+                Text("Models are stored privately on your Mac.")
             }
         }
         .formStyle(.columns)
@@ -72,12 +72,12 @@ struct SettingsView: View {
         }
         .alert(item: $pendingReset) { request in
             let message = request.reinstall
-                ? String(localized: "Bardo will remove only this model’s private files and start a fresh download.")
-                : String(localized: "Bardo will remove only this model’s private files. You can download it again later.")
+                ? String(localized: "Bardo will remove this model’s private files and start a fresh download.")
+                : String(localized: "This frees space on your Mac. You can download the model again whenever you need it.")
             return Alert(
-                title: Text("Reset local model?"),
+                title: Text("Remove local model?"),
                 message: Text(message),
-                primaryButton: .destructive(Text(request.reinstall ? "Reset and Download" : "Reset")) {
+                primaryButton: .destructive(Text(request.reinstall ? "Remove and Download Again" : "Remove Model")) {
                     if request.reinstall {
                         model.resetAndInstall(request.model)
                     } else {
@@ -184,20 +184,20 @@ private struct ModelSettingsRow: View {
             Menu {
                 Button("Show in Finder") { action(.reveal) }
                 Divider()
-                Button("Reset and Download", role: .destructive) { action(.resetAndInstall) }
-                Button("Reset", role: .destructive) { action(.reset) }
+                Button("Remove and Download Again", role: .destructive) { action(.resetAndInstall) }
+                Button("Remove Model", role: .destructive) { action(.reset) }
             } label: {
                 Image(systemName: "ellipsis")
                     .frame(width: 24, height: 24)
             }
             .menuStyle(.borderlessButton)
             .controlSize(.small)
-            .accessibilityLabel("Manage \(row.title)")
-            .help("Show model actions")
+            .accessibilityLabel(String.localizedStringWithFormat(String(localized: "More actions for %@"), row.title))
+            .help("Show more actions")
         case .reveal:
             EmptyView()
         case .unavailable:
-            Text("On demand")
+            Text("Available on demand")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -487,15 +487,15 @@ private final class ModelSettingsViewModel: ObservableObject {
     private func makeRow(for model: ManagedModel, state: ManagedModelState) -> ModelSettingsRowState {
         switch model {
         case .whisperBalanced:
-            return ModelSettingsRowState(id: model, title: String(localized: "WhisperKit large-v3 Turbo"), detail: String(localized: "Recommended for everyday transcription"), supportsInstallation: true, state: state)
+            return ModelSettingsRowState(id: model, title: String(localized: "WhisperKit large-v3 Turbo"), detail: String(localized: "Recommended for most transcriptions"), supportsInstallation: true, state: state)
         case .whisperMaximumAccuracy:
-            return ModelSettingsRowState(id: model, title: String(localized: "WhisperKit large-v3"), detail: String(localized: "Highest WhisperKit accuracy tier"), supportsInstallation: true, state: state)
+            return ModelSettingsRowState(id: model, title: String(localized: "WhisperKit large-v3"), detail: String(localized: "Higher accuracy, with higher resource usage"), supportsInstallation: true, state: state)
         case .parakeet:
-            return ModelSettingsRowState(id: model, title: String(localized: "Parakeet TDT 0.6B v3"), detail: String(localized: "Instant transcription with FluidAudio"), supportsInstallation: true, state: state)
+            return ModelSettingsRowState(id: model, title: String(localized: "Parakeet TDT 0.6B v3"), detail: String(localized: "Fast and efficient on-device transcription"), supportsInstallation: true, state: state)
         case .speakerKit:
-            return ModelSettingsRowState(id: model, title: String(localized: "SpeakerKit / Pyannote"), detail: String(localized: "Local speaker identification and voice previews"), supportsInstallation: true, state: state)
+            return ModelSettingsRowState(id: model, title: String(localized: "SpeakerKit / Pyannote"), detail: String(localized: "Identifies speakers and creates voice samples"), supportsInstallation: true, state: state)
         case .qwen:
-            return ModelSettingsRowState(id: model, title: String(localized: "Qwen 3.5 0.8B MLX 4-bit"), detail: String(localized: "Downloads automatically when you generate your first meeting minute."), supportsInstallation: false, state: state)
+            return ModelSettingsRowState(id: model, title: String(localized: "Qwen 3.5 0.8B MLX 4-bit"), detail: String(localized: "Generates meeting minutes from your transcripts. Downloads automatically when needed."), supportsInstallation: false, state: state)
         }
     }
 
