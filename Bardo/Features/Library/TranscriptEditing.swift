@@ -137,3 +137,87 @@ struct TranscriptEditorSheet: View {
         .frame(minWidth: 520, minHeight: state.isMultiline ? 340 : 190)
     }
 }
+
+struct SpeakerNamingSheet: View {
+    let transcript: Transcript
+    @ObservedObject var model: LibraryViewModel
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var names: [Speaker.ID: String]
+
+    init(transcript: Transcript, model: LibraryViewModel) {
+        self.transcript = transcript
+        self.model = model
+        _names = State(initialValue: Dictionary(
+            uniqueKeysWithValues: transcript.speakers.map { ($0.id, $0.name ?? "") }
+        ))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Name Participants")
+                    .font(.title2.weight(.semibold))
+                Text("Listen to a short local audio sample for each detected speaker. Leave a name blank to keep the automatic label.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(Array(transcript.speakers.enumerated()), id: \.element.id) { index, speaker in
+                        speakerRow(speaker, index: index)
+                    }
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save Names") {
+                    Task {
+                        await model.renameSpeakers(names)
+                        dismiss()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 560, minHeight: 360)
+    }
+
+    @ViewBuilder
+    private func speakerRow(_ speaker: Speaker, index: Int) -> some View {
+        let fallback = "Speaker \(index + 1)"
+        let preview = model.speakerPreviews.first { $0.speakerID == speaker.id }
+
+        HStack(spacing: 12) {
+            Button {
+                guard let preview else { return }
+                _ = model.playSpeakerPreview(preview)
+            } label: {
+                Image(systemName: "play.circle.fill")
+                    .font(.title2)
+            }
+            .buttonStyle(.plain)
+            .disabled(preview == nil)
+            .help(preview == nil ? "No representative audio sample" : "Play speaker sample")
+
+            TextField(fallback, text: Binding(
+                get: { names[speaker.id, default: ""] },
+                set: { names[speaker.id] = $0 }
+            ))
+            .textFieldStyle(.roundedBorder)
+
+            Text(fallback)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .frame(width: 74, alignment: .trailing)
+        }
+        .padding(12)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}

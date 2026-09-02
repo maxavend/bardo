@@ -8,6 +8,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
         case installing(TranscriptionSetupProgressSnapshot)
         case installingSpeakers(DiarizationSetupProgressSnapshot)
         case ready
+        case cancelled
         case failed(String)
     }
 
@@ -16,6 +17,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
 
     private let defaults: UserDefaults
     private var isPreparing = false
+    private var preparationTask: Task<Void, Never>?
 
     private static var completionKey: String {
         "Bardo.FullAISetup.v3.\(TranscriptionModelManager.defaultModelID).\(SpeakerDiarizationService.modelID)"
@@ -34,7 +36,10 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     func prepareIfNeeded(force: Bool = false) async {
         guard !isPreparing else { return }
         isPreparing = true
-        defer { isPreparing = false }
+        defer {
+            isPreparing = false
+            preparationTask = nil
+        }
 
         do {
             let transcription = try WhisperTranscriptionService.live()
@@ -45,10 +50,16 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             let speakersInstalled = await speakers.hasInstalledModels()
 
             if !force, markedComplete, transcriptionInstalled, speakersInstalled {
+                // A completion marker is only a hint. Validate both engines again so a
+                // corrupted Core ML cache cannot put the launch screen into a false Ready
+                // state after a background warm-up silently failed.
+                try await transcription.prepareForUse { [weak self] snapshot in
+                    Task { @MainActor in self?.state = .installing(snapshot) }
+                }
+                try await speakers.prepareForUse { [weak self] snapshot in
+                    Task { @MainActor in self?.state = .installingSpeakers(snapshot) }
+                }
                 state = .ready
-                async let transcriptionWarm: Void = transcription.warmUpIfInstalled()
-                async let speakerWarm: Void = speakers.warmUpIfInstalled()
-                _ = await (transcriptionWarm, speakerWarm)
                 return
             }
 
@@ -77,17 +88,48 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             completedSetupThisLaunch = true
             state = .ready
         } catch is CancellationError {
-            // Closing Bardo during first-run setup is safe. Partial downloads remain in the
-            // local caches and the next launch resumes/validates them before entering Library.
+            state = .cancelled
         } catch {
             state = .failed(error.localizedDescription)
         }
     }
 
-    func retry() {
-        Task { @MainActor in
-            await prepareIfNeeded(force: true)
+    func startPreparation(force: Bool = false) {
+        guard preparationTask == nil, !isPreparing else { return }
+        preparationTask = Task { @MainActor [weak self] in
+            await self?.prepareIfNeeded(force: force)
         }
+    }
+
+    func cancelPreparation() {
+        preparationTask?.cancel()
+        if isPreparing {
+            state = .cancelled
+        }
+    }
+
+    func resetAndRetry() {
+        guard preparationTask == nil, !isPreparing else { return }
+        preparationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let store = try BardoModelStore.live()
+                try store.reset(.whisperBalanced)
+                let speakers = try SpeakerDiarizationService.live()
+                try await speakers.reset()
+                defaults.set(false, forKey: Self.completionKey)
+                await prepareIfNeeded(force: true)
+            } catch is CancellationError {
+                state = .cancelled
+            } catch {
+                state = .failed(error.localizedDescription)
+                preparationTask = nil
+            }
+        }
+    }
+
+    func retry() {
+        startPreparation(force: true)
     }
 
     func warmForRecording() {

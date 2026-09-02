@@ -3,6 +3,20 @@ import SwiftUI
 struct TranscriptionSetupView: View {
     let state: TranscriptionSetupCoordinator.State
     let retry: () -> Void
+    let cancel: () -> Void
+    let resetAndRetry: () -> Void
+
+    init(
+        state: TranscriptionSetupCoordinator.State,
+        retry: @escaping () -> Void,
+        cancel: @escaping () -> Void = {},
+        resetAndRetry: @escaping () -> Void = {}
+    ) {
+        self.state = state
+        self.retry = retry
+        self.cancel = cancel
+        self.resetAndRetry = resetAndRetry
+    }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var messageIndex = 0
@@ -33,9 +47,9 @@ struct TranscriptionSetupView: View {
 
                 VStack(spacing: 14) {
                     if case .failed = state {
-                        Button("Try Again", action: retry)
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
+                        setupActions
+                    } else if case .cancelled = state {
+                        setupActions
                     } else {
                         HStack(spacing: 12) {
                             ProgressView(value: progressValue)
@@ -53,6 +67,10 @@ struct TranscriptionSetupView: View {
                             Text(stageLabel)
                                 .font(.callout.weight(.medium))
                                 .foregroundStyle(.secondary)
+                        }
+
+                        if isCancellable {
+                            Button("Cancel", role: .cancel, action: cancel)
                         }
 
                         Text(currentAside)
@@ -98,6 +116,27 @@ struct TranscriptionSetupView: View {
         }
     }
 
+    @ViewBuilder
+    private var setupActions: some View {
+        HStack(spacing: 12) {
+            Button("Try Again", action: retry)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+            Button("Reset & Download Again", action: resetAndRetry)
+                .controlSize(.large)
+        }
+    }
+
+    private var isCancellable: Bool {
+        switch state {
+        case .checking, .installing, .installingSpeakers:
+            return true
+        case .ready, .cancelled, .failed:
+            return false
+        }
+    }
+
     private var title: String {
         switch state {
         case .checking:
@@ -122,6 +161,8 @@ struct TranscriptionSetupView: View {
             }
         case .ready:
             return "Bardo Is Ready"
+        case .cancelled:
+            return "Setup Paused"
         case .failed:
             return "Setup Couldn’t Finish"
         }
@@ -151,6 +192,8 @@ struct TranscriptionSetupView: View {
             }
         case .ready:
             return "Everything is installed, warmed up, and ready to stay local."
+        case .cancelled:
+            return "Setup was cancelled. Nothing was deleted; you can continue or reset the private models."
         case .failed(let message):
             return message
         }
@@ -180,6 +223,8 @@ struct TranscriptionSetupView: View {
             }
         case .ready:
             return "Ready"
+        case .cancelled:
+            return "Setup cancelled"
         case .failed:
             return "Setup needs attention"
         }
@@ -203,6 +248,8 @@ struct TranscriptionSetupView: View {
             }
         case .ready:
             return .ready
+        case .cancelled:
+            return .cancelled
         case .failed:
             return .failed
         }
@@ -250,6 +297,8 @@ struct TranscriptionSetupView: View {
             ]
         case .ready:
             return ["Ready when you are."]
+        case .cancelled:
+            return ["Your models are still safe. Resume whenever you’re ready."]
         case .failed:
             return ["Nothing was thrown away. Try again and Bardo will pick up where it can."]
         }
@@ -287,6 +336,8 @@ struct TranscriptionSetupView: View {
             }
         case .ready:
             return 1
+        case .cancelled:
+            return 0
         case .failed:
             return 0
         }

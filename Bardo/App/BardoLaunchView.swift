@@ -12,14 +12,16 @@ struct BardoLaunchView: View {
             } else {
                 TranscriptionSetupView(
                     state: setup.state,
-                    retry: setup.retry
+                    retry: setup.retry,
+                    cancel: setup.cancelPreparation,
+                    resetAndRetry: setup.resetAndRetry
                 )
                 .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.22), value: shouldShowLibrary)
         .task {
-            await setup.prepareIfNeeded()
+            setup.startPreparation()
         }
         .task(id: setup.isReady) {
             guard setup.isReady, setup.completedSetupThisLaunch else { return }

@@ -8,6 +8,7 @@ struct TranscriptContentView: View {
 
     @Binding var searchText: String
     @Binding var editor: TranscriptEditorState?
+    @Binding var isSpeakerNamingPresented: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -41,16 +42,34 @@ struct TranscriptContentView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
-                if transcript.diarizationMetadata != nil {
-                    Text("·")
-                        .foregroundStyle(.tertiary)
-                    Text("\(transcript.speakers.count) speaker\(transcript.speakers.count == 1 ? "" : "s")")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+                Text("·")
+                    .foregroundStyle(.tertiary)
+                speakerStatus(for: transcript)
             }
 
             Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private func speakerStatus(for transcript: Transcript) -> some View {
+        switch SpeakerNamingPolicy.presentation(for: transcript) {
+        case .identifySpeakers:
+            Button("Identify Speakers") {
+                model.beginDiarization()
+            }
+            .buttonStyle(.link)
+            .disabled(recording.audioAssets.isEmpty || model.isTranscribing || model.isDiarizing)
+        case .singleSpeaker:
+            Text("1 Speaker")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        case .participants(let count):
+            Button("Participants (\(count))") {
+                isSpeakerNamingPresented = true
+            }
+            .buttonStyle(.link)
+            .disabled(model.isTranscribing || model.isDiarizing)
         }
     }
 

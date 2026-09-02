@@ -10,6 +10,7 @@ struct RecordingDetailView: View {
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
     @State private var isInspectorPresented = false
+    @State private var isSpeakerNamingPresented = false
 
     var body: some View {
         ScrollView {
@@ -21,8 +22,13 @@ struct RecordingDetailView: View {
                     model: model,
                     playback: playback,
                     searchText: $transcriptSearch,
-                    editor: $editor
+                    editor: $editor,
+                    isSpeakerNamingPresented: $isSpeakerNamingPresented
                 )
+
+                if let transcript = model.transcript, transcript.recordingID == recording.id {
+                    MeetingMinutesView(recording: recording, model: model)
+                }
             }
             .frame(maxWidth: 880, alignment: .leading)
             .padding(.horizontal, 36)
@@ -48,6 +54,12 @@ struct RecordingDetailView: View {
             transcriptSearch = ""
             editor = nil
             pendingReplacementAction = nil
+            isSpeakerNamingPresented = false
+        }
+        .onChange(of: model.shouldPresentSpeakerNamingSheet) { _, shouldPresent in
+            guard shouldPresent else { return }
+            isSpeakerNamingPresented = true
+            model.consumeSpeakerNamingSheetRequest()
         }
         .sheet(item: $editor) { state in
             TranscriptEditorSheet(
@@ -70,6 +82,11 @@ struct RecordingDetailView: View {
                     }
                 } : nil
             )
+        }
+        .sheet(isPresented: $isSpeakerNamingPresented) {
+            if let transcript = model.transcript, transcript.recordingID == recording.id {
+                SpeakerNamingSheet(transcript: transcript, model: model)
+            }
         }
         .alert(item: $pendingReplacementAction) { action in
             Alert(
