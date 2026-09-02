@@ -28,6 +28,76 @@ final class TranscriptionModelManagerTests: XCTestCase {
         rootURL = nil
     }
 
+    func testCatalogListsTurboAndLargeV3WhisperVariants() {
+        XCTAssertEqual(
+            TranscriptionModelManager.catalog.map(\.id),
+            [
+                "large-v3-v20240930_turbo_632MB",
+                "large-v3-v20240930_626MB"
+            ]
+        )
+        XCTAssertEqual(
+            TranscriptionModelManager.catalog.map(\.displayName),
+            ["WhisperKit large-v3 Turbo", "WhisperKit large-v3"]
+        )
+        XCTAssertEqual(TranscriptionModelManager.catalog.filter(\.isDefault).count, 1)
+        XCTAssertTrue(TranscriptionModelManager.catalog.allSatisfy { $0.requiredFreeBytes > 0 })
+    }
+
+    func testManagerDefaultsToBalancedWhisperKitSelection() async throws {
+        let manager = TranscriptionModelManager(
+            downloadRoot: rootURL,
+            availableCapacity: { _ in 0 },
+            prepareTokenizer: { _ in }
+        )
+
+        let selectedDefinition = await manager.selectedDefinition()
+        XCTAssertEqual(
+            selectedDefinition,
+            TranscriptionModelDefinition(
+                id: "large-v3-v20240930_turbo_632MB",
+                displayName: "WhisperKit large-v3 Turbo",
+                requiredFreeBytes: 1_500_000_000,
+                isDefault: true
+            )
+        )
+        let selectedSelection = await manager.selectedSelection()
+        XCTAssertEqual(
+            selectedSelection,
+            TranscriptionSelection(
+                preset: .balanced,
+                backend: .whisperKit,
+                modelID: "large-v3-v20240930_turbo_632MB"
+            )
+        )
+    }
+
+    func testManagerCanSelectMaximumAccuracyLargeV3() async throws {
+        let manager = TranscriptionModelManager(
+            definition: TranscriptionModelDefinition(
+                id: "large-v3-v20240930_626MB",
+                displayName: "WhisperKit large-v3",
+                requiredFreeBytes: 1_500_000_000,
+                isDefault: false
+            ),
+            downloadRoot: rootURL,
+            availableCapacity: { _ in 0 },
+            prepareTokenizer: { _ in }
+        )
+
+        let selectedDefinition = await manager.selectedDefinition()
+        XCTAssertEqual(selectedDefinition.id, "large-v3-v20240930_626MB")
+        let selectedSelection = await manager.selectedSelection()
+        XCTAssertEqual(
+            selectedSelection,
+            TranscriptionSelection(
+                preset: .maximumAccuracy,
+                backend: .whisperKit,
+                modelID: "large-v3-v20240930_626MB"
+            )
+        )
+    }
+
     func testInstalledModelPreparesTokenizerAndReturnsCompleteResources() async throws {
         let modelFolder = rootURL
             .appendingPathComponent("cache", isDirectory: true)
@@ -73,6 +143,32 @@ final class TranscriptionModelManagerTests: XCTestCase {
         XCTAssertEqual(first, second)
         let preparationCount = await counter.value
         XCTAssertEqual(preparationCount, 1, "Tokenizer/cache resolution should not repeat for every short recording")
+    }
+
+    func testSuccessfulPreparationPublishesInstalledStateAndFinalProgress() async throws {
+        let modelFolder = rootURL
+            .appendingPathComponent("openai_whisper-\(TranscriptionModelManager.defaultModelID)", isDirectory: true)
+        try makeModelSkeleton(at: modelFolder)
+        let progress = ProgressRecorder()
+
+        let manager = TranscriptionModelManager(
+            downloadRoot: rootURL,
+            availableCapacity: { _ in 0 },
+            prepareTokenizer: { _ in }
+        )
+
+        let initialState = await manager.state()
+        XCTAssertEqual(initialState, .notInstalled)
+        _ = try await manager.ensureResourcesAvailable { fraction in
+            progress.append(fraction)
+        }
+
+        let finalState = await manager.state()
+        XCTAssertEqual(finalState, .installed)
+        let recordedProgress = progress.values
+        XCTAssertEqual(recordedProgress.count, 2)
+        XCTAssertEqual(recordedProgress[0], 0.9, accuracy: 0.000_001)
+        XCTAssertEqual(recordedProgress[1], 1, accuracy: 0.000_001)
     }
 
     func testInsufficientDiskSpaceFailsBeforeTokenizerPreparation() async throws {
@@ -177,5 +273,22 @@ final class TranscriptionModelManagerTests: XCTestCase {
                 withIntermediateDirectories: true
             )
         }
+    }
+}
+
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedValues: [Double] = []
+
+    func append(_ value: Double) {
+        lock.lock()
+        recordedValues.append(value)
+        lock.unlock()
+    }
+
+    var values: [Double] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedValues
     }
 }

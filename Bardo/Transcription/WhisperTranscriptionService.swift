@@ -316,13 +316,14 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         let whisper = try await engine(resources: resources, progress: progress)
         try checkCancellation(cancellation)
 
+        let selection = await modelManager.selectedSelection()
         let transcript = try await transcribeChunks(
             recordingID: recording.id,
             audioURL: audioURL,
             recordingDuration: duration,
             plans: plans,
             whisper: whisper,
-            modelID: await modelManager.selectedModelID(),
+            selection: selection,
             cancellation: cancellation,
             progress: progress
         )
@@ -370,7 +371,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         recordingDuration: TimeInterval,
         plans: [TranscriptionChunkPlan],
         whisper: WhisperKit,
-        modelID: String,
+        selection: TranscriptionSelection,
         cancellation: TranscriptionCancellationFlag,
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
     ) async throws -> Transcript {
@@ -462,7 +463,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             metadata: TranscriptMetadata(
                 engine: "WhisperKit",
                 engineVersion: Self.engineVersion,
-                modelID: modelID
+                modelID: selection.modelID,
+                selection: selection
             )
         )
     }

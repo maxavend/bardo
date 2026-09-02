@@ -68,18 +68,38 @@ struct TranscriptMetadata: Codable, Equatable, Sendable {
     let engine: String
     let engineVersion: String
     let modelID: String
+    let selection: TranscriptionSelection?
     let createdAt: Date
 
     init(
         engine: String,
         engineVersion: String,
         modelID: String,
+        selection: TranscriptionSelection? = nil,
         createdAt: Date = Date()
     ) {
         self.engine = engine
         self.engineVersion = engineVersion
         self.modelID = modelID
+        self.selection = selection
         self.createdAt = createdAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case engine
+        case engineVersion
+        case modelID
+        case selection
+        case createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        engine = try container.decode(String.self, forKey: .engine)
+        engineVersion = try container.decode(String.self, forKey: .engineVersion)
+        modelID = try container.decode(String.self, forKey: .modelID)
+        selection = try container.decodeIfPresent(TranscriptionSelection.self, forKey: .selection)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
     }
 }
 

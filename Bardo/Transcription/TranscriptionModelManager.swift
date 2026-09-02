@@ -22,28 +22,54 @@ struct TranscriptionModelResources: Equatable, Sendable {
     let tokenizerFolder: URL
 }
 
+struct TranscriptionModelDefinition: Equatable, Sendable {
+    let id: String
+    let displayName: String
+    let requiredFreeBytes: Int64
+    let isDefault: Bool
+}
+
 actor TranscriptionModelManager {
     // Turbo keeps Whisper large-v3 multilingual quality while reducing the decoder from
     // 32 layers to 4. The compressed variant is a better default for a 16 GB Mac because
     // it substantially reduces model storage and memory pressure without falling back to
     // a small/medium accuracy tier.
-    static let fastModelID = "large-v3-v20240930_turbo_632MB"
+    static let balancedModelID = "large-v3-v20240930_turbo_632MB"
     static let maximumAccuracyModelID = "large-v3-v20240930_626MB"
-    static let defaultModelID = fastModelID
+    static let fastModelID = balancedModelID
+    static let defaultModelID = balancedModelID
     static let minimumFreeBytesForDownload: Int64 = 1_500_000_000
+
+    static let catalog: [TranscriptionModelDefinition] = [
+        TranscriptionModelDefinition(
+            id: balancedModelID,
+            displayName: "WhisperKit large-v3 Turbo",
+            requiredFreeBytes: minimumFreeBytesForDownload,
+            isDefault: true
+        ),
+        TranscriptionModelDefinition(
+            id: maximumAccuracyModelID,
+            displayName: "WhisperKit large-v3",
+            requiredFreeBytes: minimumFreeBytesForDownload,
+            isDefault: false
+        )
+    ]
+
+    static let defaultDefinition = catalog.first(where: \.isDefault)!
 
     typealias CapacityProvider = @Sendable (URL) throws -> Int64?
     typealias TokenizerPreparer = @Sendable (URL) async throws -> Void
 
-    private let modelID: String
+    private let definition: TranscriptionModelDefinition
     private let downloadRoot: URL
     private let fileManager: FileManager
     private let availableCapacity: CapacityProvider
     private let prepareTokenizer: TokenizerPreparer
     private var cachedResources: TranscriptionModelResources?
+    private var modelState: ManagedModelState = .notInstalled
 
     init(
-        modelID: String = TranscriptionModelManager.defaultModelID,
+        definition: TranscriptionModelDefinition = TranscriptionModelManager.defaultDefinition,
         downloadRoot: URL,
         fileManager: FileManager = .default,
         availableCapacity: @escaping CapacityProvider = { url in
@@ -53,7 +79,7 @@ actor TranscriptionModelManager {
             try await TranscriptionModelManager.prepareLargeV3Tokenizer(in: root)
         }
     ) {
-        self.modelID = modelID
+        self.definition = definition
         self.downloadRoot = downloadRoot
         self.fileManager = fileManager
         self.availableCapacity = availableCapacity
@@ -61,17 +87,32 @@ actor TranscriptionModelManager {
     }
 
     static func live() throws -> TranscriptionModelManager {
-        let applicationSupport = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
+        try live(definition: defaultDefinition)
+    }
+
+    static func live(
+        definition: TranscriptionModelDefinition
+    ) throws -> TranscriptionModelManager {
+        let store = try BardoModelStore.live()
+        return TranscriptionModelManager(
+            definition: definition,
+            downloadRoot: store.root(for: managedModel(for: definition))
         )
-        let root = applicationSupport
-            .appendingPathComponent("Bardo", isDirectory: true)
-            .appendingPathComponent("Models", isDirectory: true)
-            .appendingPathComponent("WhisperKit", isDirectory: true)
-        return TranscriptionModelManager(downloadRoot: root)
+    }
+
+    private static func managedModel(
+        for definition: TranscriptionModelDefinition
+    ) -> ManagedModel {
+        if definition.id == maximumAccuracyModelID {
+            return .whisperMaximumAccuracy
+        }
+        return .whisperBalanced
+    }
+
+    static func preset(
+        for definition: TranscriptionModelDefinition
+    ) -> TranscriptionPreset {
+        definition.id == maximumAccuracyModelID ? .maximumAccuracy : .balanced
     }
 
     nonisolated static func systemAvailableCapacity(at url: URL) throws -> Int64? {
@@ -93,9 +134,12 @@ actor TranscriptionModelManager {
     func installedModelURL() throws -> URL? {
         try ensureDirectoryExists(downloadRoot)
         if let cachedResources, verifyModelFolder(cachedResources.modelFolder) {
+            modelState = .installed
             return cachedResources.modelFolder
         }
-        return findInstalledModel()
+        let installed = findInstalledModel()
+        modelState = installed == nil ? .notInstalled : .installed
+        return installed
     }
 
     func hasInstalledModel() throws -> Bool {
@@ -105,59 +149,87 @@ actor TranscriptionModelManager {
     func ensureResourcesAvailable(
         progress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> TranscriptionModelResources {
-        try ensureDirectoryExists(downloadRoot)
+        do {
+            try ensureDirectoryExists(downloadRoot)
 
-        if let cachedResources, verifyModelFolder(cachedResources.modelFolder) {
-            progress(1)
-            return cachedResources
-        }
-
-        let modelFolder: URL
-        if let installed = findInstalledModel() {
-            modelFolder = installed
-            progress(0.9)
-        } else {
-            try verifyFreeSpace()
-            progress(0)
-
-            let downloaded = try await WhisperKit.download(
-                variant: modelID,
-                downloadBase: downloadRoot,
-                progressCallback: { downloadProgress in
-                    let modelProgress = min(1, max(0, downloadProgress.fractionCompleted))
-                    progress(modelProgress * 0.9)
-                }
-            )
-
-            guard verifyModelFolder(downloaded) else {
-                throw TranscriptionModelError.downloadedModelInvalid(modelID)
+            if let cachedResources, verifyModelFolder(cachedResources.modelFolder) {
+                modelState = .installed
+                progress(1)
+                return cachedResources
             }
-            modelFolder = downloaded
-            progress(0.9)
-        }
 
-        // Tokenizer preparation is intentionally cached for the lifetime of this manager.
-        // The previous implementation repeated this Hub/cache resolution for every 8-second
-        // transcription even when nothing had changed.
-        try await prepareTokenizer(downloadRoot)
-        let resources = TranscriptionModelResources(
-            modelFolder: modelFolder,
-            tokenizerFolder: downloadRoot
-        )
-        cachedResources = resources
-        progress(1)
-        return resources
+            let modelFolder: URL
+            if let installed = findInstalledModel() {
+                modelFolder = installed
+                modelState = .preparing(0.9)
+                progress(0.9)
+            } else {
+                try verifyFreeSpace()
+                modelState = .downloading(0)
+                progress(0)
+
+                let downloaded = try await WhisperKit.download(
+                    variant: definition.id,
+                    downloadBase: downloadRoot,
+                    progressCallback: { downloadProgress in
+                        let modelProgress = min(1, max(0, downloadProgress.fractionCompleted))
+                        let overallProgress = modelProgress * 0.9
+                        progress(overallProgress)
+                    }
+                )
+
+                guard verifyModelFolder(downloaded) else {
+                    throw TranscriptionModelError.downloadedModelInvalid(definition.id)
+                }
+                modelFolder = downloaded
+                modelState = .preparing(0.9)
+                progress(0.9)
+            }
+
+            // Tokenizer preparation is intentionally cached for the lifetime of this manager.
+            // The previous implementation repeated this Hub/cache resolution for every 8-second
+            // transcription even when nothing had changed.
+            try await prepareTokenizer(downloadRoot)
+            modelState = .preparing(1)
+            let resources = TranscriptionModelResources(
+                modelFolder: modelFolder,
+                tokenizerFolder: downloadRoot
+            )
+            cachedResources = resources
+            modelState = .installed
+            progress(1)
+            return resources
+        } catch {
+            modelState = .failed(error.localizedDescription)
+            throw error
+        }
     }
 
     func selectedModelID() -> String {
-        modelID
+        definition.id
+    }
+
+    func selectedDefinition() -> TranscriptionModelDefinition {
+        definition
+    }
+
+    func selectedSelection() -> TranscriptionSelection {
+        TranscriptionSelection(
+            preset: Self.preset(for: definition),
+            backend: .whisperKit,
+            modelID: definition.id
+        )
+    }
+
+    func state() -> ManagedModelState {
+        modelState
     }
 
     private func verifyFreeSpace() throws {
         guard let availableBytes = try availableCapacity(downloadRoot) else { return }
-        guard availableBytes >= Self.minimumFreeBytesForDownload else {
+        guard availableBytes >= definition.requiredFreeBytes else {
             throw TranscriptionModelError.insufficientDiskSpace(
-                requiredBytes: Self.minimumFreeBytesForDownload,
+                requiredBytes: definition.requiredFreeBytes,
                 availableBytes: availableBytes
             )
         }
@@ -173,7 +245,7 @@ actor TranscriptionModelManager {
         }
 
         for case let url as URL in enumerator {
-            guard url.lastPathComponent.contains(modelID) else { continue }
+            guard url.lastPathComponent.contains(definition.id) else { continue }
             if verifyModelFolder(url) {
                 return url
             }
