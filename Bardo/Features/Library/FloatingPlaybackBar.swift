@@ -5,25 +5,6 @@ struct FloatingPlaybackBar: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            if let metadata = playback.metadata {
-                HStack(spacing: 8) {
-                    Image(systemName: "waveform")
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(metadata.title)
-                            .font(.callout.weight(.medium))
-                            .lineLimit(1)
-                        Text(metadata.trackLabel)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Playing \(metadata.title), \(metadata.trackLabel)")
-            }
-
             if let errorMessage = playback.errorMessage, !playback.isLoaded {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(.caption)
