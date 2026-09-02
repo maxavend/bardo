@@ -233,25 +233,37 @@ struct RootView: View {
         let total = microphone.recoveryIssues.count + systemAudio.recoveryIssues.count
 
         if total > 0 {
-            HStack(spacing: 9) {
+            HStack(alignment: .center, spacing: 12) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.secondary)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .frame(width: 24, height: 24)
                     .accessibilityHidden(true)
-                Text("Bardo preserved \(total) incomplete capture\(total == 1 ? "" : "s") for recovery.")
-                    .font(.caption)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Capture recovery needed")
+                        .font(.callout.weight(.semibold))
+                    Text("\(total) incomplete capture\(total == 1 ? "" : "s") preserved safely")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
                 Button("Review…") { isRecoveryPresented = true }
-                    .buttonStyle(.link)
-                    .font(.caption.weight(.semibold))
-                Spacer(minLength: 0)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .frame(maxWidth: 640)
-            .bardoGlassSurface(cornerRadius: 14)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: 720, minHeight: 52)
+            .bardoGlassSurface(cornerRadius: 16)
             .padding(.horizontal, 18)
             .padding(.top, 8)
             .frame(maxWidth: .infinity)
-            .accessibilityLabel("Bardo preserved \(total) incomplete captures for recovery")
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Capture recovery needed. \(total) incomplete capture\(total == 1 ? "" : "s") preserved safely. Review recovery files.")
         }
     }
 
