@@ -31,6 +31,9 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - path: Bardo
+        excludes:
+          - Models
+      - path: Bardo/Models
     dependencies:
       - package: ArgmaxOSS
         product: WhisperKit
