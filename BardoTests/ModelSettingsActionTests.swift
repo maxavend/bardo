@@ -57,4 +57,16 @@ final class ModelSettingsActionTests: XCTestCase {
 
         XCTAssertEqual(row.symbol, "arrow.down.circle")
     }
+
+    func testInstallableNotInstalledRowDoesNotRepeatStatusBesideInstallAction() {
+        let row = ModelSettingsRowState(
+            id: .parakeet,
+            title: "Parakeet",
+            detail: "Fast transcription",
+            supportsInstallation: true,
+            state: .notInstalled
+        )
+
+        XCTAssertTrue(row.stateLabel.isEmpty)
+    }
 }

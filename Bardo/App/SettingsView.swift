@@ -8,11 +8,18 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                Text("Bardo keeps recordings, transcripts, speaker names, and AI models on this Mac. Nothing in this screen uploads audio.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } header: {
-                Label("Privacy", systemImage: "lock.shield")
+                Label {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Privacy")
+                            .fontWeight(.semibold)
+                        Text("Your recordings and transcripts stay on this Mac. Bardo does not upload audio to the internet.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } icon: {
+                    Image(systemName: "hand.raised")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section {
@@ -49,13 +56,9 @@ struct SettingsView: View {
             }
 
             Section {
-                Button {
-                    model.revealModelsFolder()
-                } label: {
-                    LabeledContent("Model folder") {
-                        Button("Show in Finder") {
-                            model.revealModelsFolder()
-                        }
+                LabeledContent("Model folder") {
+                    Button("Show in Finder") {
+                        model.revealModelsFolder()
                     }
                 }
             } header: {
@@ -64,9 +67,9 @@ struct SettingsView: View {
                 Text("Models are stored privately on your Mac.")
             }
         }
-        .formStyle(.columns)
-        .frame(minWidth: 620, idealWidth: 680, minHeight: 560, idealHeight: 640)
-        .padding(20)
+        .formStyle(.grouped)
+        .scenePadding()
+        .frame(minWidth: 560, idealWidth: 620, maxWidth: 720, minHeight: 480, idealHeight: 560, maxHeight: 680)
         .task {
             await model.refreshIfNeeded()
         }
@@ -138,10 +141,12 @@ private struct ModelSettingsRow: View {
 
                 Spacer(minLength: 12)
                 HStack(spacing: 10) {
-                    Text(row.stateLabel)
-                        .font(.callout)
-                        .foregroundStyle(row.stateColor)
-                        .lineLimit(1)
+                    if !row.stateLabel.isEmpty {
+                        Text(row.stateLabel)
+                            .font(.callout)
+                            .foregroundStyle(row.stateColor)
+                            .lineLimit(1)
+                    }
                     stateControl
                 }
             }
@@ -162,7 +167,13 @@ private struct ModelSettingsRow: View {
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(row.title), \(row.stateLabel). \(row.detail)")
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        [row.title, row.stateLabel, row.detail]
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
     }
 
     @ViewBuilder
@@ -197,9 +208,7 @@ private struct ModelSettingsRow: View {
         case .reveal:
             EmptyView()
         case .unavailable:
-            Text("Available on demand")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            EmptyView()
         }
     }
 }
@@ -218,9 +227,7 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
     var stateLabel: String {
         switch state {
         case .notInstalled:
-            return supportsInstallation
-                ? String(localized: "Not Installed")
-                : String(localized: "Available on demand")
+            return supportsInstallation ? "" : String(localized: "Available on demand")
         case .downloading(let fraction):
             return String.localizedStringWithFormat(String(localized: "Downloading %@"), percentage(fraction))
         case .preparing(let fraction):

@@ -27,7 +27,7 @@
 "Settings" = "Ajustes";
 "Open Bardo Settings" = "Abrir los ajustes de Bardo";
 "Privacy" = "Privacidad";
-"Bardo keeps recordings, transcripts, speaker names, and AI models on this Mac. Nothing in this screen uploads audio." = "Bardo mantiene las grabaciones, transcripciones, nombres de speakers y modelos de IA en este Mac. Nada de esta pantalla sube audio.";
+"Your recordings and transcripts stay on this Mac. Bardo does not upload audio to the internet." = "Tus grabaciones y transcripciones permanecen en este Mac. Bardo no sube audio a internet.";
 "Local Models" = "Modelos locales";
 "Checking local models…" = "Comprobando modelos locales…";
 "Check Models" = "Comprobar modelos";
