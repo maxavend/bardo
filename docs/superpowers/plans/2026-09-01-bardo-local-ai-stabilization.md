@@ -248,4 +248,3 @@
 - [ ] Confirm `git status --short` contains only intentionally untracked local artifacts, if any, and no generated project/build files or temporary scripts.
 - [ ] Report remote GitHub Actions status separately from local evidence; report physical Mac/TCC/model-quality limitations without claiming them tested.
 - [ ] Commit any documentation-only verification updates, then rerun the full verification because the HEAD changed.
-
