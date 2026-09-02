@@ -5,6 +5,25 @@ struct FloatingPlaybackBar: View {
 
     var body: some View {
         VStack(spacing: 6) {
+            if let metadata = playback.metadata {
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform")
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(metadata.title)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                        Text(metadata.trackLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Playing \(metadata.title), \(metadata.trackLabel)")
+            }
+
             if let errorMessage = playback.errorMessage, !playback.isLoaded {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -20,6 +39,7 @@ struct FloatingPlaybackBar: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!playback.isLoaded)
+                .accessibilityLabel("Back 15 seconds")
                 .help("Back 15 seconds")
 
                 Button {
@@ -33,6 +53,7 @@ struct FloatingPlaybackBar: View {
                 .buttonStyle(.plain)
                 .disabled(!playback.isLoaded)
                 .help(playback.isPlaying ? "Pause" : "Play")
+                .accessibilityLabel(playback.isPlaying ? "Pause" : "Play")
 
                 Text(LibraryFormatting.duration(playback.position))
                     .font(.caption.monospacedDigit())
@@ -62,6 +83,7 @@ struct FloatingPlaybackBar: View {
                 .buttonStyle(.plain)
                 .disabled(!playback.isLoaded)
                 .help("Forward 15 seconds")
+                .accessibilityLabel("Forward 15 seconds")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

@@ -58,6 +58,17 @@ struct LibraryView: View {
         } message: {
             Text(model.importErrorMessage ?? "The audio could not be imported.")
         }
+        .alert(
+            "Recording Action Failed",
+            isPresented: Binding(
+                get: { model.recordingActionErrorMessage != nil },
+                set: { if !$0 { model.clearRecordingActionError() } }
+            )
+        ) {
+            Button("OK") { model.clearRecordingActionError() }
+        } message: {
+            Text(model.recordingActionErrorMessage ?? "Bardo could not complete that action.")
+        }
         .onDisappear {
             model.cancelTranscription()
             model.cancelDiarization()
@@ -75,6 +86,7 @@ struct LibraryView: View {
             }
             .disabled(model.isImporting || model.isTranscribing || model.isDiarizing)
             .help("Import audio")
+            .keyboardShortcut("o", modifiers: [.command, .shift])
 
             Button {
                 Task { await model.reload() }
@@ -83,6 +95,7 @@ struct LibraryView: View {
             }
             .disabled(model.isLoading || model.isImporting || model.isTranscribing || model.isDiarizing)
             .help("Reload library")
+            .keyboardShortcut("r", modifiers: [.command])
         }
     }
 

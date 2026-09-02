@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -7,6 +8,8 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var issues: [RecordingStoreIssue] = []
     @Published private(set) var errorMessage: String?
     @Published private(set) var importErrorMessage: String?
+    @Published private(set) var recordingActionErrorMessage: String?
+    @Published private(set) var recordingActionFeedback: String?
     @Published private(set) var transcript: Transcript?
     @Published private(set) var transcriptErrorMessage: String?
     @Published private(set) var transcriptEditErrorMessage: String?
@@ -115,6 +118,116 @@ final class LibraryViewModel: ObservableObject {
         importErrorMessage = nil
     }
 
+    func renameRecording(_ recordingID: Recording.ID, to proposedTitle: String) async {
+        guard var recording = recordings.first(where: { $0.id == recordingID }) else {
+            recordingActionErrorMessage = "That recording is no longer available."
+            return
+        }
+
+        let title = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            recordingActionErrorMessage = "Recording title cannot be empty."
+            recordingActionFeedback = nil
+            return
+        }
+
+        recordingActionErrorMessage = nil
+        recordingActionFeedback = nil
+        recording.title = title
+
+        do {
+            try await resolveStore().update(recording)
+            replaceRecording(recording)
+            recordingActionFeedback = "Recording renamed"
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+        }
+    }
+
+    func deleteRecording(_ recordingID: Recording.ID) async {
+        guard recordings.contains(where: { $0.id == recordingID }) else {
+            recordingActionErrorMessage = "That recording is no longer available."
+            return
+        }
+
+        guard recordingID != diarizationRecordingID,
+              !(isTranscribing && selection == recordingID),
+              !(isDiarizing && selection == recordingID),
+              !(isGeneratingMeetingMinutes && selection == recordingID)
+        else {
+            recordingActionErrorMessage = "Finish or cancel processing before deleting this recording."
+            return
+        }
+
+        recordingActionErrorMessage = nil
+        recordingActionFeedback = nil
+
+        do {
+            try await resolveStore().delete(id: recordingID)
+            recordings.removeAll { $0.id == recordingID }
+            issues.removeAll { $0.recordingID == recordingID }
+            if selection == recordingID {
+                selection = nil
+                transcript = nil
+                meetingMinutes = nil
+                playback.unload()
+            }
+            recordingActionFeedback = "Recording deleted"
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+        }
+    }
+
+    func managedLocation(for recordingID: Recording.ID) async throws -> URL {
+        try await resolveStore().recordingDirectoryURL(recordingID: recordingID)
+    }
+
+    func playRecording(_ recordingID: Recording.ID) async {
+        guard recordings.contains(where: { $0.id == recordingID }) else {
+            recordingActionErrorMessage = "That recording is no longer available."
+            return
+        }
+
+        if selection != recordingID {
+            selection = recordingID
+            await preparePlaybackForSelection()
+        }
+
+        guard selection == recordingID else { return }
+        guard playback.isLoaded else {
+            recordingActionErrorMessage = playback.errorMessage ?? "This recording has no playable managed audio."
+            return
+        }
+        _ = playback.play()
+    }
+
+    func copyManagedLocation(_ recordingID: Recording.ID) async {
+        do {
+            let location = try await managedLocation(for: recordingID)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(location.path, forType: .string)
+            recordingActionErrorMessage = nil
+            recordingActionFeedback = "Managed location copied"
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+            recordingActionFeedback = nil
+        }
+    }
+
+    func reportRecordingActionError(_ message: String) {
+        recordingActionErrorMessage = message
+        recordingActionFeedback = nil
+    }
+
+    func reportRecordingActionFeedback(_ message: String) {
+        recordingActionErrorMessage = nil
+        recordingActionFeedback = message
+    }
+
+    func clearRecordingActionError() {
+        recordingActionErrorMessage = nil
+    }
+
     func prepareSelection() async {
         await preparePlaybackForSelection()
         await loadTranscriptForSelection()
@@ -139,7 +252,11 @@ final class LibraryViewModel: ObservableObject {
                     audioAssetID: asset.id
                 )
                 guard selection == recordingID else { return }
-                if playback.load(url: url) {
+                let metadata = AudioPlaybackMetadata(
+                    title: recording.title,
+                    trackLabel: asset.originalFileName
+                )
+                if playback.load(url: url, metadata: metadata) {
                     return
                 }
                 lastError = playback.errorMessage
@@ -479,6 +596,9 @@ final class LibraryViewModel: ObservableObject {
 
     func beginMeetingMinutes() {
         guard canGenerateMeetingMinutes else { return }
+        isGeneratingMeetingMinutes = true
+        meetingMinutesErrorMessage = nil
+        meetingMinutesProgress = 0
         meetingMinutesTask = Task { [weak self] in
             await self?.performMeetingMinutes()
         }
@@ -493,19 +613,16 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func performMeetingMinutes(title: String? = nil, context: String? = nil) async {
-        guard canGenerateMeetingMinutes,
-              let transcript,
-              let recording = selectedRecording,
-              transcript.recordingID == recording.id else { return }
-
-        isGeneratingMeetingMinutes = true
-        meetingMinutesErrorMessage = nil
-        meetingMinutesProgress = 0
         defer {
             isGeneratingMeetingMinutes = false
             meetingMinutesProgress = nil
             meetingMinutesTask = nil
         }
+
+        guard let transcript,
+              let recording = selectedRecording,
+              transcript.recordingID == recording.id,
+              !Task.isCancelled else { return }
 
         do {
             let generator = try resolveMeetingMinutesGenerator()

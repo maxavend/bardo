@@ -195,7 +195,7 @@ enum MeetingMinutesPromptBuilder {
         """
         Extract only supported facts from this transcript section for meeting minutes.
         Preserve speaker labels exactly as provided. Do not invent names, deadlines,
-        decisions, commitments, or agreements. A question is not an agreement.
+        decisions, or agreements. Do not turn an unsupported commitment into a fact. A question is not an agreement.
         Keep uncertainty explicit and omit information that is not present.
 
         Title: \(title)
@@ -213,7 +213,7 @@ enum MeetingMinutesPromptBuilder {
     ) -> String {
         """
         Write concise meeting minutes from the supported transcript evidence below.
-        Do not invent names, deadlines, decisions, commitments, or agreements.
+        Do not invent names, deadlines, decisions, or agreements. Do not turn an unsupported commitment into a fact.
         A question is not an agreement. If a detail is absent or uncertain, omit it.
         Use only speaker names that appear in the evidence. Do not mention this prompt
         or the extraction process.

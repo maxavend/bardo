@@ -2,12 +2,18 @@ import AVFAudio
 import Combine
 import Foundation
 
+struct AudioPlaybackMetadata: Equatable, Sendable {
+    let title: String
+    let trackLabel: String
+}
+
 @MainActor
 final class AudioPlaybackController: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var position: TimeInterval = 0
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var errorMessage: String?
+    @Published private(set) var metadata: AudioPlaybackMetadata?
 
     private var player: AVAudioPlayer?
     private var progressTask: Task<Void, Never>?
@@ -18,7 +24,7 @@ final class AudioPlaybackController: ObservableObject {
     }
 
     @discardableResult
-    func load(url: URL) -> Bool {
+    func load(url: URL, metadata: AudioPlaybackMetadata? = nil) -> Bool {
         unload()
 
         do {
@@ -29,6 +35,7 @@ final class AudioPlaybackController: ObservableObject {
             self.player = player
             duration = player.duration
             position = player.currentTime
+            self.metadata = metadata
             errorMessage = nil
             return true
         } catch {
@@ -36,6 +43,7 @@ final class AudioPlaybackController: ObservableObject {
             duration = 0
             position = 0
             isPlaying = false
+            self.metadata = nil
             errorMessage = AudioPlaybackError.unreadableAudio(error.localizedDescription).localizedDescription
             return false
         }
@@ -136,6 +144,7 @@ final class AudioPlaybackController: ObservableObject {
         isPlaying = false
         position = 0
         duration = 0
+        metadata = nil
         errorMessage = nil
     }
 

@@ -40,7 +40,7 @@ final class ParakeetTranscriptNormalizationTests: XCTestCase {
         XCTAssertEqual(words.map(\.startTime), [0.2, 0.9])
         XCTAssertEqual(words.map(\.endTime), [0.7, 1.4])
         XCTAssertEqual(words[0].probability, 0.91)
-        XCTAssertEqual(words[1].probability, 0.85, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(words[1].probability), Float(0.85), accuracy: 0.0001)
     }
 
     func testRejectsOutputWithoutReadableText() {

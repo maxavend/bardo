@@ -170,6 +170,12 @@ actor RecordingStore {
         return url
     }
 
+    func recordingDirectoryURL(recordingID: Recording.ID) throws -> URL {
+        // UUIDs cannot introduce path traversal. Returning a path derived only from the
+        // store root keeps Finder actions scoped to Bardo's managed library.
+        rootURL.appendingPathComponent(recordingID.uuidString, isDirectory: true)
+    }
+
     func loadLibrary() throws -> LibrarySnapshot {
         try ensureDirectoryExists(rootURL)
 

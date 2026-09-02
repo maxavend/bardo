@@ -118,7 +118,9 @@ final class ParakeetModelManagerTests: XCTestCase {
         let privateRoot = rootURL.appendingPathComponent("parakeet", isDirectory: true)
         let recorder = ParakeetOperationRecorder()
         let operations = ParakeetModelOperations(
-            modelsExist: { _ in false },
+            modelsExist: { url in
+                FileManager.default.fileExists(atPath: url.path)
+            },
             download: { url, _ in
                 await recorder.recordDownload(url)
                 try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct LibrarySidebar: View {
@@ -52,7 +53,7 @@ struct LibrarySidebar: View {
 
                 Section("Recordings") {
                     ForEach(model.recordings) { recording in
-                        RecordingRowView(recording: recording)
+                        RecordingRowView(recording: recording, model: model)
                             .tag(recording.id)
                     }
                 }
@@ -63,6 +64,22 @@ struct LibrarySidebar: View {
 
     @ViewBuilder
     private var statusSections: some View {
+        if let feedback = model.recordingActionFeedback {
+            Section("Done") {
+                Label(feedback, systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        if let actionError = model.recordingActionErrorMessage {
+            Section("Action Needs Attention") {
+                Label(actionError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+
         if model.isImporting {
             Section {
                 Label {
@@ -98,6 +115,9 @@ struct LibrarySidebar: View {
 
 private struct RecordingRowView: View {
     let recording: Recording
+    @ObservedObject var model: LibraryViewModel
+    @State private var isRenamePresented = false
+    @State private var isDeleteConfirmationPresented = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -139,9 +159,85 @@ private struct RecordingRowView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            guard RecordingActionPolicy.allows(.playPause, for: recording) else { return }
+            Task { await model.playRecording(recording.id) }
+        }
+        .contextMenu {
+            if RecordingActionPolicy.allows(.playPause, for: recording) {
+                Button {
+                    Task { await model.playRecording(recording.id) }
+                } label: {
+                    Label("Play", systemImage: "play.fill")
+                }
+            }
+
+            Divider()
+
+            Button {
+                isRenamePresented = true
+            } label: {
+                Label("Rename…", systemImage: "pencil")
+            }
+
+            Button {
+                Task { await model.copyManagedLocation(recording.id) }
+            } label: {
+                Label("Copy Location", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                revealInFinder()
+            } label: {
+                Label("Reveal in Finder", systemImage: "folder")
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                isDeleteConfirmationPresented = true
+            } label: {
+                Label("Delete Recording", systemImage: "trash")
+            }
+        }
+        .sheet(isPresented: $isRenamePresented) {
+            RecordingRenameSheet(
+                recording: recording,
+                onSave: { title in
+                    isRenamePresented = false
+                    Task { await model.renameRecording(recording.id, to: title) }
+                },
+                onCancel: { isRenamePresented = false }
+            )
+        }
+        .confirmationDialog(
+            "Delete Recording?",
+            isPresented: $isDeleteConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Recording", role: .destructive) {
+                Task { await model.deleteRecording(recording.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the managed audio, transcript, and minutes for \"\(recording.title)\" from Bardo.")
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             "\(recording.title), \(LibraryFormatting.source(recording.sources)), \(LibraryFormatting.duration(recording.duration)), \(LibraryFormatting.state(recording.processingState))"
         )
+    }
+
+    private func revealInFinder() {
+        Task {
+            guard let location = try? await model.managedLocation(for: recording.id) else {
+                model.reportRecordingActionError("Bardo could not locate the managed recording folder.")
+                return
+            }
+            let target = FileManager.default.fileExists(atPath: location.path)
+                ? location
+                : location.deletingLastPathComponent()
+            NSWorkspace.shared.activateFileViewerSelecting([target])
+        }
     }
 }

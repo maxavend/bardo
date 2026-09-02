@@ -474,7 +474,7 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         guard modelRoot.resolvingSymlinksInPath() == modelRoot,
               let values = try? modelRoot.resourceValues(forKeys: [.isDirectoryKey]),
               values.isDirectory == true,
-              let enumerator = FileManager.default.enumerator(
+              let entries = try? FileManager.default.contentsOfDirectory(
                   at: modelRoot,
                   includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
                   options: [.skipsHiddenFiles]
@@ -483,9 +483,8 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         }
 
         var found = Set<String>()
-        for case let url as URL in enumerator {
-            guard url.resolvingSymlinksInPath() == url,
-                  let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+        for url in entries {
+            guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
                   values.isSymbolicLink != true,
                   values.isDirectory == true else {
                 continue

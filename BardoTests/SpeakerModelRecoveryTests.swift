@@ -8,7 +8,7 @@ final class SpeakerModelRecoveryTests: XCTestCase {
         let root = try makeTemporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = BardoModelStore(rootURL: root)
-        try installCompleteCache(in: store)
+        try Self.installCompleteCache(in: store)
 
         let recorder = EngineRecorder()
         let engine = TestSpeakerDiarizationEngine(
@@ -34,7 +34,8 @@ final class SpeakerModelRecoveryTests: XCTestCase {
         let root = try makeTemporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = BardoModelStore(rootURL: root)
-        try installCompleteCache(in: store)
+        try Self.installCompleteCache(in: store)
+        let modelRoot = store.root(for: .speakerKit)
 
         let recorder = EngineRecorder()
         let failingValidationEngine = TestSpeakerDiarizationEngine(
@@ -45,7 +46,7 @@ final class SpeakerModelRecoveryTests: XCTestCase {
         )
         let repairedEngine = TestSpeakerDiarizationEngine(
             isLoaded: true,
-            download: { _ in try installCompleteCache(in: store) },
+            download: { _ in try Self.installCompleteCache(at: modelRoot) },
             load: {},
             recorder: recorder
         )
@@ -133,12 +134,13 @@ final class SpeakerModelRecoveryTests: XCTestCase {
         let root = try makeTemporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = BardoModelStore(rootURL: root)
-        try installCompleteCache(in: store)
+        try Self.installCompleteCache(in: store)
+        let modelRoot = store.root(for: .speakerKit)
 
         let recorder = EngineRecorder()
         let engine = TestSpeakerDiarizationEngine(
             isLoaded: false,
-            download: { _ in try installCompleteCache(in: store) },
+            download: { _ in try Self.installCompleteCache(at: modelRoot) },
             load: { throw TestSpeakerError.load },
             recorder: recorder
         )
@@ -183,8 +185,11 @@ final class SpeakerModelRecoveryTests: XCTestCase {
         return root
     }
 
-    private func installCompleteCache(in store: BardoModelStore) throws {
-        let modelRoot = store.root(for: .speakerKit)
+    private static func installCompleteCache(in store: BardoModelStore) throws {
+        try installCompleteCache(at: store.root(for: .speakerKit))
+    }
+
+    private static func installCompleteCache(at modelRoot: URL) throws {
         for name in [
             "SpeakerSegmenter",
             "SpeakerEmbedderPreprocessor",
@@ -234,13 +239,13 @@ private final class EngineRecorder: @unchecked Sendable {
 
 private final class TestSpeakerDiarizationEngine: SpeakerDiarizationEngine, @unchecked Sendable {
     let isLoaded: Bool
-    private let downloadOperation: @Sendable (Progress?) async throws -> Void
+    private let downloadOperation: @Sendable ((@Sendable (Progress) -> Void)?) async throws -> Void
     private let loadOperation: @Sendable () async throws -> Void
     private let recorder: EngineRecorder
 
     init(
         isLoaded: Bool,
-        download: @escaping @Sendable (Progress?) async throws -> Void,
+        download: @escaping @Sendable ((@Sendable (Progress) -> Void)?) async throws -> Void,
         load: @escaping @Sendable () async throws -> Void,
         recorder: EngineRecorder
     ) {
@@ -270,7 +275,7 @@ private final class TestSpeakerDiarizationEngine: SpeakerDiarizationEngine, @unc
     }
 }
 
-private extension SpeakerDiarizationOperations {
+extension SpeakerDiarizationOperations {
     static let testLoaded = SpeakerDiarizationOperations(
         makeEngine: { _, _ in
             TestSpeakerDiarizationEngine(

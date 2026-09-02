@@ -6,10 +6,10 @@ final class SpeakerDiarizationServiceTests: XCTestCase {
     func testInstalledModelsRequireCompleteSpeakerKitAssets() async throws {
         let root = try makeTemporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = BardoModelStore(rootURL: root)
+        let modelRoot = BardoModelStore(rootURL: root).root(for: .speakerKit)
 
         let service = SpeakerDiarizationService(
-            modelStore: store,
+            modelStore: BardoModelStore(rootURL: root),
             operations: .testLoaded
         )
         let initiallyInstalled = await service.hasInstalledModels()
@@ -21,8 +21,7 @@ final class SpeakerDiarizationServiceTests: XCTestCase {
             "SpeakerEmbedder",
             "PldaProjector"
         ] {
-            let folder = store.root(for: .speakerKit)
-                .appendingPathComponent("\(name).mlmodelc", isDirectory: true)
+            let folder = modelRoot.appendingPathComponent("\(name).mlmodelc", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
 
@@ -33,16 +32,15 @@ final class SpeakerDiarizationServiceTests: XCTestCase {
     func testPartialSpeakerModelCacheIsNotReportedReady() async throws {
         let root = try makeTemporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = BardoModelStore(rootURL: root)
+        let modelRoot = BardoModelStore(rootURL: root).root(for: .speakerKit)
 
         for name in ["SpeakerSegmenter", "SpeakerEmbedder"] {
-            let folder = store.root(for: .speakerKit)
-                .appendingPathComponent("\(name).mlmodelc", isDirectory: true)
+            let folder = modelRoot.appendingPathComponent("\(name).mlmodelc", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
 
         let service = SpeakerDiarizationService(
-            modelStore: store,
+            modelStore: BardoModelStore(rootURL: root),
             operations: .testLoaded
         )
         let installed = await service.hasInstalledModels()

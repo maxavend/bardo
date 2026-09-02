@@ -11,6 +11,8 @@ struct RecordingDetailView: View {
     @State private var pendingReplacementAction: TranscriptReplacementAction?
     @State private var isInspectorPresented = false
     @State private var isSpeakerNamingPresented = false
+    @State private var isRenamePresented = false
+    @State private var isDeleteConfirmationPresented = false
 
     var body: some View {
         ScrollView {
@@ -103,6 +105,28 @@ struct RecordingDetailView: View {
                 secondaryButton: .cancel()
             )
         }
+        .sheet(isPresented: $isRenamePresented) {
+            RecordingRenameSheet(
+                recording: recording,
+                onSave: { title in
+                    isRenamePresented = false
+                    Task { await model.renameRecording(recording.id, to: title) }
+                },
+                onCancel: { isRenamePresented = false }
+            )
+        }
+        .confirmationDialog(
+            "Delete Recording?",
+            isPresented: $isDeleteConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Recording", role: .destructive) {
+                Task { await model.deleteRecording(recording.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the managed audio, transcript, and minutes for \"\(recording.title)\" from Bardo.")
+        }
     }
 
     private var recordingHeader: some View {
@@ -140,6 +164,51 @@ struct RecordingDetailView: View {
     @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
+            Menu {
+                Button {
+                    if model.selection == recording.id, playback.isPlaying {
+                        playback.pause()
+                    } else {
+                        Task { await model.playRecording(recording.id) }
+                    }
+                } label: {
+                    Label(playback.isPlaying ? "Pause" : "Play", systemImage: playback.isPlaying ? "pause.fill" : "play.fill")
+                }
+                .disabled(!RecordingActionPolicy.allows(.playPause, for: recording) || model.isTranscribing || model.isDiarizing)
+
+                Divider()
+
+                Button {
+                    isRenamePresented = true
+                } label: {
+                    Label("Rename…", systemImage: "pencil")
+                }
+
+                Button {
+                    Task { await model.copyManagedLocation(recording.id) }
+                } label: {
+                    Label("Copy Location", systemImage: "doc.on.doc")
+                }
+
+                Button {
+                    revealInFinder()
+                } label: {
+                    Label("Reveal in Finder", systemImage: "folder")
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    isDeleteConfirmationPresented = true
+                } label: {
+                    Label("Delete Recording", systemImage: "trash")
+                }
+                .disabled(model.isTranscribing || model.isDiarizing || model.isGeneratingMeetingMinutes)
+            } label: {
+                Label("Recording Actions", systemImage: "ellipsis.circle")
+            }
+            .help("Recording actions")
+
             if let transcript = model.transcript,
                transcript.recordingID == recording.id {
                 Button {
@@ -192,6 +261,21 @@ struct RecordingDetailView: View {
 
     private func copyTranscript(_ transcript: Transcript) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(transcript.text, forType: .string)
+        if NSPasteboard.general.setString(transcript.text, forType: .string) {
+            model.reportRecordingActionFeedback("Transcript copied")
+        }
+    }
+
+    private func revealInFinder() {
+        Task {
+            guard let location = try? await model.managedLocation(for: recording.id) else {
+                model.reportRecordingActionError("Bardo could not locate the managed recording folder.")
+                return
+            }
+            let target = FileManager.default.fileExists(atPath: location.path)
+                ? location
+                : location.deletingLastPathComponent()
+            NSWorkspace.shared.activateFileViewerSelecting([target])
+        }
     }
 }

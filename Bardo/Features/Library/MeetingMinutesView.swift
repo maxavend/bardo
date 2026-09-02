@@ -1,8 +1,12 @@
+import AppKit
 import SwiftUI
 
 struct MeetingMinutesView: View {
     let recording: Recording
     @ObservedObject var model: LibraryViewModel
+
+    @State private var isRegenerateConfirmationPresented = false
+    @State private var copyFeedback: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -27,7 +31,20 @@ struct MeetingMinutesView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                     Spacer()
-                    Button("Regenerate") { model.beginMeetingMinutes() }
+                    if let copyFeedback {
+                        Label(copyFeedback, systemImage: "checkmark")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        copyMinutes(minutes.text)
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                    .help("Copy meeting minutes")
+                    Button("Regenerate") {
+                        isRegenerateConfirmationPresented = true
+                    }
                         .disabled(!model.canGenerateMeetingMinutes)
                 }
             } else {
@@ -52,6 +69,8 @@ struct MeetingMinutesView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     Spacer()
+                    Button("Retry") { model.beginMeetingMinutes() }
+                        .buttonStyle(.link)
                     Button("Dismiss") { model.clearMeetingMinutesError() }
                         .buttonStyle(.link)
                 }
@@ -59,5 +78,23 @@ struct MeetingMinutesView: View {
         }
         .padding(18)
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .confirmationDialog(
+            "Regenerate Meeting Minutes?",
+            isPresented: $isRegenerateConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Regenerate", role: .destructive) {
+                model.beginMeetingMinutes()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This replaces the current minutes with a new local generation from the edited transcript.")
+        }
+    }
+
+    private func copyMinutes(_ text: String) {
+        NSPasteboard.general.clearContents()
+        guard NSPasteboard.general.setString(text, forType: .string) else { return }
+        copyFeedback = "Copied"
     }
 }
