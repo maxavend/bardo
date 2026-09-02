@@ -259,6 +259,10 @@ private final class ModelSettingsViewModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var operationTasks: [ManagedModel: Task<Void, Never>] = [:]
 
+    init() {
+        rows = ManagedModel.allCases.map { makeRow(for: $0, state: .notInstalled) }
+    }
+
     deinit {
         refreshTask?.cancel()
         operationTasks.values.forEach { $0.cancel() }
@@ -376,7 +380,15 @@ private final class ModelSettingsViewModel: ObservableObject {
             refreshTask = nil
         }
 
-        guard let store = try? BardoModelStore.live() else { return }
+        let store: BardoModelStore
+        do {
+            store = try BardoModelStore.live()
+        } catch {
+            rows = ManagedModel.allCases.map {
+                makeRow(for: $0, state: .failed(error.localizedDescription))
+            }
+            return
+        }
         for definition in TranscriptionModelManager.catalog {
             let model = managedModel(for: definition)
             guard operationTasks[model] == nil else { continue }
@@ -384,18 +396,37 @@ private final class ModelSettingsViewModel: ObservableObject {
                 definition: definition,
                 downloadRoot: store.root(for: model)
             )
-            let installed = (try? await manager.hasInstalledModel()) == true
-            setState(installed ? .installed : .notInstalled, for: model)
+            do {
+                let installed = try await manager.hasInstalledModel()
+                setState(installed ? .installed : .notInstalled, for: model)
+            } catch {
+                setState(.failed(error.localizedDescription), for: model)
+            }
         }
 
-        if operationTasks[.parakeet] == nil, let parakeet = try? ParakeetTranscriptionService.live() {
-            let installed = await parakeet.hasInstalledModel()
-            setState(installed ? .installed : .notInstalled, for: .parakeet)
+        if operationTasks[.parakeet] == nil {
+            do {
+                let parakeet = try ParakeetTranscriptionService.live()
+                let installed = await parakeet.hasInstalledModel()
+                setState(installed ? .installed : .notInstalled, for: .parakeet)
+            } catch {
+                setState(.failed(error.localizedDescription), for: .parakeet)
+            }
         }
 
-        if operationTasks[.speakerKit] == nil, let speakers = try? SpeakerDiarizationService.live() {
-            let installed = await speakers.hasInstalledModels()
-            setState(installed ? .installed : .notInstalled, for: .speakerKit)
+        if operationTasks[.speakerKit] == nil {
+            do {
+                let speakers = try SpeakerDiarizationService.live()
+                let installed = await speakers.hasInstalledModels()
+                if installed {
+                    setState(.installed, for: .speakerKit)
+                } else {
+                    let state = await speakers.state()
+                    setState(state == .notInstalled ? .notInstalled : state, for: .speakerKit)
+                }
+            } catch {
+                setState(.failed(error.localizedDescription), for: .speakerKit)
+            }
         }
 
         let qwenInstalled = QwenMeetingMinutesModel.isInstalled(at: store.root(for: .qwen))
