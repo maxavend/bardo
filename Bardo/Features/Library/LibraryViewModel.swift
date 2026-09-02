@@ -382,6 +382,34 @@ final class LibraryViewModel: ObservableObject {
         playback.unload()
     }
 
+    var speakerNamingPresentation: SpeakerNamingPresentation {
+        guard let transcript else { return .identifySpeakers }
+        return SpeakerNamingPolicy.presentation(for: transcript)
+    }
+
+    var speakerPreviews: [SpeakerPreview] {
+        guard let transcript else { return [] }
+        return SpeakerPreviewSelector.previews(for: transcript)
+    }
+
+    func shouldOpenNamingFlow(after transcript: Transcript? = nil) -> Bool {
+        guard let transcript = transcript ?? self.transcript else { return false }
+        return SpeakerNamingPolicy.shouldOpenNamingFlow(after: transcript)
+    }
+
+    @discardableResult
+    func playSpeakerPreview(_ preview: SpeakerPreview) -> Bool {
+        guard let transcript,
+              transcript.recordingID == selection,
+              transcript.speakers.contains(where: { $0.id == preview.speakerID }),
+              preview.startTime >= 0,
+              preview.endTime > preview.startTime else {
+            return false
+        }
+
+        return playback.playPreview(from: preview.startTime, to: preview.endTime)
+    }
+
     var selectedRecording: Recording? {
         guard let selection else { return nil }
         return recordings.first { $0.id == selection }

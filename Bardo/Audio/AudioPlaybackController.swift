@@ -11,6 +11,7 @@ final class AudioPlaybackController: ObservableObject {
 
     private var player: AVAudioPlayer?
     private var progressTask: Task<Void, Never>?
+    private var playbackEndTime: TimeInterval?
 
     var isLoaded: Bool {
         player != nil
@@ -47,6 +48,33 @@ final class AudioPlaybackController: ObservableObject {
 
     @discardableResult
     func play() -> Bool {
+        playbackEndTime = nil
+        return startPlayback()
+    }
+
+    @discardableResult
+    func playPreview(from startTime: TimeInterval, to endTime: TimeInterval) -> Bool {
+        guard let player,
+              startTime.isFinite,
+              endTime.isFinite else {
+            errorMessage = AudioPlaybackError.noAudioLoaded.localizedDescription
+            return false
+        }
+
+        let start = min(max(0, startTime), player.duration)
+        let end = min(max(start, endTime), player.duration)
+        guard end > start else {
+            errorMessage = AudioPlaybackError.couldNotStart.localizedDescription
+            return false
+        }
+
+        playbackEndTime = end
+        player.currentTime = start
+        position = start
+        return startPlayback()
+    }
+
+    private func startPlayback() -> Bool {
         guard let player else {
             errorMessage = AudioPlaybackError.noAudioLoaded.localizedDescription
             return false
@@ -72,6 +100,7 @@ final class AudioPlaybackController: ObservableObject {
 
     func pause() {
         guard let player else { return }
+        playbackEndTime = nil
         player.pause()
         position = player.currentTime
         isPlaying = false
@@ -93,6 +122,7 @@ final class AudioPlaybackController: ObservableObject {
         }
 
         let clamped = min(max(0, time), player.duration)
+        playbackEndTime = nil
         player.currentTime = clamped
         position = clamped
         syncFromPlayer()
@@ -100,6 +130,7 @@ final class AudioPlaybackController: ObservableObject {
 
     func unload() {
         stopProgressUpdates()
+        playbackEndTime = nil
         player?.stop()
         player = nil
         isPlaying = false
@@ -135,6 +166,16 @@ final class AudioPlaybackController: ObservableObject {
         }
 
         duration = player.duration
+
+        if let playbackEndTime, player.currentTime >= playbackEndTime {
+            player.pause()
+            player.currentTime = playbackEndTime
+            position = playbackEndTime
+            self.playbackEndTime = nil
+            isPlaying = false
+            stopProgressUpdates()
+            return
+        }
 
         if isPlaying && !player.isPlaying {
             isPlaying = false
