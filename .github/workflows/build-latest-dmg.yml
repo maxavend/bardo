@@ -1,22 +1,21 @@
-name: Build Test DMG
+name: Build Latest DMG
 
 "on":
   push:
     branches:
-      - chore/testing-build
-  pull_request:
+      - main
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  build-test-dmg:
-    name: Build Bardo test DMG
+  build-latest-dmg:
+    name: Build Bardo latest DMG
     runs-on: macos-26
     timeout-minutes: 35
     env:
@@ -62,22 +61,22 @@ jobs:
           fi
           exit "$STATUS"
 
-      - name: Build and verify mounted Test DMG
+      - name: Build and verify mounted Latest DMG
         env:
-          DMG_PATH: Bardo-Phase7-Test.dmg
-          DMG_VOLUME_NAME: Bardo Test
+          DMG_PATH: Bardo-Latest.dmg
+          DMG_VOLUME_NAME: Bardo Latest
         run: |
           set -o pipefail
           .github/scripts/verify-dmg.sh 2>&1 | tee mounted-validation.log
 
-      - name: Upload Test DMG artifacts
+      - name: Upload Latest DMG artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Bardo-Phase7-Test-DMG-${{ github.run_id }}
+          name: Bardo-Latest-DMG-${{ github.run_id }}
           path: |
-            Bardo-Phase7-Test.dmg
-            Bardo-Phase7-Test.dmg.sha256
+            Bardo-Latest.dmg
+            Bardo-Latest.dmg.sha256
             mounted-validation.log
             xcode-test.log
           if-no-files-found: warn

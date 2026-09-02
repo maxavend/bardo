@@ -76,12 +76,21 @@ jobs:
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath .derived-data \
             CODE_SIGNING_ALLOWED=NO \
-            test > .xcode-test.log 2>&1
+            test > xcode-test.log 2>&1
           STATUS=$?
           if [ "$STATUS" -ne 0 ]; then
             echo "---- XCTest failure summary ----"
-            grep -E "Test Case .* failed|error:|XCTAssert|failed -|\*\* TEST FAILED \*\*" .xcode-test.log || tail -n 160 .xcode-test.log
+            grep -E "Test Case .* (failed|passed)|/[A-Za-z0-9_./-]+\.swift:[0-9]+|: error:|XCTAssert|failed -|\*\* TEST FAILED \*\*" xcode-test.log || tail -n 160 xcode-test.log
           else
-            grep -E "Executed [0-9]+ tests|\*\* TEST SUCCEEDED \*\*" .xcode-test.log || true
+            grep -E "Executed [0-9]+ tests|\*\* TEST SUCCEEDED \*\*" xcode-test.log || true
           fi
           exit "$STATUS"
+
+      - name: Upload XCTest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-test-log-${{ github.run_id }}
+          path: xcode-test.log
+          if-no-files-found: warn
+          retention-days: 14

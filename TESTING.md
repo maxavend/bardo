@@ -1,8 +1,25 @@
-# Bardo Phase 7 — Manual Smoke Test
+# Bardo — Manual macOS Smoke Test
 
-This guide validates the first real macOS build after Phases 0–7 are integrated.
+This guide validates a Release DMG after the local-AI stabilization changes are built.
 
-The test DMG is ad-hoc signed for development testing. It is not Developer ID signed or notarized, so macOS may require an explicit first-launch approval.
+The Test and Latest DMGs are ad-hoc signed for development testing. They are not Developer ID signed or notarized, so macOS may require an explicit first-launch approval. CI mounts each image read-only and verifies `Bardo.app`, the `/Applications` alias, bundle metadata and the ad-hoc signature before uploading it.
+
+## Model ownership and recovery
+
+Bardo owns model data only below:
+
+```text
+~/Library/Application Support/Bardo/Models/
+├── whisper-balanced/
+├── whisper-maximum-accuracy/
+├── parakeet/
+├── speaker-kit/
+└── qwen/
+```
+
+The global FluidAudio and Hugging Face caches do not make a model Installed and are never removed by Reset. A model operation reports Downloading, Preparing/Optimizing, Installed or Failed. Recovery is limited to one load-triggered repair of the affected Bardo directory; first-download network errors and cancellation do not delete or retry a cache automatically.
+
+Instant uses Parakeet TDT 0.6B v3 through FluidAudio 0.15.6. Balanced uses WhisperKit large-v3 Turbo by default, Maximum Accuracy uses WhisperKit large-v3, SpeakerKit runs after transcription, and Qwen Meeting Minutes receives transcript text only. Qwen never receives the source audio.
 
 ## Install
 
@@ -52,7 +69,7 @@ The test DMG is ad-hoc signed for development testing. It is not Developer ID si
 Use a short recording first.
 
 - Choose **Transcribe**.
-- Confirm the WhisperKit model download/preparation can complete on the network.
+- Select Instant, Balanced or Maximum Accuracy and confirm the selected private model download/preparation can complete on the network.
 - Confirm transcription finishes without losing the source recording.
 - Confirm timestamped transcript turns appear.
 - Click several transcript timestamps and confirm playback seeks to the expected part of the recording.
@@ -65,6 +82,8 @@ Use audio with at least two distinct speakers if possible.
 - Confirm SpeakerKit model preparation/download completes.
 - Confirm the transcript receives speaker labels.
 - Check several turns against the audio; report obvious speaker swaps or long unassigned regions.
+- With exactly one detected speaker, confirm the UI shows a non-actionable `1 Speaker` state and does not open naming.
+- With two or more speakers, confirm `Participants (N)` opens the naming flow and each speaker has a representative preview of at most 10 seconds.
 
 ### 8. Phase 7 transcript UX
 
@@ -83,6 +102,12 @@ Use audio with at least two distinct speakers if possible.
 - With a named speaker, choose **Identify Speakers Again** and confirm Bardo warns before replacing named speaker clusters.
 - Cancel each warning once to confirm cancellation leaves the current transcript unchanged.
 
+### 10. Meeting Minutes
+
+- Generate Meeting Minutes only after transcription has completed.
+- Confirm the output uses the transcript and available names/context, not the audio file.
+- For a long transcript, confirm chunked extraction completes without invented names, deadlines, decisions or agreements.
+
 ## What to report
 
 For any issue, capture:
@@ -100,6 +125,7 @@ Do not delete a failing Library item before collecting the above evidence unless
 ## Known development-build limitations
 
 - This DMG is ad-hoc signed and not notarized for public distribution.
-- First real WhisperKit and SpeakerKit downloads/inference are intentionally manual evidence, not CI evidence.
+- First real Parakeet/WhisperKit/SpeakerKit downloads and inference, plus Qwen generation, are intentionally manual evidence, not CI evidence.
+- The Qwen production adapter uses an explicit private MLX/Hugging Face cache under Bardo. It does not claim ownership from a pre-existing global Hugging Face cache.
 - TCC permission behavior is macOS-controlled and may require relaunching the app after granting access.
 - Long-recording memory/thermal behavior remains a separate physical test; start with short recordings for this smoke pass.
