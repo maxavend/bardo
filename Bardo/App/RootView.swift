@@ -260,13 +260,6 @@ struct RootView: View {
             .padding(.vertical, 10)
             .frame(maxWidth: 720, minHeight: 52)
             .bardoGlassSurface(cornerRadius: 16)
-            .overlay(alignment: .leading) {
-                Capsule()
-                    .fill(.orange)
-                    .frame(width: 3, height: 28)
-                    .padding(.leading, 7)
-                    .accessibilityHidden(true)
-            }
             .padding(.horizontal, 18)
             .padding(.top, 8)
             .frame(maxWidth: .infinity)
