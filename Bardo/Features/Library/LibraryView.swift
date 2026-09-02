@@ -3,9 +3,15 @@ import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @ObservedObject var model: LibraryViewModel
+    private let topAccessory: AnyView
 
     @State private var isFileImporterPresented = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+    init(model: LibraryViewModel, topAccessory: AnyView? = nil) {
+        self.model = model
+        self.topAccessory = topAccessory ?? AnyView(EmptyView())
+    }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -19,11 +25,16 @@ struct LibraryView: View {
             detail
         }
         .navigationSplitViewStyle(.balanced)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            topAccessory
+        }
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 SettingsLink {
                     Label(String(localized: "Settings"), systemImage: "gearshape")
+                        .labelStyle(.iconOnly)
                 }
+                .controlSize(.regular)
                 .help(String(localized: "Open Bardo Settings"))
             }
         }
@@ -82,6 +93,7 @@ struct LibraryView: View {
             model.cancelDiarization()
             model.stopPlayback()
         }
+        .frame(minWidth: 980, minHeight: 620)
     }
 
     @ToolbarContentBuilder
@@ -91,7 +103,9 @@ struct LibraryView: View {
                 isFileImporterPresented = true
             } label: {
                 Label("Import Audio", systemImage: "plus")
+                    .labelStyle(.iconOnly)
             }
+            .controlSize(.regular)
             .disabled(model.isImporting || model.isTranscribing || model.isDiarizing)
             .help("Import audio")
             .keyboardShortcut("o", modifiers: [.command, .shift])
@@ -100,7 +114,9 @@ struct LibraryView: View {
                 Task { await model.reload() }
             } label: {
                 Label("Reload Library", systemImage: "arrow.clockwise")
+                    .labelStyle(.iconOnly)
             }
+            .controlSize(.regular)
             .disabled(model.isLoading || model.isImporting || model.isTranscribing || model.isDiarizing)
             .help("Reload library")
             .keyboardShortcut("r", modifiers: [.command])

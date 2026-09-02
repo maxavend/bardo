@@ -35,7 +35,7 @@ struct RecordingDetailView: View {
             .frame(maxWidth: 880, alignment: .leading)
             .padding(.horizontal, 36)
             .padding(.top, 34)
-            .padding(.bottom, 110)
+            .padding(.bottom, 28)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .background(Color(nsColor: .windowBackgroundColor))
@@ -197,30 +197,17 @@ struct RecordingDetailView: View {
                     Label("Reveal in Finder", systemImage: "folder")
                 }
 
-                Divider()
+                if let transcript = model.transcript,
+                   transcript.recordingID == recording.id {
+                    Divider()
 
-                Button(role: .destructive) {
-                    isDeleteConfirmationPresented = true
-                } label: {
-                    Label("Move to Trash", systemImage: "trash")
-                }
-                .disabled(model.isTranscribing || model.isDiarizing || model.isGeneratingMeetingMinutes)
-            } label: {
-                Label("Recording Actions", systemImage: "ellipsis.circle")
-            }
-            .help("Recording actions")
+                    Button {
+                        copyTranscript(transcript)
+                    } label: {
+                        Label("Copy Transcript", systemImage: "doc.on.doc")
+                    }
+                    .disabled(transcript.text.isEmpty)
 
-            if let transcript = model.transcript,
-               transcript.recordingID == recording.id {
-                Button {
-                    copyTranscript(transcript)
-                } label: {
-                    Label("Copy Transcript", systemImage: "doc.on.doc")
-                }
-                .disabled(transcript.text.isEmpty)
-                .help("Copy transcript")
-
-                Menu {
                     Button {
                         if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
                             pendingReplacementAction = .rediarize
@@ -245,18 +232,32 @@ struct RecordingDetailView: View {
                         Label("Transcribe Again", systemImage: "arrow.clockwise")
                     }
                     .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
-                } label: {
-                    Label("Transcript Actions", systemImage: "ellipsis")
                 }
-                .help("Transcript actions")
+
+                Divider()
+
+                Button(role: .destructive) {
+                    isDeleteConfirmationPresented = true
+                } label: {
+                    Label("Move to Trash", systemImage: "trash")
+                }
+                .disabled(model.isTranscribing || model.isDiarizing || model.isGeneratingMeetingMinutes)
+            } label: {
+                Label("More", systemImage: "ellipsis")
+                    .labelStyle(.iconOnly)
             }
+            .menuIndicator(.hidden)
+            .help("More recording and transcript actions")
+            .controlSize(.regular)
 
             Button {
                 isInspectorPresented.toggle()
             } label: {
-                Label("Recording Info", systemImage: "sidebar.right")
+                Image(systemName: "sidebar.right")
             }
             .help(isInspectorPresented ? "Hide recording info" : "Show recording info")
+            .accessibilityLabel(isInspectorPresented ? "Hide recording info" : "Show recording info")
+            .controlSize(.regular)
         }
     }
 

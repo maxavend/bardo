@@ -14,12 +14,9 @@ struct RootView: View {
     }
 
     var body: some View {
-        LibraryView(model: library)
+        LibraryView(model: library, topAccessory: AnyView(captureStatusBar))
             .toolbar {
                 captureToolbar
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                captureStatusBar
             }
             .task {
                 microphone.refreshPermissionState()
@@ -64,7 +61,13 @@ struct RootView: View {
                     openMicrophoneFolder: { microphone.openRecoveryFolder() },
                     openSystemAudioFolder: { systemAudio.openRecoveryFolder() },
                     moveMicrophoneIssueToTrash: { issue in Task { await microphone.moveRecoveryIssueToTrash(issue) } },
-                    moveSystemAudioIssueToTrash: { issue in Task { await systemAudio.moveRecoveryIssueToTrash(issue) } }
+                    moveSystemAudioIssueToTrash: { issue in Task { await systemAudio.moveRecoveryIssueToTrash(issue) } },
+                    moveAllIssuesToTrash: {
+                        Task {
+                            await microphone.moveAllRecoveryIssuesToTrash()
+                            await systemAudio.moveAllRecoveryIssuesToTrash()
+                        }
+                    }
                 )
             }
             .onDisappear {
@@ -88,14 +91,18 @@ struct RootView: View {
                     Task { await stopMicrophoneRecording() }
                 } label: {
                     Label("Stop Recording", systemImage: "stop.circle.fill")
+                        .labelStyle(.iconOnly)
                 }
+                .controlSize(.regular)
                 .help("Stop microphone recording")
             } else if systemAudio.isRecording {
                 Button {
                     Task { await stopSystemRecording() }
                 } label: {
                     Label("Stop Recording", systemImage: "stop.circle.fill")
+                        .labelStyle(.iconOnly)
                 }
+                .controlSize(.regular)
                 .help("Stop system audio recording")
             } else {
                 Menu {
@@ -120,7 +127,10 @@ struct RootView: View {
                     }
                 } label: {
                     Label("Record", systemImage: "record.circle")
+                        .labelStyle(.iconOnly)
                 }
+                .menuIndicator(.hidden)
+                .controlSize(.regular)
                 .help("Start a new recording")
                 .disabled(microphone.isBusy || systemAudio.isBusy)
             }
@@ -237,7 +247,7 @@ struct RootView: View {
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
                     .frame(width: 24, height: 24)
                     .accessibilityHidden(true)
 
@@ -391,9 +401,27 @@ private enum RecoveryCopy {
     static let moveToTrash = String(localized: "Move to Trash…")
     static let moveToTrashTitle = String(localized: "Move capture to the Trash?")
     static let moveToTrashAction = String(localized: "Move to Trash")
+    static let moveAllToTrash = String(localized: "Move all to the Trash…")
+    static let moveAllToTrashAction = String(localized: "Move All to Trash")
     static let cancel = String(localized: "Cancel")
     static let allClearTitle = String(localized: "All clear")
     static let allClearDescription = String(localized: "There are no incomplete captures waiting for review.")
+
+    static func moveAllToTrashTitle(_ count: Int) -> String {
+        String.localizedStringWithFormat(
+            String(localized: count == 1 ? "Move 1 capture to the Trash?" : "Move %lld captures to the Trash?"),
+            count
+        )
+    }
+
+    static func moveAllToTrashMessage(_ count: Int) -> String {
+        String.localizedStringWithFormat(
+            String(localized: count == 1
+                ? "This capture will be moved to the macOS Trash. You can recover it later if needed."
+                : "These %lld captures will be moved to the macOS Trash. You can recover them later if needed."),
+            count
+        )
+    }
 
     static func countDescription(_ count: Int) -> String {
         if count == 1 {
@@ -454,20 +482,19 @@ private struct RecoveryReviewView: View {
     let openSystemAudioFolder: () -> Bool
     let moveMicrophoneIssueToTrash: (RecordingStoreIssue) -> Void
     let moveSystemAudioIssueToTrash: (RecordingStoreIssue) -> Void
+    let moveAllIssuesToTrash: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var pendingDiscard: PendingDiscard?
+    @State private var isBulkDiscardConfirmationPresented = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Label(RecoveryCopy.title, systemImage: "arrow.triangle.2.circlepath")
-                    .font(.title2.weight(.semibold))
-                Spacer()
-                Button(RecoveryCopy.close) { dismiss() }
-                    .keyboardShortcut(.escape, modifiers: [])
-            }
+        VStack(alignment: .leading, spacing: 16) {
+            Text(RecoveryCopy.title)
+                .font(.title2.weight(.semibold))
+
             Text(RecoveryCopy.reviewDescription)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if microphoneIssues.isEmpty && systemAudioIssues.isEmpty {
                 ContentUnavailableView {
@@ -494,14 +521,21 @@ private struct RecoveryReviewView: View {
             }
 
             Divider()
-            HStack {
+            HStack(spacing: 12) {
+                if actionableIssueCount > 0 {
+                    Button(RecoveryCopy.moveAllToTrash) {
+                        isBulkDiscardConfirmationPresented = true
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
+                }
                 Spacer()
                 Button(RecoveryCopy.close) { dismiss() }
                     .keyboardShortcut(.defaultAction)
             }
         }
         .padding(24)
-        .frame(minWidth: 560, idealHeight: 390, maxHeight: 620)
+        .frame(minWidth: 560, idealHeight: 360, maxHeight: 620)
         .alert(item: $pendingDiscard) { pending in
             Alert(
                 title: Text(RecoveryCopy.moveToTrashTitle),
@@ -517,6 +551,23 @@ private struct RecoveryReviewView: View {
                 secondaryButton: .cancel(Text(RecoveryCopy.cancel))
             )
         }
+        .confirmationDialog(
+            RecoveryCopy.moveAllToTrashTitle(actionableIssueCount),
+            isPresented: $isBulkDiscardConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button(RecoveryCopy.moveAllToTrashAction, role: .destructive) {
+                moveAllIssuesToTrash()
+            }
+            Button(RecoveryCopy.cancel, role: .cancel) {}
+        } message: {
+            Text(RecoveryCopy.moveAllToTrashMessage(actionableIssueCount))
+        }
+    }
+
+    private var actionableIssueCount: Int {
+        microphoneIssues.filter { $0.recordingID != nil }.count
+            + systemAudioIssues.filter { $0.recordingID != nil }.count
     }
 
     @ViewBuilder
@@ -533,18 +584,12 @@ private struct RecoveryReviewView: View {
                     Spacer()
                     Button(RecoveryCopy.openInFinder) { _ = openFolder() }
                 }
-                ForEach(issues) { issue in
-                    HStack(spacing: 10) {
-                        Image(systemName: source == .microphone ? "mic.fill" : "waveform")
-                            .foregroundStyle(.secondary)
-                            .frame(width: 20)
+                VStack(spacing: 0) {
+                    ForEach(Array(issues.enumerated()), id: \.element.id) { index, issue in
+                        HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(RecoveryCopy.sectionTitle(for: source))
+                            Text(issue.entryName)
                                 .font(.body.weight(.medium))
-                            Text(RecoveryCopy.technicalID(issue.entryName))
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
                             Text(RecoveryCopy.preservedMessage(for: source))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -555,11 +600,21 @@ private struct RecoveryReviewView: View {
                             Button(RecoveryCopy.moveToTrash) {
                                 pendingDiscard = PendingDiscard(issue: issue, source: source)
                             }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .controlSize(.small)
+                        }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+
+                        if index < issues.count - 1 {
+                            Divider()
+                                .padding(.leading, 12)
                         }
                     }
-                    .padding(10)
-                    .background(.quaternary.opacity(0.28), in: RoundedRectangle(cornerRadius: 10))
                 }
+                .background(.quaternary.opacity(0.22), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
     }
