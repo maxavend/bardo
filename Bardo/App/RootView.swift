@@ -241,29 +241,37 @@ struct RootView: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Capture recovery needed")
+                    Text("Recovery files need your attention")
                         .font(.callout.weight(.semibold))
-                    Text("\(total) incomplete capture\(total == 1 ? "" : "s") preserved safely")
+                    Text("\(total) interrupted capture\(total == 1 ? "" : "s") are safe in Bardo")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 12)
 
-                Button("Review…") { isRecoveryPresented = true }
+                Button("Review files…") { isRecoveryPresented = true }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .keyboardShortcut(.defaultAction)
+                    .help("Review, open, or discard interrupted capture files")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .frame(maxWidth: 720, minHeight: 52)
             .bardoGlassSurface(cornerRadius: 16)
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(.orange)
+                    .frame(width: 3, height: 28)
+                    .padding(.leading, 7)
+                    .accessibilityHidden(true)
+            }
             .padding(.horizontal, 18)
             .padding(.top, 8)
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("Capture recovery needed. \(total) incomplete capture\(total == 1 ? "" : "s") preserved safely. Review recovery files.")
+            .accessibilityLabel("Recovery files need your attention. \(total) interrupted capture\(total == 1 ? "" : "s") are safe in Bardo. Review files.")
         }
     }
 
