@@ -331,6 +331,13 @@ actor ParakeetTranscriptionService: RecordingTranscribing {
         await modelManager.hasInstalledModel()
     }
 
+    func prepareForUse(
+        progress: @escaping @Sendable (TranscriptionSetupProgressSnapshot) -> Void
+    ) async throws {
+        let models = try await modelManager.prepareForUse(progress: progress)
+        _ = try await engine(models: models)
+    }
+
     func warmUpIfInstalled() async {
         guard loadedManager == nil else { return }
         do {
