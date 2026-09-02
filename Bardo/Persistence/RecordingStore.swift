@@ -294,6 +294,23 @@ actor RecordingStore {
         }
     }
 
+    func moveToTrash(id: Recording.ID) throws {
+        let directoryURL = recordingDirectoryURL(for: id)
+        guard FileManager.default.fileExists(atPath: directoryURL.path) else {
+            throw RecordingStoreError.recordingNotFound(id)
+        }
+
+        do {
+            try FileManager.default.trashItem(at: directoryURL, resultingItemURL: nil)
+        } catch {
+            throw RecordingStoreError.fileSystem(
+                operation: "move recording to Trash",
+                entry: id.uuidString,
+                description: error.localizedDescription
+            )
+        }
+    }
+
     private func encode(_ recording: Recording) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

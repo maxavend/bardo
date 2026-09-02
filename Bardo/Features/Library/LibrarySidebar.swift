@@ -179,6 +179,7 @@ private struct RecordingRowView: View {
             } label: {
                 Label("Rename…", systemImage: "pencil")
             }
+            .disabled(model.isTranscribing || model.isDiarizing)
 
             Button {
                 Task { await model.copyManagedLocation(recording.id) }
@@ -197,7 +198,7 @@ private struct RecordingRowView: View {
             Button(role: .destructive) {
                 isDeleteConfirmationPresented = true
             } label: {
-                Label("Delete Recording", systemImage: "trash")
+                Label("Move to Trash", systemImage: "trash")
             }
         }
         .sheet(isPresented: $isRenamePresented) {
@@ -211,16 +212,16 @@ private struct RecordingRowView: View {
             )
         }
         .confirmationDialog(
-            "Delete Recording?",
+            "Move Recording to Trash?",
             isPresented: $isDeleteConfirmationPresented,
             titleVisibility: .visible
         ) {
-            Button("Delete Recording", role: .destructive) {
+            Button("Move to Trash", role: .destructive) {
                 Task { await model.deleteRecording(recording.id) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the managed audio, transcript, and minutes for \"\(recording.title)\" from Bardo.")
+            Text("This moves the managed audio, transcript, and minutes for \"\(recording.title)\" to the macOS Trash, where you can recover it.")
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(

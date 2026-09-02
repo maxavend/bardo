@@ -124,6 +124,11 @@ final class LibraryViewModel: ObservableObject {
             return
         }
 
+        guard !isTranscribing, !isDiarizing else {
+            recordingActionErrorMessage = "Finish or cancel processing before renaming this recording."
+            return
+        }
+
         let title = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else {
             recordingActionErrorMessage = "Recording title cannot be empty."
@@ -163,7 +168,7 @@ final class LibraryViewModel: ObservableObject {
         recordingActionFeedback = nil
 
         do {
-            try await resolveStore().delete(id: recordingID)
+            try await resolveStore().moveToTrash(id: recordingID)
             recordings.removeAll { $0.id == recordingID }
             issues.removeAll { $0.recordingID == recordingID }
             if selection == recordingID {
@@ -172,7 +177,7 @@ final class LibraryViewModel: ObservableObject {
                 meetingMinutes = nil
                 playback.unload()
             }
-            recordingActionFeedback = "Recording deleted"
+            recordingActionFeedback = "Recording moved to the Trash"
         } catch {
             recordingActionErrorMessage = error.localizedDescription
         }
@@ -205,7 +210,11 @@ final class LibraryViewModel: ObservableObject {
         do {
             let location = try await managedLocation(for: recordingID)
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(location.path, forType: .string)
+            guard NSPasteboard.general.setString(location.path, forType: .string) else {
+                recordingActionErrorMessage = "Bardo could not copy the managed location to the clipboard."
+                recordingActionFeedback = nil
+                return
+            }
             recordingActionErrorMessage = nil
             recordingActionFeedback = "Managed location copied"
         } catch {
