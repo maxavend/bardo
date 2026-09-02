@@ -76,4 +76,27 @@ final class BardoModelStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: selectedRoot.path))
     }
+
+    func testResetRejectsAnInjectedRootThatIsAnExternalSymlink() throws {
+        let externalRoot = rootURL
+            .appendingPathComponent("external-model-cache", isDirectory: true)
+        let privateRoot = rootURL.appendingPathComponent("Models", isDirectory: true)
+        let externalModelRoot = externalRoot.appendingPathComponent("parakeet", isDirectory: true)
+        let marker = externalModelRoot.appendingPathComponent("must-survive.txt")
+
+        try FileManager.default.createDirectory(at: externalModelRoot, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: marker)
+        try FileManager.default.createSymbolicLink(at: privateRoot, withDestinationURL: externalRoot)
+        defer {
+            try? FileManager.default.removeItem(at: privateRoot)
+            try? FileManager.default.removeItem(at: externalRoot)
+        }
+
+        let store = BardoModelStore(rootURL: privateRoot)
+
+        XCTAssertThrowsError(try store.reset(.parakeet)) { error in
+            XCTAssertEqual(error as? BardoModelStoreError, .invalidPrivateRoot)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+    }
 }

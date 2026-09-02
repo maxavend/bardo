@@ -1,11 +1,14 @@
 import Foundation
 
 enum BardoModelStoreError: Error, Equatable, LocalizedError, Sendable {
+    case invalidPrivateRoot
     case invalidModelRoot(ManagedModel)
     case modelRootIsNotDirectory(ManagedModel)
 
     var errorDescription: String? {
         switch self {
+        case .invalidPrivateRoot:
+            return "Bardo's private model root must not resolve through a symbolic link."
         case .invalidModelRoot(let model):
             return "The managed root for \(model.rawValue) is outside Bardo's model root."
         case .modelRootIsNotDirectory(let model):
@@ -34,7 +37,9 @@ struct BardoModelStore {
         let root = applicationSupport
             .appendingPathComponent("Bardo", isDirectory: true)
             .appendingPathComponent("Models", isDirectory: true)
-        return BardoModelStore(rootURL: root)
+        let store = BardoModelStore(rootURL: root)
+        _ = try store.validatePrivateRoot()
+        return store
     }
 
     func root(for model: ManagedModel) -> URL {
@@ -42,6 +47,7 @@ struct BardoModelStore {
     }
 
     func reset(_ model: ManagedModel) throws {
+        _ = try validatePrivateRoot()
         let modelRoot = try validatedRoot(for: model)
         guard fileManager.fileExists(atPath: modelRoot.path) else { return }
 
@@ -55,8 +61,8 @@ struct BardoModelStore {
 
     private func validatedRoot(for model: ManagedModel) throws -> URL {
         let expectedRoot = root(for: model).standardizedFileURL
-        let standardizedRoot = rootURL.standardizedFileURL
-        let resolvedRoot = standardizedRoot.resolvingSymlinksInPath()
+        let standardizedRoot = try validatePrivateRoot()
+        let resolvedRoot = standardizedRoot
         let resolvedModelRoot = expectedRoot.resolvingSymlinksInPath()
 
         guard expectedRoot.deletingLastPathComponent() == standardizedRoot,
@@ -67,6 +73,14 @@ struct BardoModelStore {
         }
 
         return expectedRoot
+    }
+
+    private func validatePrivateRoot() throws -> URL {
+        let standardizedRoot = rootURL.standardizedFileURL
+        guard standardizedRoot.resolvingSymlinksInPath() == standardizedRoot else {
+            throw BardoModelStoreError.invalidPrivateRoot
+        }
+        return standardizedRoot
     }
 
     private func directoryName(for model: ManagedModel) -> String {
