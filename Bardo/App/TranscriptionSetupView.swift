@@ -355,6 +355,7 @@ struct TranscriptionSetupView: View {
         case speakerDownload
         case speakerOptimize
         case ready
+        case cancelled
         case failed
     }
 }

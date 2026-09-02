@@ -137,7 +137,7 @@ actor ParakeetModelManager {
     }
 
     private func download(
-        progress: @escaping @Sendable (Double) -> Void
+        progress: @escaping @Sendable (TranscriptionSetupProgressSnapshot) -> Void
     ) async throws {
         modelState = .downloading(0)
         try await operations.download(modelRoot) { fraction in

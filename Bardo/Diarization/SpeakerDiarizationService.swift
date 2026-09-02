@@ -1,6 +1,7 @@
 import Foundation
 import OSLog
 @preconcurrency import SpeakerKit
+@preconcurrency import ArgmaxCore
 
 enum DiarizationStage: String, Sendable {
     case preparingModel
@@ -40,7 +41,50 @@ protocol SpeakerDiarizationEngine: AnyObject, Sendable {
     ) async throws -> DiarizationResult
 }
 
-extension SpeakerKitDiarizer: SpeakerDiarizationEngine {}
+/// Adapts SpeakerKit's concrete class to the narrow interface used by Bardo.
+///
+/// SpeakerKitDiarizer also inherits an overload of `downloadModels` from
+/// ArgmaxCore.ModelManager. Keeping the overload resolution inside this
+/// adapter prevents that library detail from leaking into Bardo's recovery
+/// and test abstractions.
+final class SpeakerKitDiarizationEngineAdapter: SpeakerDiarizationEngine {
+    private let base: SpeakerKitDiarizer
+
+    init(base: SpeakerKitDiarizer) {
+        self.base = base
+    }
+
+    var isLoaded: Bool {
+        base.isLoaded
+    }
+
+    func downloadModels(
+        progressCallback: (@Sendable (Progress) -> Void)?
+    ) async throws {
+        // SpeakerKitDiarizer exposes an overload with the same label as its
+        // inherited ModelManager method. The inherited implementation is the
+        // one that accepts progress callbacks and is what the subclass
+        // overload delegates to; the upcast makes that choice explicit.
+        let manager: ModelManager = base
+        try await manager.downloadModels(progressCallback: progressCallback)
+    }
+
+    func loadModels() async throws {
+        try await base.loadModels()
+    }
+
+    func diarize(
+        audioArray: [Float],
+        options: (any DiarizationOptions)?,
+        progressCallback: (@Sendable (Progress) -> Void)?
+    ) async throws -> DiarizationResult {
+        try await base.diarize(
+            audioArray: audioArray,
+            options: options,
+            progressCallback: progressCallback
+        )
+    }
+}
 
 protocol RecordingDiarizing: Sendable {
     func diarize(
@@ -612,6 +656,8 @@ struct SpeakerDiarizationOperations: Sendable {
                 verbose: false
             )
         }
-        return SpeakerKitDiarizer.pyannote(config: config)
+        return SpeakerKitDiarizationEngineAdapter(
+            base: SpeakerKitDiarizer.pyannote(config: config)
+        )
     }
 }
