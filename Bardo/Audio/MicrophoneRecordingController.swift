@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -199,6 +200,22 @@ final class MicrophoneRecordingController: ObservableObject {
         } catch {
             recoveryIssues = []
         }
+    }
+
+    func discardRecoveryIssue(_ issue: RecordingStoreIssue) async {
+        guard let recordingID = issue.recordingID else { return }
+        do {
+            try await resolveStagingStore().discardPreparedCapture(recordingID: recordingID)
+            await refreshRecoveryIssues()
+        } catch {
+            errorMessage = "Bardo could not discard (issue.entryName): (error.localizedDescription)"
+        }
+    }
+
+    @discardableResult
+    func openRecoveryFolder() -> Bool {
+        guard let root = try? MicrophoneCaptureStagingStore.liveRootURL() else { return false }
+        return NSWorkspace.shared.open(root)
     }
 
     func clearError() {

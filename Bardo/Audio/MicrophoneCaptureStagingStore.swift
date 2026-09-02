@@ -19,6 +19,11 @@ actor MicrophoneCaptureStagingStore {
         )
     }
 
+    static func liveRootURL() throws -> URL {
+        let libraryURL = try RecordingStore.defaultLibraryURL()
+        return libraryURL.deletingLastPathComponent().appendingPathComponent(Self.directoryName, isDirectory: true)
+    }
+
     func prepareCapture(
         recordingID: UUID,
         audioAssetID: UUID,

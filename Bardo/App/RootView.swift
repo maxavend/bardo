@@ -6,6 +6,7 @@ struct RootView: View {
     @StateObject private var library = LibraryViewModel()
     @StateObject private var microphone = MicrophoneRecordingController()
     @StateObject private var systemAudio = SystemAudioRecordingController()
+    @State private var isRecoveryPresented = false
 
     init(warmTranscriptionForRecording: @escaping @MainActor () -> Void = {}) {
         self.warmTranscriptionForRecording = warmTranscriptionForRecording
@@ -54,6 +55,16 @@ struct RootView: View {
                 }
             } message: {
                 Text(systemAudio.errorMessage ?? "System audio recording could not continue.")
+            }
+            .sheet(isPresented: $isRecoveryPresented) {
+                RecoveryReviewView(
+                    microphoneIssues: microphone.recoveryIssues,
+                    systemAudioIssues: systemAudio.recoveryIssues,
+                    openMicrophoneFolder: { microphone.openRecoveryFolder() },
+                    openSystemAudioFolder: { systemAudio.openRecoveryFolder() },
+                    discardMicrophoneIssue: { issue in Task { await microphone.discardRecoveryIssue(issue) } },
+                    discardSystemAudioIssue: { issue in Task { await systemAudio.discardRecoveryIssue(issue) } }
+                )
             }
             .onDisappear {
                 Task {
@@ -228,6 +239,9 @@ struct RootView: View {
                     .accessibilityHidden(true)
                 Text("Bardo preserved \(total) incomplete capture\(total == 1 ? "" : "s") for recovery.")
                     .font(.caption)
+                Button("Review…") { isRecoveryPresented = true }
+                    .buttonStyle(.link)
+                    .font(.caption.weight(.semibold))
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 14)
@@ -351,6 +365,71 @@ struct RootView: View {
             return "Microphone Access Restricted"
         default:
             return "Microphone Recording Failed"
+        }
+    }
+}
+
+private struct RecoveryReviewView: View {
+    let microphoneIssues: [RecordingStoreIssue]
+    let systemAudioIssues: [RecordingStoreIssue]
+    let openMicrophoneFolder: () -> Bool
+    let openSystemAudioFolder: () -> Bool
+    let discardMicrophoneIssue: (RecordingStoreIssue) -> Void
+    let discardSystemAudioIssue: (RecordingStoreIssue) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Label("Recovery", systemImage: "exclamationmark.triangle.fill")
+                    .font(.title2.weight(.semibold))
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.escape, modifiers: [])
+            }
+            Text("Bardo preserved these incomplete capture files after an interruption. Review them in Finder, or discard only the items you no longer need.")
+                .foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    issueSection("Microphone captures", issues: microphoneIssues, openFolder: openMicrophoneFolder, discard: discardMicrophoneIssue)
+                    issueSection("System audio captures", issues: systemAudioIssues, openFolder: openSystemAudioFolder, discard: discardSystemAudioIssue)
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 560, height: 420)
+    }
+
+    @ViewBuilder
+    private func issueSection(
+        _ title: String,
+        issues: [RecordingStoreIssue],
+        openFolder: @escaping () -> Bool,
+        discard: @escaping (RecordingStoreIssue) -> Void
+    ) -> some View {
+        if !issues.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(title).font(.headline)
+                    Spacer()
+                    Button("Open in Finder") { _ = openFolder() }
+                }
+                ForEach(issues) { issue in
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.fill").foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(issue.entryName).lineLimit(1)
+                            Text(issue.message).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if issue.recordingID != nil {
+                            Button("Discard", role: .destructive) { discard(issue) }
+                        }
+                    }
+                    .padding(10)
+                    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
         }
     }
 }

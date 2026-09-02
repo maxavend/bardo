@@ -48,6 +48,18 @@ actor SystemAudioCaptureStagingStore {
         return SystemAudioCaptureStagingStore(rootURL: root)
     }
 
+    static func liveRootURL() throws -> URL {
+        let applicationSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        return applicationSupport
+            .appendingPathComponent("Bardo", isDirectory: true)
+            .appendingPathComponent(Self.directoryName, isDirectory: true)
+    }
+
     func prepareCapture(
         recordingID: UUID,
         systemAssetID: UUID,
