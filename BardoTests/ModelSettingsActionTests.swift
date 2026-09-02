@@ -34,7 +34,7 @@ final class ModelSettingsActionTests: XCTestCase {
         )
     }
 
-    func testQwenNotInstalledUsesOneOnDemandState() {
+    func testQwenNotInstalledUsesShortOnDemandState() {
         let row = ModelSettingsRowState(
             id: .qwen,
             title: "Qwen",
@@ -43,7 +43,7 @@ final class ModelSettingsActionTests: XCTestCase {
             state: .notInstalled
         )
 
-        XCTAssertEqual(row.stateLabel, String(localized: "Available on demand"))
+        XCTAssertEqual(row.stateLabel, String(localized: "On demand"))
     }
 
     func testNotInstalledModelUsesDownloadSymbolInsteadOfSelectionCircle() {

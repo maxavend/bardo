@@ -68,8 +68,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .scenePadding()
-        .frame(minWidth: 560, idealWidth: 620, maxWidth: 720, minHeight: 480, idealHeight: 560, maxHeight: 680)
+        .contentMargins(.horizontal, 28, for: .scrollContent)
+        .contentMargins(.vertical, 24, for: .scrollContent)
+        .frame(minWidth: 560, idealWidth: 620, maxWidth: 720, minHeight: 520, idealHeight: 600, maxHeight: 760)
         .task {
             await model.refreshIfNeeded()
         }
@@ -195,13 +196,14 @@ private struct ModelSettingsRow: View {
             Menu {
                 Button("Show in Finder") { action(.reveal) }
                 Divider()
-                Button("Remove and Download Again", role: .destructive) { action(.resetAndInstall) }
+                Button("Reinstall Model…", role: .destructive) { action(.resetAndInstall) }
                 Button("Remove Model", role: .destructive) { action(.reset) }
             } label: {
                 Image(systemName: "ellipsis")
                     .frame(width: 24, height: 24)
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .controlSize(.small)
             .accessibilityLabel(String.localizedStringWithFormat(String(localized: "More actions for %@"), row.title))
             .help("Show more actions")
@@ -227,7 +229,7 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
     var stateLabel: String {
         switch state {
         case .notInstalled:
-            return supportsInstallation ? "" : String(localized: "Available on demand")
+            return supportsInstallation ? "" : String(localized: "On demand")
         case .downloading(let fraction):
             return String.localizedStringWithFormat(String(localized: "Downloading %@"), percentage(fraction))
         case .preparing(let fraction):

@@ -53,12 +53,12 @@
 "Remove local model?" = "Remove local model?";
 "Bardo will remove this model’s private files and start a fresh download." = "Bardo will remove this model’s private files and start a fresh download.";
 "This frees space on your Mac. You can download the model again whenever you need it." = "This frees space on your Mac. You can download the model again whenever you need it.";
-"Remove and Download Again" = "Remove and Download Again";
+"Reinstall Model…" = "Reinstall Model…";
 "Remove Model" = "Remove Model";
 "Bardo uses only models stored in its private folder." = "Bardo uses only models stored in its private folder.";
 "Model folder" = "Model folder";
 "Show in Finder" = "Show in Finder";
-"Available on demand" = "Available on demand";
+"On demand" = "On demand";
 "Show more actions" = "Show more actions";
 "More actions for %@" = "More actions for %@";
 "Models are stored privately on your Mac." = "Models are stored privately on your Mac.";
