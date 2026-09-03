@@ -97,6 +97,122 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
         XCTAssertTrue(prompts[2].contains("Extract two"))
     }
 
+    func testGeneratorIncludesLanguageInstructionInPrompt() async throws {
+        let spy = TextGeneratorSpy(responses: ["## Resumen\n- Acuerdo alcanzado."])
+        let generator = QwenMeetingMinutesGenerator(textGenerator: spy)
+        var transcript = makeTranscript(recordingID: UUID(), text: "Discutimos el lanzamiento del producto.")
+        transcript.languageCode = "es"
+
+        let input = MeetingMinutesInput(
+            transcript: transcript,
+            title: "Reunión de Producto",
+            context: "Planificación semanal"
+        )
+
+        _ = try await generator.generate(from: input, progress: { (_: MeetingMinutesProgressSnapshot) in }, onStreamChunk: nil)
+        let prompts = await spy.prompts
+
+        XCTAssertEqual(prompts.count, 1)
+        XCTAssertTrue(prompts[0].contains("Spanish"))
+        XCTAssertTrue(prompts[0].contains("es"))
+        XCTAssertTrue(prompts[0].contains("LANGUAGE REQUIREMENT"))
+        XCTAssertTrue(prompts[0].contains("Executive Summary / Resumen Ejecutivo"))
+        XCTAssertTrue(prompts[0].contains("Key Discussion Points / Temas Tratados y Discusión"))
+        XCTAssertTrue(prompts[0].contains("Decisions and Agreements / Acuerdos y Decisiones"))
+        XCTAssertTrue(prompts[0].contains("Action Items & Next Steps / Tareas y Compromisos"))
+    }
+
+    func testGeneratorStreamsTokensDuringSynthesis() async throws {
+        let spy = TextGeneratorSpy(responses: ["Streaming chunk"])
+        let generator = QwenMeetingMinutesGenerator(textGenerator: spy)
+        let input = MeetingMinutesInput(
+            transcript: makeTranscript(recordingID: UUID(), text: "Test conversation."),
+            title: "Testing Stream",
+            context: nil
+        )
+
+        let receivedChunks = LockedBox<[String]>([])
+        _ = try await generator.generate(
+            from: input,
+            progress: { (_: MeetingMinutesProgressSnapshot) in },
+            onStreamChunk: { chunk in
+                receivedChunks.append(chunk)
+            }
+        )
+
+        let chunks = receivedChunks.value
+        XCTAssertEqual(chunks, ["Streaming chunk"])
+    }
+
+    func testGeneratorReportsProgressSnapshotsWithStages() async throws {
+        let spy = TextGeneratorSpy(responses: ["Completed minutes"])
+        let generator = QwenMeetingMinutesGenerator(textGenerator: spy)
+        let input = MeetingMinutesInput(
+            transcript: makeTranscript(recordingID: UUID(), text: "Quick check."),
+            title: "Progress Check",
+            context: nil
+        )
+
+        let snapshots = LockedBox<[MeetingMinutesStage]>([])
+        _ = try await generator.generate(
+            from: input,
+            progress: { snapshot in
+                snapshots.append(snapshot.stage)
+            },
+            onStreamChunk: nil
+        )
+
+        let stages = snapshots.value
+        XCTAssertTrue(stages.contains(.preparingModel))
+        XCTAssertTrue(stages.contains(.synthesizing))
+    }
+
+    func testRepetitionDetectorIdentifiesLineLevelLoopsAndCleans() {
+        let loopedText = """
+        # Minuta de Reunión
+        ## Acuerdos y Decisiones
+        - Se acordó posponer la fecha de entrega al 15 de noviembre.
+        - Se acordó posponer la fecha de entrega al 15 de noviembre.
+        - Se acordó posponer la fecha de entrega al 15 de noviembre.
+        """
+
+        let cut = RepetitionDetector.detectRepetition(in: loopedText)
+        XCTAssertNotNil(cut)
+
+        let cleaned = RepetitionDetector.cleanRepetition(from: loopedText)
+        XCTAssertTrue(cleaned.contains("- Se acordó posponer la fecha de entrega al 15 de noviembre."))
+        // Must contain it only once, not 3 times
+        let occurrences = cleaned.components(separatedBy: "- Se acordó posponer la fecha de entrega al 15 de noviembre.").count - 1
+        XCTAssertEqual(occurrences, 1)
+    }
+
+    func testRepetitionDetectorIdentifiesSubstringCyclesAndCleans() {
+        let loopedText = "El equipo discutió los objetivos del trimestre. y luego revisamos los puntos pendientes y luego revisamos los puntos pendientes y luego revisamos los puntos pendientes"
+        let cut = RepetitionDetector.detectRepetition(in: loopedText)
+        XCTAssertNotNil(cut)
+
+        let cleaned = RepetitionDetector.cleanRepetition(from: loopedText)
+        let occurrences = cleaned.components(separatedBy: "y luego revisamos los puntos pendientes").count - 1
+        XCTAssertEqual(occurrences, 1)
+        XCTAssertTrue(cleaned.hasPrefix("El equipo discutió los objetivos del trimestre."))
+    }
+
+    func testRepetitionDetectorLeavesNormalTextIntact() {
+        let normalText = """
+        # Minuta de Reunión
+        ## Resumen Ejecutivo
+        Se discutió la arquitectura del proyecto y las dependencias de red.
+        ## Acuerdos y Decisiones
+        - Maxi coordinará la migración.
+        - Sofía revisará las pruebas de integración.
+        ## Tareas
+        - Documentar los cambios antes del viernes.
+        """
+        let cut = RepetitionDetector.detectRepetition(in: normalText)
+        XCTAssertNil(cut)
+        XCTAssertEqual(RepetitionDetector.cleanRepetition(from: normalText), normalText)
+    }
+
     private func makeTranscript(recordingID: Recording.ID, text: String) -> Transcript {
         Transcript(
             recordingID: recordingID,
@@ -108,6 +224,27 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
                 modelID: "large-v3-v20240930_turbo_632MB"
             )
         )
+    }
+}
+
+private final class LockedBox<T>: @unchecked Sendable {
+    private var _value: T
+    private let lock = NSLock()
+
+    init(_ value: T) {
+        self._value = value
+    }
+
+    var value: T {
+        lock.lock()
+        defer { lock.unlock() }
+        return _value
+    }
+
+    func append<Element>(_ element: Element) where T == [Element] {
+        lock.lock()
+        defer { lock.unlock() }
+        _value.append(element)
     }
 }
 
@@ -136,11 +273,16 @@ private actor TextGeneratorSpy: MeetingMinutesTextGenerating {
     func generate(
         prompt: String,
         options: MeetingMinutesGenerationOptions,
-        progress: @escaping @Sendable (Double) -> Void
+        progress: @escaping @Sendable (Double) -> Void,
+        onStreamChunk: (@Sendable (String) -> Void)?
     ) async throws -> String {
         calls.append(Call(prompt: prompt, options: options))
         progress(1)
         defer { index += 1 }
-        return responses[min(index, responses.count - 1)]
+        let resp = responses[min(index, responses.count - 1)]
+        onStreamChunk?(resp)
+        return resp
     }
+
+    func reset() async {}
 }

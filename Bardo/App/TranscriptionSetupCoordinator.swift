@@ -20,7 +20,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     private var preparationTask: Task<Void, Never>?
 
     private static var completionKey: String {
-        "Bardo.FullAISetup.v3.\(TranscriptionModelManager.defaultModelID).\(SpeakerDiarizationService.modelID)"
+        "Bardo.FullAISetup.v4.\(TranscriptionModelManager.balancedModelID).\(TranscriptionModelManager.maximumAccuracyModelID).\(TranscriptionBackend.parakeetModelID).\(SpeakerDiarizationService.modelID).\(QwenMeetingMinutesModel.modelID)"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -42,23 +42,33 @@ final class TranscriptionSetupCoordinator: ObservableObject {
         }
 
         do {
-            let transcription = try WhisperTranscriptionService.live()
+            let store = try BardoModelStore.live()
+            let balanced = try WhisperTranscriptionService.live(for: .balanced)
+            let maximumAccuracy = try WhisperTranscriptionService.live(for: .maximumAccuracy)
+            let parakeet = try ParakeetTranscriptionService.live()
             let speakers = try SpeakerDiarizationService.live()
+            let minutes = try QwenMeetingMinutesGenerator.live()
             let markedComplete = defaults.bool(forKey: Self.completionKey)
 
-            let transcriptionInstalled = await transcription.hasInstalledModel()
+            let balancedInstalled = await balanced.hasInstalledModel()
+            let maximumAccuracyInstalled = await maximumAccuracy.hasInstalledModel()
+            let parakeetInstalled = await parakeet.hasInstalledModel()
             let speakersInstalled = await speakers.hasInstalledModels()
+            let minutesInstalled = QwenMeetingMinutesModel.isInstalled(at: store.root(for: .qwen))
+            let allModelsInstalled = balancedInstalled
+                && maximumAccuracyInstalled
+                && parakeetInstalled
+                && speakersInstalled
+                && minutesInstalled
 
-            if !force, markedComplete, transcriptionInstalled, speakersInstalled {
-                // A completion marker is only a hint. Validate both engines again so a
-                // corrupted Core ML cache cannot put the launch screen into a false Ready
-                // state after a background warm-up silently failed.
-                try await transcription.prepareForUse { [weak self] snapshot in
-                    Task { @MainActor in self?.state = .installing(snapshot) }
-                }
-                try await speakers.prepareForUse { [weak self] snapshot in
-                    Task { @MainActor in self?.state = .installingSpeakers(snapshot) }
-                }
+            if !force, markedComplete, allModelsInstalled {
+                try await prepareTranscriptionModels(
+                    balanced: balanced,
+                    maximumAccuracy: maximumAccuracy,
+                    parakeet: parakeet
+                )
+                try await prepareMinutes(minutes)
+                try await prepareSpeakers(speakers)
                 state = .ready
                 return
             }
@@ -67,22 +77,16 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             defaults.set(false, forKey: Self.completionKey)
             state = .checking
 
-            try await transcription.prepareForUse { [weak self] snapshot in
-                Task { @MainActor in
-                    self?.state = .installing(snapshot)
-                }
-            }
+            try await prepareTranscriptionModels(
+                balanced: balanced,
+                maximumAccuracy: maximumAccuracy,
+                parakeet: parakeet
+            )
+            try await prepareMinutes(minutes)
+            try await prepareSpeakers(speakers)
 
-            try await speakers.prepareForUse { [weak self] snapshot in
-                Task { @MainActor in
-                    self?.state = .installingSpeakers(snapshot)
-                }
-            }
-
-            // SpeakerKit setup can take long enough that Whisper's idle timer may have moved
-            // on. Touch the shared runtime once more so "Ready" really means the first
-            // transcription starts from a hot engine.
-            await transcription.warmUpIfInstalled()
+            // Keep the selected transcription path hot after the other local models finish.
+            await warmSelectedTranscriptionModel()
 
             defaults.set(true, forKey: Self.completionKey)
             completedSetupThisLaunch = true
@@ -91,6 +95,36 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             state = .cancelled
         } catch {
             state = .failed(error.localizedDescription)
+        }
+    }
+
+    private func prepareTranscriptionModels(
+        balanced: WhisperTranscriptionService,
+        maximumAccuracy: WhisperTranscriptionService,
+        parakeet: ParakeetTranscriptionService
+    ) async throws {
+        try await balanced.prepareForUse { [weak self] snapshot in
+            Task { @MainActor in self?.state = .installing(snapshot) }
+        }
+        try await maximumAccuracy.prepareForUse { [weak self] snapshot in
+            Task { @MainActor in self?.state = .installing(snapshot) }
+        }
+        try await parakeet.prepareForUse { [weak self] snapshot in
+            Task { @MainActor in self?.state = .installing(snapshot) }
+        }
+    }
+
+    private func prepareMinutes(_ minutes: QwenMeetingMinutesGenerator) async throws {
+        try await minutes.prepareForUse { [weak self] fraction in
+            Task { @MainActor in
+                self?.state = .installing(.init(stage: .optimizingForMac, fractionCompleted: fraction))
+            }
+        }
+    }
+
+    private func prepareSpeakers(_ speakers: SpeakerDiarizationService) async throws {
+        try await speakers.prepareForUse { [weak self] snapshot in
+            Task { @MainActor in self?.state = .installingSpeakers(snapshot) }
         }
     }
 
@@ -114,7 +148,9 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             guard let self else { return }
             do {
                 let store = try BardoModelStore.live()
-                try store.reset(.whisperBalanced)
+                for model in ManagedModel.allCases where model != .speakerKit {
+                    try store.reset(model)
+                }
                 let speakers = try SpeakerDiarizationService.live()
                 try await speakers.reset()
                 defaults.set(false, forKey: Self.completionKey)
@@ -135,7 +171,19 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     func warmForRecording() {
         guard isReady else { return }
         Task {
-            guard let service = try? WhisperTranscriptionService.live() else { return }
+            await warmSelectedTranscriptionModel()
+        }
+    }
+
+    private func warmSelectedTranscriptionModel() async {
+        let preset = TranscriptionPreferenceStore().selectedPreset()
+        let option = TranscriptionOption.option(for: preset)
+        switch option.selection.backend {
+        case .parakeet:
+            guard let service = try? ParakeetTranscriptionService.live() else { return }
+            await service.warmUpIfInstalled()
+        case .whisperKit:
+            guard let service = try? WhisperTranscriptionService.live(for: option.preset) else { return }
             await service.warmUpIfInstalled()
         }
     }

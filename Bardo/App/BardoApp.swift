@@ -17,7 +17,7 @@ struct BardoApp: App {
     var body: some Scene {
         Window("Bardo", id: "main") {
             BardoLaunchView()
-                .frame(minWidth: 760, minHeight: 520)
+                .frame(minWidth: 1080, minHeight: 620)
         }
         .defaultSize(width: 1180, height: 760)
         .windowResizability(.contentMinSize)

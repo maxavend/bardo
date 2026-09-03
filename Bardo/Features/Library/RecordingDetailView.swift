@@ -6,47 +6,180 @@ struct RecordingDetailView: View {
     @ObservedObject var model: LibraryViewModel
     @ObservedObject var playback: AudioPlaybackController
 
-    @State private var transcriptSearch = ""
+    @Binding var transcriptSearch: String
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
     @State private var isInspectorPresented = false
     @State private var isSpeakerNamingPresented = false
     @State private var isRenamePresented = false
     @State private var isDeleteConfirmationPresented = false
+    @State private var selectedTab: DetailTab = .transcript
+    @Namespace private var tabAnimationNamespace
+
+    enum DetailTab: String, CaseIterable, Identifiable {
+        case transcript
+        case minutes
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .transcript: String(localized: "Transcript")
+            case .minutes: String(localized: "Meeting Minutes")
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .transcript: "captions.bubble"
+            case .minutes: "list.bullet.clipboard"
+            }
+        }
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                recordingHeader
+        VStack(alignment: .leading, spacing: 0) {
+            recordingHeader
+                .padding(.horizontal, BardoSpacing.detailHorizontal)
+                .padding(.top, BardoSpacing.detailTop)
+                .padding(.bottom, 8)
 
+            tabSwitcher
+                .padding(.horizontal, BardoSpacing.detailHorizontal)
+                .padding(.bottom, 10)
+
+            Divider()
+                .opacity(0.6)
+
+            switch selectedTab {
+            case .transcript:
                 TranscriptContentView(
                     recording: recording,
                     model: model,
                     playback: playback,
                     searchText: $transcriptSearch,
                     editor: $editor,
-                    isSpeakerNamingPresented: $isSpeakerNamingPresented
+                    isSpeakerNamingPresented: $isSpeakerNamingPresented,
+                    onSelectMinutes: { selectedTab = .minutes }
                 )
-
-                if let transcript = model.transcript, transcript.recordingID == recording.id {
-                    MeetingMinutesView(recording: recording, model: model)
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            case .minutes:
+                MeetingMinutesView(
+                    recording: recording,
+                    model: model,
+                    onSwitchToTranscript: { selectedTab = .transcript }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: 880, alignment: .leading)
-            .padding(.horizontal, 36)
-            .padding(.top, 34)
-            .padding(.bottom, 28)
-            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle("")
-        .searchable(text: $transcriptSearch, placement: .toolbar, prompt: "Search Transcript")
-        .toolbar {
-            detailToolbar
-        }
+        .searchable(text: $transcriptSearch, placement: .toolbar, prompt: Text(String(localized: "Search Transcript")))
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !recording.audioAssets.isEmpty || playback.errorMessage != nil {
-                FloatingPlaybackBar(playback: playback)
+                FloatingPlaybackBar(recording: recording, playback: playback)
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Menu {
+                    Button {
+                        isRenamePresented = true
+                    } label: {
+                        Label(String(localized: "Rename…"), systemImage: "pencil")
+                    }
+                    .disabled(model.isTranscribing || model.isDiarizing)
+                    .keyboardShortcut("e", modifiers: [.command])
+
+                    Button {
+                        revealInFinder()
+                    } label: {
+                        Label(String(localized: "Reveal in Finder"), systemImage: "folder")
+                    }
+
+                    Button {
+                        Task { await model.copyManagedLocation(recording.id) }
+                    } label: {
+                        Label(String(localized: "Copy Location"), systemImage: "doc.on.doc")
+                    }
+
+                    if let transcript = model.transcript,
+                       transcript.recordingID == recording.id {
+                        Divider()
+
+                        Button {
+                            copyTranscript(transcript)
+                        } label: {
+                            Label(String(localized: "Copy Transcript"), systemImage: "doc.on.doc")
+                        }
+                        .disabled(transcript.text.isEmpty)
+
+                        Button {
+                            if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
+                                pendingReplacementAction = .rediarize
+                            } else {
+                                model.beginDiarization()
+                            }
+                        } label: {
+                            Label(
+                                transcript.diarizationMetadata == nil ? String(localized: "Identify Speakers") : String(localized: "Identify Speakers Again"),
+                                systemImage: "person.2.wave.2"
+                            )
+                        }
+                        .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
+
+                        Menu {
+                            ForEach(TranscriptionOption.catalog) { option in
+                                Button {
+                                    model.selectedTranscriptionPreset = option.preset
+                                    if transcript.hasManualChanges {
+                                        pendingReplacementAction = .retranscribe
+                                    } else {
+                                        model.beginTranscription()
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.label)
+                                        if model.selectedTranscriptionPreset == option.preset {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label(String(localized: "Transcribe Again…"), systemImage: "arrow.clockwise")
+                        }
+                        .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
+                    }
+
+                    Divider()
+
+                    Button(role: .destructive) {
+                        isDeleteConfirmationPresented = true
+                    } label: {
+                        Label(String(localized: "Move to Trash"), systemImage: "trash")
+                    }
+                    .disabled(model.isTranscribing || model.isDiarizing || model.isGeneratingMeetingMinutes)
+                    .keyboardShortcut(.delete, modifiers: [.command])
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(.fill.quaternary.opacity(0.8), in: Circle())
+                        .contentShape(Circle())
+                }
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .help(String(localized: "More recording and transcript actions"))
+                .accessibilityLabel(String(localized: "More recording and transcript actions"))
+
+                Button {
+                    isInspectorPresented.toggle()
+                } label: {
+                    Label(isInspectorPresented ? String(localized: "Hide Inspector") : String(localized: "Show Inspector"), systemImage: "sidebar.right")
+                }
+                .help(isInspectorPresented ? String(localized: "Hide Inspector") : String(localized: "Show Inspector"))
+                .keyboardShortcut("i", modifiers: [.command, .option])
             }
         }
         .inspector(isPresented: $isInspectorPresented) {
@@ -57,6 +190,12 @@ struct RecordingDetailView: View {
             editor = nil
             pendingReplacementAction = nil
             isSpeakerNamingPresented = false
+            selectedTab = .transcript
+        }
+        .onChange(of: model.isGeneratingMeetingMinutes) { _, isGenerating in
+            if isGenerating {
+                selectedTab = .minutes
+            }
         }
         .onChange(of: model.shouldPresentSpeakerNamingSheet) { _, shouldPresent in
             guard shouldPresent else { return }
@@ -116,162 +255,121 @@ struct RecordingDetailView: View {
             )
         }
         .confirmationDialog(
-            "Move Recording to Trash?",
+            String(localized: "Move Recording to Trash?"),
             isPresented: $isDeleteConfirmationPresented,
             titleVisibility: .visible
         ) {
-            Button("Move to Trash", role: .destructive) {
+            Button(String(localized: "Move to Trash"), role: .destructive) {
                 Task { await model.deleteRecording(recording.id) }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(String(localized: "Cancel"), role: .cancel) {}
         } message: {
-            Text("This moves the managed audio, transcript, and minutes for \"\(recording.title)\" to the macOS Trash, where you can recover it.")
+            Text(String.localizedStringWithFormat(
+                String(localized: "This moves the managed audio, transcript, and minutes for \"%@\" to the macOS Trash, where you can recover it."),
+                recordingDisplayTitle
+            ))
         }
     }
 
     private var recordingHeader: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(recording.title)
-                    .font(.largeTitle.weight(.bold))
-                    .lineLimit(2)
-                    .textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(recordingDisplayTitle)
+                .font(.title2.weight(.bold))
+                .lineLimit(2)
+                .textSelection(.enabled)
+
+            HStack(spacing: 12) {
+                metadataLabel(
+                    recording.createdAt.formatted(.dateTime.month(.wide).day().year().hour().minute()),
+                    systemImage: "calendar"
+                )
+                metadataLabel(LibraryFormatting.duration(recording.duration), systemImage: "clock")
+                    .monospacedDigit()
+                metadataLabel(LibraryFormatting.source(recording.sources), systemImage: "waveform")
+
+                if let transcript = model.transcript, transcript.recordingID == recording.id {
+                    metadataLabel(LibraryFormatting.language(transcript.languageCode), systemImage: "globe")
+                }
 
                 if recording.processingState == .processing {
                     ProgressView()
                         .controlSize(.small)
                 } else if recording.processingState == .failed {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                        .help("This recording needs attention")
+                    Label(String(localized: "Needs attention"), systemImage: "exclamationmark.circle.fill")
+                        .foregroundStyle(.orange)
                 }
-            }
-
-            HStack(spacing: 7) {
-                Text(recording.createdAt, format: .dateTime.month(.wide).day().year().hour().minute())
-                Text("·")
-                Text(LibraryFormatting.source(recording.sources))
-                Text("·")
-                Text(LibraryFormatting.duration(recording.duration))
-                    .monospacedDigit()
             }
             .font(.callout)
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
+        .frame(maxWidth: 800, alignment: .leading)
     }
 
-    @ToolbarContentBuilder
-    private var detailToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            Menu {
+    private var recordingDisplayTitle: String {
+        LibraryFormatting.recordingTitle(recording)
+    }
+
+    private func metadataLabel(_ text: String, systemImage: String) -> some View {
+        Label(text, systemImage: systemImage)
+            .labelStyle(.titleAndIcon)
+            .imageScale(.small)
+    }
+
+    private var tabSwitcher: some View {
+        HStack(spacing: 2) {
+            ForEach(DetailTab.allCases) { tab in
+                let isSelected = selectedTab == tab
                 Button {
-                    if model.selection == recording.id, playback.isPlaying {
-                        playback.pause()
-                    } else {
-                        Task { await model.playRecording(recording.id) }
+                    withAnimation(.spring(response: 0.26, dampingFraction: 0.82)) {
+                        selectedTab = tab
                     }
                 } label: {
-                    Label(playback.isPlaying ? "Pause" : "Play", systemImage: playback.isPlaying ? "pause.fill" : "play.fill")
-                }
-                .disabled(!RecordingActionPolicy.allows(.playPause, for: recording) || model.isTranscribing || model.isDiarizing)
+                    HStack(spacing: 6) {
+                        Image(systemName: tab.systemImage)
+                            .font(.system(size: 11, weight: .medium))
 
-                Divider()
+                        Text(tab.title)
+                            .font(.subheadline.weight(isSelected ? .semibold : .regular))
 
-                Button {
-                    isRenamePresented = true
-                } label: {
-                    Label("Rename…", systemImage: "pencil")
-                }
-                .disabled(model.isTranscribing || model.isDiarizing)
-
-                Button {
-                    Task { await model.copyManagedLocation(recording.id) }
-                } label: {
-                    Label("Copy Location", systemImage: "doc.on.doc")
-                }
-
-                Button {
-                    revealInFinder()
-                } label: {
-                    Label("Reveal in Finder", systemImage: "folder")
-                }
-
-                if let transcript = model.transcript,
-                   transcript.recordingID == recording.id {
-                    Divider()
-
-                    Button {
-                        copyTranscript(transcript)
-                    } label: {
-                        Label("Copy Transcript", systemImage: "doc.on.doc")
-                    }
-                    .disabled(transcript.text.isEmpty)
-
-                    Button {
-                        if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
-                            pendingReplacementAction = .rediarize
-                        } else {
-                            model.beginDiarization()
+                        if tab == .minutes, let minutes = model.meetingMinutes, minutes.recordingID == recording.id {
+                            Circle()
+                                .fill(.tint)
+                                .frame(width: 5, height: 5)
                         }
-                    } label: {
-                        Label(
-                            transcript.diarizationMetadata == nil ? "Identify Speakers" : "Identify Speakers Again",
-                            systemImage: "person.2.wave.2"
-                        )
                     }
-                    .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
-
-                    Button {
-                        if transcript.hasManualChanges {
-                            pendingReplacementAction = .retranscribe
-                        } else {
-                            model.beginTranscription()
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 5)
+                    .contentShape(Capsule())
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .background {
+                        if isSelected {
+                            Capsule()
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                                .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+                                .matchedGeometryEffect(id: "activeTabIndicator", in: tabAnimationNamespace)
                         }
-                    } label: {
-                        Label("Transcribe Again", systemImage: "arrow.clockwise")
                     }
-                    .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
                 }
-
-                Divider()
-
-                Button(role: .destructive) {
-                    isDeleteConfirmationPresented = true
-                } label: {
-                    Label("Move to Trash", systemImage: "trash")
-                }
-                .disabled(model.isTranscribing || model.isDiarizing || model.isGeneratingMeetingMinutes)
-            } label: {
-                Label("More", systemImage: "ellipsis")
-                    .labelStyle(.iconOnly)
+                .buttonStyle(.plain)
+                .keyboardShortcut(tab == .transcript ? "1" : "2", modifiers: [.command])
             }
-            .menuIndicator(.hidden)
-            .help("More recording and transcript actions")
-            .controlSize(.regular)
-
-            Button {
-                isInspectorPresented.toggle()
-            } label: {
-                Image(systemName: "sidebar.right")
-            }
-            .help(isInspectorPresented ? "Hide recording info" : "Show recording info")
-            .accessibilityLabel(isInspectorPresented ? "Hide recording info" : "Show recording info")
-            .controlSize(.regular)
         }
+        .padding(3)
+        .background(.fill.quaternary.opacity(0.7), in: Capsule())
     }
 
     private func copyTranscript(_ transcript: Transcript) {
         NSPasteboard.general.clearContents()
         if NSPasteboard.general.setString(transcript.text, forType: .string) {
-            model.reportRecordingActionFeedback("Transcript copied")
+            model.reportRecordingActionFeedback(String(localized: "Transcript copied"))
         }
     }
 
     private func revealInFinder() {
         Task {
             guard let location = try? await model.managedLocation(for: recording.id) else {
-                model.reportRecordingActionError("Bardo could not locate the managed recording folder.")
+                model.reportRecordingActionError(String(localized: "Bardo could not locate the managed recording folder."))
                 return
             }
             let target = FileManager.default.fileExists(atPath: location.path)

@@ -180,8 +180,13 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         category: "transcription.performance"
     )
 
-    private static let sharedServiceResult: Result<WhisperTranscriptionService, Error> = Result {
-        WhisperTranscriptionService(modelManager: try TranscriptionModelManager.live())
+    private static let balancedServiceResult: Result<WhisperTranscriptionService, Error> = Result {
+        WhisperTranscriptionService(modelManager: try TranscriptionModelManager.live(definition: TranscriptionModelManager.defaultDefinition))
+    }
+    private static let maximumAccuracyServiceResult: Result<WhisperTranscriptionService, Error> = Result {
+        let definition = TranscriptionModelManager.catalog.first { $0.id == TranscriptionModelManager.maximumAccuracyModelID }
+            ?? TranscriptionModelManager.defaultDefinition
+        return WhisperTranscriptionService(modelManager: try TranscriptionModelManager.live(definition: definition))
     }
 
     private let modelManager: TranscriptionModelManager
@@ -205,7 +210,16 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     }
 
     static func live() throws -> WhisperTranscriptionService {
-        try sharedServiceResult.get()
+        try live(for: .balanced)
+    }
+
+    static func live(for preset: TranscriptionPreset) throws -> WhisperTranscriptionService {
+        switch preset {
+        case .instant, .balanced:
+            return try balancedServiceResult.get()
+        case .maximumAccuracy:
+            return try maximumAccuracyServiceResult.get()
+        }
     }
 
     func hasInstalledModel() async -> Bool {

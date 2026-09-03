@@ -57,7 +57,7 @@ struct RecordingInspector: View {
             }
         }
         .formStyle(.grouped)
-        .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
+        .inspectorColumnWidth(min: 300, ideal: 340, max: 440)
     }
 
     private func roleText(_ role: AudioAssetRole) -> String {

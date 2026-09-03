@@ -27,15 +27,15 @@ struct TranscriptionSetupView: View {
                 .fill(.background)
                 .ignoresSafeArea()
 
-            VStack(spacing: 26) {
+            VStack(spacing: 22) {
                 Image(systemName: "waveform.badge.mic")
-                    .font(.system(size: 48, weight: .medium))
+                    .font(.system(size: 42, weight: .medium))
                     .symbolRenderingMode(.hierarchical)
                     .accessibilityHidden(true)
 
                 VStack(spacing: 8) {
                     Text(title)
-                        .font(.largeTitle.weight(.semibold))
+                        .font(.title.weight(.semibold))
                         .multilineTextAlignment(.center)
 
                     Text(detail)
@@ -84,8 +84,8 @@ struct TranscriptionSetupView: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 20)
-                .frame(width: 500)
-                .bardoGlassSurface(cornerRadius: 22)
+                .frame(width: 480)
+                .bardoGlassSurface(cornerRadius: BardoCornerRadius.setup)
 
                 VStack(spacing: 5) {
                     Text("This setup only happens once.")
@@ -97,7 +97,7 @@ struct TranscriptionSetupView: View {
             }
             .padding(48)
         }
-        .frame(minWidth: 700, minHeight: 520)
+        .frame(minWidth: 680, minHeight: 500)
         .task(id: messageGroup) {
             messageIndex = 0
             guard !reduceMotion else { return }
@@ -146,11 +146,11 @@ struct TranscriptionSetupView: View {
             case .checking:
                 return "Getting Bardo Ready"
             case .downloading:
-                return "Giving Bardo Its Ears"
+                return "Installing Transcription"
             case .preparingLanguageSupport:
-                return "Getting Languages in Order"
+                return "Preparing Languages"
             case .optimizingForMac:
-                return "Tuning It for This Mac"
+                return "Optimizing for This Mac"
             }
         case .installingSpeakers(let progress):
             switch progress.stage {
@@ -171,7 +171,7 @@ struct TranscriptionSetupView: View {
     private var detail: String {
         switch state {
         case .checking:
-            return "A little one-time backstage work, then the app is yours."
+            return "Checking the local speech models before the library opens."
         case .installing(let progress):
             switch progress.stage {
             case .checking:

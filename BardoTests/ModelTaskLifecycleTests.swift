@@ -57,6 +57,8 @@ private struct LifecycleMinutesGenerator: MeetingMinutesGenerating {
             createdAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
     }
+
+    func reset() async {}
 }
 
 private struct LifecycleDiarizer: RecordingDiarizing {

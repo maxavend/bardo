@@ -10,67 +10,71 @@ struct TranscriptContentView: View {
     @Binding var editor: TranscriptEditorState?
     @Binding var isSpeakerNamingPresented: Bool
 
+    var onSelectMinutes: (() -> Void)? = nil
+    @Namespace private var modelSelectorNamespace
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            sectionHeader
-
-            transcriptErrors
-
-            if model.isTranscribing {
-                transcriptionProgressView
-            } else if let transcript = model.transcript,
-                      transcript.recordingID == recording.id {
-                if model.isDiarizing, model.diarizationRecordingID == recording.id {
-                    diarizationProgressView
-                } else {
-                    transcriptConversation(transcript)
-                }
-            } else {
-                emptyTranscriptView
-            }
-        }
-    }
-
-    private var sectionHeader: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text("Transcript")
-                .font(.title2.weight(.semibold))
-
-            if let transcript = model.transcript,
-               transcript.recordingID == recording.id {
-                Text(LibraryFormatting.language(transcript.languageCode))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-
-                Text("·")
-                    .foregroundStyle(.tertiary)
-                speakerStatus(for: transcript)
-            }
-
-            Spacer()
-        }
+        transcriptViewport
     }
 
     @ViewBuilder
-    private func speakerStatus(for transcript: Transcript) -> some View {
+    private func speakerControl(for transcript: Transcript) -> some View {
         switch SpeakerNamingPolicy.presentation(for: transcript) {
         case .identifySpeakers:
-            Button("Identify Speakers") {
+            Button {
                 model.beginDiarization()
+            } label: {
+                Label(String(localized: "Identify Speakers"), systemImage: "person.2.wave.2")
             }
-            .buttonStyle(.link)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .disabled(recording.audioAssets.isEmpty || model.isTranscribing || model.isDiarizing)
         case .singleSpeaker:
-            Text("1 Speaker")
-                .font(.callout)
+            Label(String(localized: "1 Speaker"), systemImage: "person")
+                .font(.caption)
                 .foregroundStyle(.secondary)
         case .participants(let count):
-            Button("Participants (\(count))") {
+            Button {
                 isSpeakerNamingPresented = true
+            } label: {
+                Label(String.localizedStringWithFormat(String(localized: "%lld Participants"), count), systemImage: "person.2")
             }
-            .buttonStyle(.link)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .disabled(model.isTranscribing || model.isDiarizing)
         }
+    }
+
+    private var transcriptViewport: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: BardoSpacing.group) {
+                transcriptErrors
+
+                if model.isTranscribing {
+                    transcriptionProgressView
+                } else if let transcript = model.transcript,
+                          transcript.recordingID == recording.id {
+                    if model.isDiarizing, model.diarizationRecordingID == recording.id {
+                        diarizationProgressView
+                    } else {
+                        transcriptConversation(transcript)
+
+                        if !transcript.segments.isEmpty {
+                            minutesNavigationCard
+                                .padding(.top, BardoSpacing.section)
+                        }
+                    }
+                } else {
+                    emptyTranscriptView
+                }
+            }
+            .frame(maxWidth: 800, alignment: .leading)
+            .padding(.horizontal, BardoSpacing.detailHorizontal)
+            .padding(.vertical, BardoSpacing.section)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .scrollClipDisabled(false)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -85,7 +89,7 @@ struct TranscriptContentView: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 InlineIssueView(message: error)
                 Spacer()
-                Button("Dismiss") {
+                Button(String(localized: "Dismiss")) {
                     model.clearTranscriptEditError()
                 }
                 .buttonStyle(.link)
@@ -97,9 +101,9 @@ struct TranscriptContentView: View {
         let progress = model.transcriptionProgress
         return ProcessingView(
             title: transcriptionStageText(progress?.stage),
-            detail: "Audio stays on this Mac while WhisperKit processes it.",
+            detail: String(localized: "Audio stays on this Mac while Bardo processes it."),
             fractionCompleted: progress?.fractionCompleted ?? 0,
-            cancelTitle: "Cancel",
+            cancelTitle: String(localized: "Cancel"),
             cancelAction: { model.cancelTranscription() }
         )
     }
@@ -108,25 +112,95 @@ struct TranscriptContentView: View {
         let progress = model.diarizationProgress
         return ProcessingView(
             title: diarizationStageText(progress?.stage),
-            detail: "Speaker identification runs locally with SpeakerKit.",
+            detail: String(localized: "Speaker identification runs locally with SpeakerKit."),
             fractionCompleted: progress?.fractionCompleted ?? 0,
-            cancelTitle: "Cancel Speaker Identification",
+            cancelTitle: String(localized: "Cancel Speaker Identification"),
             cancelAction: { model.cancelDiarization() }
         )
     }
 
     private var emptyTranscriptView: some View {
-        ContentUnavailableView {
-            Label("No Transcript Yet", systemImage: "captions.bubble")
-        } description: {
-            Text("Create a private, on-device transcript with WhisperKit. The speech model is prepared locally the first time you use it.")
-        } actions: {
-            Button(recording.processingState == .failed ? "Retry Transcription" : "Transcribe") {
-                model.beginTranscription()
+        VStack(spacing: 20) {
+            Image(systemName: "waveform.and.mic")
+                .font(.system(size: 38))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                Text(String(localized: "No Transcript Yet"))
+                    .font(BardoTypography.sectionTitle)
+                Text(String(localized: "Create a private, on-device transcript. Choose the model that fits your speed and precision needs."))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 480)
             }
+
+            modelPresetSelector
+                .padding(.vertical, 4)
+
+            Button {
+                model.beginTranscription()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform.badge.magnifyingglass")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(recording.processingState == .failed ? String(localized: "Retry Transcription") : String(localized: "Transcribe"))
+                        .font(.body.weight(.medium))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
             .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
         }
-        .frame(maxWidth: .infinity, minHeight: 250)
+        .frame(maxWidth: .infinity, minHeight: 280)
+        .padding(28)
+        .background(.fill.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var modelPresetSelector: some View {
+        HStack(spacing: 3) {
+            ForEach(TranscriptionOption.catalog) { option in
+                let isSelected = model.selectedTranscriptionPreset == option.preset
+                Button {
+                    withAnimation(.spring(response: 0.26, dampingFraction: 0.82)) {
+                        model.selectedTranscriptionPreset = option.preset
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: iconForPreset(option.preset))
+                            .font(.system(size: 11, weight: .medium))
+
+                        Text(option.label)
+                            .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .contentShape(Capsule())
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .background {
+                        if isSelected {
+                            Capsule()
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                                .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+                                .matchedGeometryEffect(id: "selectedPresetCapsule", in: modelSelectorNamespace)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(.fill.quaternary.opacity(0.7), in: Capsule())
+    }
+
+    private func iconForPreset(_ preset: TranscriptionPreset) -> String {
+        switch preset {
+        case .instant: "bolt.fill"
+        case .balanced: "waveform"
+        case .maximumAccuracy: "sparkles"
+        }
     }
 
     @ViewBuilder
@@ -135,9 +209,9 @@ struct TranscriptContentView: View {
 
         if transcript.segments.isEmpty {
             ContentUnavailableView(
-                "Empty Transcript",
+                String(localized: "Empty Transcript"),
                 systemImage: "text.bubble",
-                description: Text("WhisperKit produced no readable transcript segments for this recording.")
+                description: Text(String(localized: "WhisperKit produced no readable transcript segments for this recording."))
             )
             .frame(maxWidth: .infinity, minHeight: 220)
         } else if segments.isEmpty {
@@ -155,10 +229,10 @@ struct TranscriptContentView: View {
                     if !transcript.speakers.isEmpty, startsSpeakerTurn {
                         if index > 0 {
                             Divider()
-                                .padding(.vertical, 22)
+                                .padding(.vertical, 14)
                         }
                         speakerHeader(for: segment, in: transcript)
-                            .padding(.bottom, 8)
+                            .padding(.bottom, 5)
                     }
 
                     TranscriptSegmentRow(
@@ -167,7 +241,7 @@ struct TranscriptContentView: View {
                         canEdit: !model.isTranscribing && !model.isDiarizing,
                         onEdit: { editor = .segment(segment) }
                     )
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 6)
                 }
             }
         }
@@ -175,19 +249,30 @@ struct TranscriptContentView: View {
 
     @ViewBuilder
     private func speakerHeader(for segment: TranscriptSegment, in transcript: Transcript) -> some View {
-        if let speakerID = segment.speakerID,
-           transcript.speakers.contains(where: { $0.id == speakerID }) {
-            Button(speakerLabel(for: segment, in: transcript)) {
-                editor = speakerEditorState(speakerID: speakerID, transcript: transcript)
+        HStack(spacing: 6) {
+            Image(systemName: "person.crop.circle")
+                .font(.subheadline)
+                .foregroundStyle(.tint)
+
+            if let speakerID = segment.speakerID,
+               transcript.speakers.contains(where: { $0.id == speakerID }) {
+                Button {
+                    editor = speakerEditorState(speakerID: speakerID, transcript: transcript)
+                } label: {
+                    Text(speakerLabel(for: segment, in: transcript))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "Rename this speaker"))
+            } else {
+                Text(speakerLabel(for: segment, in: transcript))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(transcript.speakers.isEmpty ? .primary : .secondary)
             }
-            .buttonStyle(.plain)
-            .font(.headline)
-            .help("Rename this speaker")
-        } else {
-            Text(speakerLabel(for: segment, in: transcript))
-                .font(.headline)
-                .foregroundStyle(transcript.speakers.isEmpty ? .primary : .secondary)
         }
+        .padding(.top, 6)
+        .padding(.bottom, 2)
     }
 
     private func filteredSegments(in transcript: Transcript) -> [TranscriptSegment] {
@@ -203,20 +288,50 @@ struct TranscriptContentView: View {
     private func speakerEditorState(speakerID: Speaker.ID, transcript: Transcript) -> TranscriptEditorState? {
         guard let speaker = transcript.speakers.first(where: { $0.id == speakerID }) else { return nil }
         let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) ?? 0
-        return .speaker(speaker, fallbackName: "Speaker \(index + 1)")
+        return .speaker(speaker, fallbackName: String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1))
     }
 
     private func speakerLabel(for segment: TranscriptSegment, in transcript: Transcript) -> String {
         guard let speakerID = segment.speakerID,
               let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) else {
-            return transcript.speakers.isEmpty ? "Transcript" : "Unassigned Speaker"
+            return transcript.speakers.isEmpty ? String(localized: "Transcript") : String(localized: "Unassigned Speaker")
         }
 
         let speaker = transcript.speakers[index]
         if let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             return name
         }
-        return "Speaker \(index + 1)"
+        return String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
+    }
+
+    private var minutesNavigationCard: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: "list.bullet.clipboard")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(String(localized: "Meeting Minutes"))
+                    .font(.headline)
+                Text(String(localized: "Synthesize key points, decisions, and action items with Qwen in its dedicated tab."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                onSelectMinutes?()
+            } label: {
+                Label(
+                    model.meetingMinutes?.recordingID == recording.id
+                        ? String(localized: "View Minutes")
+                        : String(localized: "Open Minutes Tab"),
+                    systemImage: "arrow.right"
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(14)
+        .background(.fill.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -229,58 +344,66 @@ private struct TranscriptSegmentRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Button {
                 playback.seek(to: segment.startTime)
             } label: {
                 Text(LibraryFormatting.duration(segment.startTime))
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, alignment: .leading)
+                    .foregroundStyle(isHovering ? .primary : .secondary)
+                    .frame(width: 42, alignment: .trailing)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!playback.isLoaded)
-            .help("Play from \(LibraryFormatting.duration(segment.startTime))")
+            .help(String.localizedStringWithFormat(String(localized: "Play from %@"), LibraryFormatting.duration(segment.startTime)))
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text(segment.displayText)
-                    .font(.body)
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            Text(segment.displayText)
+                .font(.body)
+                .lineSpacing(2)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                if segment.editedText != nil {
-                    Label("Edited", systemImage: "pencil.line")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+            if segment.editedText != nil {
+                Image(systemName: "pencil.line")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .help(String(localized: "Edited"))
+                    .accessibilityLabel(String(localized: "Edited"))
             }
 
             Button(action: onEdit) {
                 Image(systemName: "pencil")
-                    .frame(width: 24, height: 24)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .opacity(isHovering || segment.editedText != nil ? 1 : 0.18)
+            .opacity(isHovering || segment.editedText != nil ? 1 : 0)
             .disabled(!canEdit)
-            .help("Edit transcript text")
+            .help(String(localized: "Edit transcript text"))
         }
+        .padding(.vertical, 3)
         .contentShape(Rectangle())
-        .onHover { isHovering = $0 }
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isHovering = hovering
+            }
+        }
         .contextMenu {
-            Button("Play From Here") {
+            Button(String(localized: "Play From Here")) {
                 playback.seek(to: segment.startTime)
                 _ = playback.play()
             }
             .disabled(!playback.isLoaded)
 
-            Button("Edit Transcript…", action: onEdit)
+            Button(String(localized: "Edit Transcript…"), action: onEdit)
                 .disabled(!canEdit)
 
             Divider()
 
-            Button("Copy Segment") {
+            Button(String(localized: "Copy Segment")) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(segment.displayText, forType: .string)
             }
@@ -315,7 +438,7 @@ private struct ProcessingView: View {
             }
         }
         .padding(16)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -325,26 +448,26 @@ private struct InlineIssueView: View {
     var body: some View {
         Label(message, systemImage: "exclamationmark.triangle.fill")
             .font(.callout)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.orange)
     }
 }
 
 private func transcriptionStageText(_ stage: TranscriptionStage?) -> String {
     switch stage {
-    case .preparingModel: "Preparing Whisper Model…"
-    case .loadingModel: "Loading Whisper Model…"
-    case .transcribing: "Transcribing…"
-    case .saving: "Saving Transcript…"
-    case nil: "Preparing Transcription…"
+    case .preparingModel: String(localized: "Preparing Speech Model…")
+    case .loadingModel: String(localized: "Loading Speech Model…")
+    case .transcribing: String(localized: "Transcribing…")
+    case .saving: String(localized: "Saving Transcript…")
+    case nil: String(localized: "Preparing Transcription…")
     }
 }
 
 private func diarizationStageText(_ stage: DiarizationStage?) -> String {
     switch stage {
-    case .preparingModel: "Preparing Speaker Model…"
-    case .loadingModel: "Loading Speaker Model…"
-    case .diarizing: "Identifying Speakers…"
-    case .saving: "Saving Speaker Labels…"
-    case nil: "Preparing Speaker Identification…"
+    case .preparingModel: String(localized: "Preparing Speaker Model…")
+    case .loadingModel: String(localized: "Loading Speaker Model…")
+    case .diarizing: String(localized: "Identifying Speakers…")
+    case .saving: String(localized: "Saving Speaker Labels…")
+    case nil: String(localized: "Preparing Speaker Identification…")
     }
 }

@@ -17,26 +17,120 @@ struct MeetingMinutes: Codable, Equatable, Sendable {
 struct MeetingMinutesGenerationOptions: Equatable, Sendable {
     let maxTokens: Int
     let temperature: Float
+    let topP: Float
+    let repetitionPenalty: Float?
+    let repetitionContextSize: Int
 
-    init(maxTokens: Int = 512, temperature: Float = 0) {
+    init(
+        maxTokens: Int = 2048,
+        temperature: Float = 0,
+        topP: Float = 0.9,
+        repetitionPenalty: Float? = 1.2,
+        repetitionContextSize: Int = 128
+    ) {
         self.maxTokens = max(1, maxTokens)
         self.temperature = max(0, temperature)
+        self.topP = max(0, min(1, topP))
+        self.repetitionPenalty = repetitionPenalty
+        self.repetitionContextSize = max(0, repetitionContextSize)
     }
 }
 
+enum MeetingMinutesStage: Equatable, Sendable {
+    case preparingModel
+    case extracting(current: Int, total: Int)
+    case synthesizing
+}
+
+struct MeetingMinutesProgressSnapshot: Equatable, Sendable {
+    let stage: MeetingMinutesStage
+    let fractionCompleted: Double
+    let message: String
+}
+
 protocol MeetingMinutesTextGenerating: Sendable {
+    func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws
+    func reset() async
+
+    func generate(
+        prompt: String,
+        options: MeetingMinutesGenerationOptions,
+        progress: @escaping @Sendable (Double) -> Void,
+        onStreamChunk: (@Sendable (String) -> Void)?
+    ) async throws -> String
+}
+
+extension MeetingMinutesTextGenerating {
+    func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws {
+        progress(1)
+    }
+
+    func reset() async {}
+
     func generate(
         prompt: String,
         options: MeetingMinutesGenerationOptions,
         progress: @escaping @Sendable (Double) -> Void
-    ) async throws -> String
+    ) async throws -> String {
+        try await generate(
+            prompt: prompt,
+            options: options,
+            progress: progress,
+            onStreamChunk: nil
+        )
+    }
 }
 
 protocol MeetingMinutesGenerating: Sendable {
+    func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws
+    func reset() async
+
     func generate(
         from input: MeetingMinutesInput,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> MeetingMinutes
+
+    func generate(
+        from input: MeetingMinutesInput,
+        progress: @escaping @Sendable (MeetingMinutesProgressSnapshot) -> Void,
+        onStreamChunk: (@Sendable (String) -> Void)?
+    ) async throws -> MeetingMinutes
+}
+
+extension MeetingMinutesGenerating {
+    func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws {
+        progress(1)
+    }
+
+    func reset() async {}
+
+    func generate(
+        from input: MeetingMinutesInput,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> MeetingMinutes {
+        try await generate(
+            from: input,
+            progress: { snapshot in progress(snapshot.fractionCompleted) },
+            onStreamChunk: nil
+        )
+    }
+
+    func generate(
+        from input: MeetingMinutesInput,
+        progress: @escaping @Sendable (MeetingMinutesProgressSnapshot) -> Void,
+        onStreamChunk: (@Sendable (String) -> Void)?
+    ) async throws -> MeetingMinutes {
+        try await generate(
+            from: input,
+            progress: { fraction in
+                progress(MeetingMinutesProgressSnapshot(
+                    stage: .synthesizing,
+                    fractionCompleted: fraction,
+                    message: ""
+                ))
+            }
+        )
+    }
 }
 
 enum MeetingMinutesError: Error, LocalizedError, Equatable, Sendable {
@@ -190,13 +284,16 @@ enum MeetingMinutesPromptBuilder {
     static func extractionPrompt(
         lines: [String],
         title: String,
-        context: String?
+        context: String?,
+        languageCode: String? = nil
     ) -> String {
-        """
+        let languageGuide = languageInstruction(for: languageCode)
+        return """
         Extract only supported facts from this transcript section for meeting minutes.
         Preserve speaker labels exactly as provided. Do not invent names, deadlines,
         decisions, or agreements. Do not turn an unsupported commitment into a fact. A question is not an agreement.
         Keep uncertainty explicit and omit information that is not present.
+        \(languageGuide)
 
         Title: \(title)
         Context: \(contextValue(context))
@@ -206,24 +303,71 @@ enum MeetingMinutesPromptBuilder {
         """
     }
 
-    static func synthesisPrompt(
-        extractions: [String],
+    static func extractionPrompt(
+        lines: [String],
         title: String,
         context: String?
     ) -> String {
-        """
-        Write concise meeting minutes from the supported transcript evidence below.
-        Do not invent names, deadlines, decisions, or agreements. Do not turn an unsupported commitment into a fact.
-        A question is not an agreement. If a detail is absent or uncertain, omit it.
-        Use only speaker names that appear in the evidence. Do not mention this prompt
-        or the extraction process.
+        extractionPrompt(lines: lines, title: title, context: context, languageCode: nil)
+    }
+
+    static func synthesisPrompt(
+        extractions: [String],
+        title: String,
+        context: String?,
+        languageCode: String? = nil,
+        isSingleTranscript: Bool = false
+    ) -> String {
+        let languageGuide = languageInstruction(for: languageCode)
+        let evidenceBlock = isSingleTranscript && extractions.count == 1
+            ? extractions[0]
+            : extractions.enumerated().map { "Section \($0.offset + 1):\n\($0.element)" }.joined(separator: "\n\n")
+
+        return """
+        Write comprehensive, well-structured, and highly relevant meeting minutes from the supported transcript evidence below.
+        \(languageGuide)
+
+        Structure the meeting minutes clearly using clean Markdown with the following sections (translate section headers to the conversation language):
+        - # [Title of Meeting / Minuta de Reunión]
+        - ## Executive Summary / Resumen Ejecutivo: Clear and comprehensive overview of the meeting's purpose, background, and core themes.
+        - ## Key Discussion Points / Temas Tratados y Discusión: In-depth breakdown of the main discussions, arguments, nuances, and participant contributions. Attribute statements to speakers accurately.
+        - ## Decisions and Agreements / Acuerdos y Decisiones: Explicit resolutions and consensus reached.
+        - ## Action Items & Next Steps / Tareas y Compromisos: Concrete actionable items, specifying the responsible owner and deadlines whenever mentioned.
+        - ## Pending Items & Open Questions / Asuntos Pendientes y Preguntas Abiertas: Unresolved topics or points requiring follow-up.
+
+        Strict Grounding Rules:
+        - Do not invent names, deadlines, decisions, or agreements. Do not turn an unsupported commitment into a fact.
+        - A question is not an agreement. If a detail is absent or uncertain, omit it.
+        - Use only speaker names that appear in the evidence.
+        - Concision and Non-Repetition: Do not repeat sentences, bullet points, or sections. Once all facts from the evidence are summarized, conclude the document immediately.
+        - No repitas ideas, frases ni secciones. Una vez cubiertos los puntos de la conversación, finaliza la redacción sin repetir información.
+        - Do not mention this prompt or the extraction process. Begin directly with the meeting minutes.
 
         Title: \(title)
         Context: \(contextValue(context))
 
         Supported transcript evidence:
-        \(extractions.enumerated().map { "Section \($0.offset + 1):\n\($0.element)" }.joined(separator: "\n\n"))
+        \(evidenceBlock)
         """
+    }
+
+    static func synthesisPrompt(
+        extractions: [String],
+        title: String,
+        context: String?
+    ) -> String {
+        synthesisPrompt(extractions: extractions, title: title, context: context, languageCode: nil, isSingleTranscript: false)
+    }
+
+    static func languageInstruction(for languageCode: String?) -> String {
+        let code = languageCode?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let code, !code.isEmpty {
+            let locale = Locale(identifier: "en_US")
+            let languageName = locale.localizedString(forLanguageCode: code) ?? code
+            return "LANGUAGE REQUIREMENT: The conversation is in \(languageName) (code: \(code)). You MUST write the entire meeting minutes, including all section headings, summaries, bullet points, and action items, exclusively in \(languageName)."
+        } else {
+            return "LANGUAGE REQUIREMENT: Write the entire meeting minutes, including all section headings, summaries, bullet points, and action items, strictly in the predominant language of the conversation transcript (for example, if the transcript is in Spanish, write everything in Spanish; if in English, in English)."
+        }
     }
 
     private static func speakerLabel(_ speaker: Speaker?, in transcript: Transcript) -> String {
@@ -242,5 +386,87 @@ enum MeetingMinutesPromptBuilder {
 
     private static func format(_ value: TimeInterval) -> String {
         String(format: "%.2f", value)
+    }
+}
+
+// MARK: - Repetition Detector & Cleaner
+
+public struct RepetitionDetector: Sendable {
+    /// Checks whether the text has entered an infinite repetitive loop at the tail.
+    /// Returns the character index in text where the repeating loop starts, or nil if no repetition is detected.
+    public static func detectRepetition(in text: String) -> Int? {
+        guard text.count >= 40 else { return nil }
+
+        // 1. Line-level repetition:
+        // If the exact same line (at least 8 characters) is repeated 3 times at the tail.
+        let lines = text.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        if lines.count >= 3 {
+            let last = lines[lines.count - 1]
+            let prev1 = lines[lines.count - 2]
+            let prev2 = lines[lines.count - 3]
+            if last.count >= 8 && last == prev1 && last == prev2 {
+                if let firstRange = text.range(of: last) {
+                    let afterFirst = text[firstRange.upperBound...]
+                    if let secondRange = afterFirst.range(of: last) {
+                        return text.distance(from: text.startIndex, to: secondRange.lowerBound)
+                    }
+                }
+            }
+        }
+
+        // 2. Substring cycle repetition:
+        // A pattern of length L (8...200) repeated 3 times consecutively at the tail.
+        let count = text.count
+        let maxPatternLength = min(200, count / 3)
+        let minPatternLength = 8
+
+        if maxPatternLength >= minPatternLength {
+            for patternLen in (minPatternLength...maxPatternLength).reversed() {
+                let end3 = text.endIndex
+                let start3 = text.index(end3, offsetBy: -patternLen)
+                let start2 = text.index(start3, offsetBy: -patternLen)
+                let start1 = text.index(start2, offsetBy: -patternLen)
+
+                let p3 = text[start3..<end3]
+                let p2 = text[start2..<start3]
+                let p1 = text[start1..<start2]
+
+                if p1 == p2 && p2 == p3 {
+                    return text.distance(from: text.startIndex, to: start2)
+                }
+            }
+        }
+
+        // 3. For longer patterns (>= 45 chars), 2 identical consecutive repetitions at the tail
+        // indicate an unmistakable LLM generation loop.
+        let longMaxPattern = min(300, count / 2)
+        if longMaxPattern >= 45 {
+            for patternLen in (45...longMaxPattern).reversed() {
+                let end2 = text.endIndex
+                let start2 = text.index(end2, offsetBy: -patternLen)
+                let start1 = text.index(start2, offsetBy: -patternLen)
+
+                let p2 = text[start2..<end2]
+                let p1 = text[start1..<start2]
+
+                if p1 == p2 {
+                    return text.distance(from: text.startIndex, to: start2)
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Trims any trailing repeated cycle if detected.
+    public static func cleanRepetition(from text: String) -> String {
+        guard let cutIndex = detectRepetition(in: text) else {
+            return text
+        }
+        let index = text.index(text.startIndex, offsetBy: cutIndex)
+        return String(text[..<index]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

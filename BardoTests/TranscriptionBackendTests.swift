@@ -11,13 +11,35 @@ final class TranscriptionBackendTests: XCTestCase {
         )
     }
 
+    func testTranscriptionOptionsMapUserFacingChoicesToBackends() {
+        XCTAssertEqual(
+            TranscriptionOption.catalog.map(\.preset),
+            [.instant, .balanced, .maximumAccuracy]
+        )
+        XCTAssertEqual(TranscriptionOption.option(for: .instant).selection.backend, .parakeet)
+        XCTAssertEqual(TranscriptionOption.option(for: .instant).selection.modelID, TranscriptionBackend.parakeetModelID)
+        XCTAssertEqual(TranscriptionOption.option(for: .balanced).selection.modelID, TranscriptionModelManager.balancedModelID)
+        XCTAssertEqual(TranscriptionOption.option(for: .maximumAccuracy).selection.modelID, TranscriptionModelManager.maximumAccuracyModelID)
+        XCTAssertEqual(TranscriptionOption.option(for: .instant).label, "Instant (Parakeet)")
+        XCTAssertEqual(TranscriptionOption.option(for: .balanced).label, "Default (Whisper Turbo)")
+        XCTAssertEqual(TranscriptionOption.option(for: .maximumAccuracy).label, "Más presición (Whisper Large)")
+    }
+
+    func testTranscriptionPreferenceStoreDefaultsToBalancedAndPersistsSelection() {
+        let suiteName = "Bardo.TranscriptionPreferenceTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = TranscriptionPreferenceStore(defaults: defaults)
+
+        XCTAssertEqual(store.selectedPreset(), .balanced)
+
+        store.setSelectedPreset(.instant)
+        XCTAssertEqual(store.selectedPreset(), .instant)
+    }
+
     func testTranscriptMetadataPreservesSelectionThroughCodableRoundTrip() throws {
         let recordingID = UUID()
-        let selection = TranscriptionSelection(
-            preset: .balanced,
-            backend: .whisperKit,
-            modelID: "large-v3-v20240930_turbo_632MB"
-        )
+        let selection = TranscriptionOption.option(for: .balanced).selection
         let transcript = Transcript(
             recordingID: recordingID,
             segments: [TranscriptSegment(startTime: 0, endTime: 1, text: "Hello")],

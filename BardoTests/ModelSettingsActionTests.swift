@@ -27,23 +27,23 @@ final class ModelSettingsActionTests: XCTestCase {
         )
     }
 
-    func testQwenWithoutStandaloneInstallerExplainsItsLifecycle() {
+    func testQwenCanBeInstalledLikeOtherLocalModels() {
         XCTAssertEqual(
-            ModelSettingsActionPolicy.action(for: .notInstalled, supportsInstallation: false),
-            .unavailable
+            ModelSettingsActionPolicy.action(for: .notInstalled, supportsInstallation: true),
+            .install
         )
     }
 
-    func testQwenNotInstalledUsesShortOnDemandState() {
+    func testQwenNotInstalledDoesNotUseOnDemandState() {
         let row = ModelSettingsRowState(
             id: .qwen,
             title: "Qwen",
-            detail: "Downloads when needed",
-            supportsInstallation: false,
+            detail: "Installed during setup for instant minutes",
+            supportsInstallation: true,
             state: .notInstalled
         )
 
-        XCTAssertEqual(row.stateLabel, String(localized: "On demand"))
+        XCTAssertEqual(row.stateLabel, "")
     }
 
     func testNotInstalledModelUsesDownloadSymbolInsteadOfSelectionCircle() {

@@ -2,8 +2,20 @@ import Foundation
 
 /// Presentation-only formatting shared by the Library feature.
 enum LibraryFormatting {
+    static func recordingTitle(_ recording: Recording) -> String {
+        let title = recording.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty, !isTechnicalRecordingTitle(title, id: recording.id) {
+            return title
+        }
+
+        return String.localizedStringWithFormat(
+            String(localized: "Recording from %@"),
+            recording.createdAt.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+        )
+    }
+
     static func duration(_ duration: TimeInterval?) -> String {
-        guard let duration else { return "Unknown" }
+        guard let duration else { return String(localized: "Unknown") }
         return self.duration(duration)
     }
 
@@ -27,14 +39,14 @@ enum LibraryFormatting {
     }
 
     static func source(_ sources: Set<AudioSource>) -> String {
-        guard !sources.isEmpty else { return "Unknown source" }
+        guard !sources.isEmpty else { return String(localized: "Unknown source") }
         return sources
             .sorted { $0.rawValue < $1.rawValue }
             .map { source in
                 switch source {
-                case .microphone: "Microphone"
-                case .systemAudio: "System Audio"
-                case .importedFile: "Imported File"
+                case .microphone: String(localized: "Microphone")
+                case .systemAudio: String(localized: "System Audio")
+                case .importedFile: String(localized: "Imported File")
                 }
             }
             .joined(separator: " + ")
@@ -50,10 +62,10 @@ enum LibraryFormatting {
 
     static func state(_ state: ProcessingState) -> String {
         switch state {
-        case .pending: "Ready"
-        case .processing: "Processing"
-        case .completed: "Transcribed"
-        case .failed: "Needs Attention"
+        case .pending: String(localized: "Ready")
+        case .processing: String(localized: "Processing")
+        case .completed: String(localized: "Transcribed")
+        case .failed: String(localized: "Needs Attention")
         }
     }
 
@@ -67,8 +79,32 @@ enum LibraryFormatting {
     }
 
     static func language(_ code: String?) -> String {
-        guard let code, !code.isEmpty else { return "Auto-detected" }
+        guard let code, !code.isEmpty else { return String(localized: "Auto-detected") }
         let locale = Locale.current
         return locale.localizedString(forLanguageCode: code)?.capitalized ?? code.uppercased()
+    }
+
+    private static func isTechnicalRecordingTitle(_ title: String, id: UUID) -> Bool {
+        let uuid = id.uuidString
+        if title == uuid { return true }
+        if title.localizedCaseInsensitiveContains(uuid) { return true }
+        if title.localizedCaseInsensitiveContains("Recording ") && title.contains(uuid.prefix(8)) { return true }
+        return false
+    }
+}
+
+enum RecordingSearch {
+    static func matches(_ recording: Recording, query: String) -> Bool {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else { return true }
+
+        let formattedTitle = LibraryFormatting.recordingTitle(recording)
+        let rawTitle = recording.title
+        let terms = normalizedQuery.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+
+        return terms.allSatisfy { term in
+            formattedTitle.localizedCaseInsensitiveContains(term) ||
+            rawTitle.localizedCaseInsensitiveContains(term)
+        }
     }
 }

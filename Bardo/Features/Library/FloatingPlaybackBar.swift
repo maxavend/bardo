@@ -1,77 +1,116 @@
 import SwiftUI
 
 struct FloatingPlaybackBar: View {
+    let recording: Recording
     @ObservedObject var playback: AudioPlaybackController
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             if let errorMessage = playback.errorMessage, !playback.isLoaded {
-                Label(errorMessage, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 14)
+                errorBanner(errorMessage)
             }
 
-            HStack(spacing: 12) {
-                Button {
-                    playback.seek(to: playback.position - 15)
-                } label: {
-                    Image(systemName: "gobackward.15")
-                }
-                .buttonStyle(.plain)
-                .disabled(!playback.isLoaded)
-                .accessibilityLabel("Back 15 seconds")
-                .help("Back 15 seconds")
-
-                Button {
-                    playback.togglePlayback()
-                } label: {
-                    Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 30, height: 30)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!playback.isLoaded)
-                .help(playback.isPlaying ? "Pause" : "Play")
-                .accessibilityLabel(playback.isPlaying ? "Pause" : "Play")
-
-                Text(LibraryFormatting.duration(playback.position))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 38, alignment: .trailing)
-
-                Slider(
-                    value: Binding(
-                        get: { playback.position },
-                        set: { playback.seek(to: $0) }
-                    ),
-                    in: 0...max(playback.duration, 0.01)
-                )
-                .disabled(!playback.isLoaded)
-                .accessibilityLabel("Playback position")
-
-                Text(LibraryFormatting.duration(playback.duration))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 38, alignment: .leading)
-
-                Button {
-                    playback.seek(to: playback.position + 15)
-                } label: {
-                    Image(systemName: "goforward.15")
-                }
-                .buttonStyle(.plain)
-                .disabled(!playback.isLoaded)
-                .help("Forward 15 seconds")
-                .accessibilityLabel("Forward 15 seconds")
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .bardoGlassSurface(cornerRadius: 24, interactive: true)
+            playerContent
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .bardoGlassCapsule(interactive: true)
+                .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
+                .frame(maxWidth: 720)
         }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var playerContent: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 4) {
+                transportButton(
+                    systemImage: "gobackward.15",
+                    accessibilityLabel: String(localized: "Back 15 seconds"),
+                    action: { playback.seek(to: playback.position - 15) }
+                )
+
+                playPauseButton
+
+                transportButton(
+                    systemImage: "goforward.15",
+                    accessibilityLabel: String(localized: "Forward 15 seconds"),
+                    action: { playback.seek(to: playback.position + 15) }
+                )
+            }
+
+            Text(LibraryFormatting.duration(playback.position))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .trailing)
+
+            Slider(
+                value: Binding(
+                    get: { playback.position },
+                    set: { playback.seek(to: $0) }
+                ),
+                in: 0...max(playback.duration, 0.01)
+            )
+            .controlSize(.small)
+            .disabled(!playback.isLoaded)
+            .accessibilityLabel(String(localized: "Playback position"))
+            .accessibilityValue(LibraryFormatting.duration(playback.position))
+
+            Text(LibraryFormatting.duration(playback.duration))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .leading)
+        }
+    }
+
+    private var playPauseButton: some View {
+        Button {
+            playback.togglePlayback()
+        } label: {
+            Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 32, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .disabled(!playback.isLoaded)
+        .help(playback.isPlaying ? String(localized: "Pause") : String(localized: "Play"))
+        .accessibilityLabel(playback.isPlaying ? String(localized: "Pause") : String(localized: "Play"))
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(message)
+                .lineLimit(2)
+            Spacer()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .frame(maxWidth: 720)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func transportButton(
+        systemImage: String,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .disabled(!playback.isLoaded)
+        .accessibilityLabel(accessibilityLabel)
+        .help(accessibilityLabel)
     }
 }

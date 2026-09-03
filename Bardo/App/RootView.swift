@@ -14,10 +14,11 @@ struct RootView: View {
     }
 
     var body: some View {
-        LibraryView(model: library, topAccessory: AnyView(captureStatusBar))
-            .toolbar {
-                captureToolbar
-            }
+        LibraryView(
+            model: library,
+            captureMenu: AnyView(captureMenuButton),
+            activeCaptureBanner: activeCaptureBanner
+        )
             .task {
                 microphone.refreshPermissionState()
                 await microphone.refreshRecoveryIssues()
@@ -31,28 +32,28 @@ struct RootView: View {
                 )
             ) {
                 if microphone.permissionState == .denied {
-                    Button("Open System Settings") {
+                    Button(String(localized: "Open System Settings")) {
                         _ = microphone.openMicrophoneSystemSettings()
                     }
                 }
-                Button("OK", role: .cancel) {
+                Button(String(localized: "OK"), role: .cancel) {
                     microphone.clearError()
                 }
             } message: {
-                Text(microphone.errorMessage ?? "Microphone recording could not continue.")
+                Text(microphone.errorMessage ?? String(localized: "Microphone recording could not continue."))
             }
             .alert(
-                "System Audio Recording",
+                String(localized: "System Audio Recording"),
                 isPresented: Binding(
                     get: { systemAudio.errorMessage != nil },
                     set: { if !$0 { systemAudio.clearError() } }
                 )
             ) {
-                Button("OK", role: .cancel) {
+                Button(String(localized: "OK"), role: .cancel) {
                     systemAudio.clearError()
                 }
             } message: {
-                Text(systemAudio.errorMessage ?? "System audio recording could not continue.")
+                Text(systemAudio.errorMessage ?? String(localized: "System audio recording could not continue."))
             }
             .sheet(isPresented: $isRecoveryPresented) {
                 RecoveryReviewView(
@@ -83,73 +84,55 @@ struct RootView: View {
             }
     }
 
-    @ToolbarContentBuilder
-    private var captureToolbar: some ToolbarContent {
-        ToolbarItem(placement: .automatic) {
-            if microphone.isRecording {
-                Button {
-                    Task { await stopMicrophoneRecording() }
-                } label: {
-                    Label("Stop Recording", systemImage: "stop.circle.fill")
-                        .labelStyle(.iconOnly)
-                }
-                .controlSize(.regular)
-                .help("Stop microphone recording")
-            } else if systemAudio.isRecording {
-                Button {
-                    Task { await stopSystemRecording() }
-                } label: {
-                    Label("Stop Recording", systemImage: "stop.circle.fill")
-                        .labelStyle(.iconOnly)
-                }
-                .controlSize(.regular)
-                .help("Stop system audio recording")
-            } else {
-                Menu {
-                    Button {
-                        Task { await startMicrophoneRecording() }
-                    } label: {
-                        Label("Microphone", systemImage: "mic")
-                    }
-
-                    Divider()
-
-                    Button {
-                        Task { await startSystemRecording(includeMicrophone: false) }
-                    } label: {
-                        Label("System Audio", systemImage: "macbook.and.iphone")
-                    }
-
-                    Button {
-                        Task { await startSystemRecording(includeMicrophone: true) }
-                    } label: {
-                        Label("System Audio + Microphone", systemImage: "person.wave.2")
-                    }
-                } label: {
-                    Label("Record", systemImage: "record.circle")
-                        .labelStyle(.iconOnly)
-                }
-                .menuIndicator(.hidden)
-                .controlSize(.regular)
-                .help("Start a new recording")
-                .disabled(microphone.isBusy || systemAudio.isBusy)
-            }
+    private var activeCaptureBanner: AnyView? {
+        if microphone.phase != .idle && microphone.phase != .failed {
+            return AnyView(microphoneStatusBar)
+        } else if systemAudio.phase != .idle && systemAudio.phase != .failed {
+            return AnyView(systemAudioStatusBar)
+        } else if recoveryBanner != nil {
+            return AnyView(recoveryBanner)
+        } else {
+            return nil
         }
     }
 
-    @ViewBuilder
-    private var captureStatusBar: some View {
-        if microphone.phase != .idle && microphone.phase != .failed {
-            microphoneStatusBar
-                .padding(.horizontal, 18)
-                .padding(.top, 8)
-        } else if systemAudio.phase != .idle && systemAudio.phase != .failed {
-            systemAudioStatusBar
-                .padding(.horizontal, 18)
-                .padding(.top, 8)
-        } else {
-            recoveryStatusBar
+    private var captureMenuButton: some View {
+        Menu {
+            Button {
+                Task { await startMicrophoneRecording() }
+            } label: {
+                Label(String(localized: "Microphone Only"), systemImage: "mic.fill")
+            }
+
+            Button {
+                Task { await startSystemRecording(includeMicrophone: true) }
+            } label: {
+                Label(String(localized: "Microphone + Internal Audio"), systemImage: "person.wave.2.fill")
+            }
+
+            Divider()
+
+            Button {
+                Task { await startSystemRecording(includeMicrophone: false) }
+            } label: {
+                Label(String(localized: "Internal Audio Only"), systemImage: "macbook.and.iphone")
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "record.circle.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.red)
+                Text(String(localized: "Record"))
+                    .font(.subheadline.weight(.medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
         }
+        .menuIndicator(.hidden)
+        .help(String(localized: "Record: Microphone or Microphone + Internal Audio (⌘R)"))
+        .keyboardShortcut("r", modifiers: [.command])
+        .disabled(microphone.isBusy || systemAudio.isBusy)
     }
 
     @ViewBuilder
@@ -157,18 +140,18 @@ struct RootView: View {
         switch microphone.phase {
         case .requestingPermission:
             transitionPill(
-                title: "Waiting for Microphone Permission",
-                detail: "Respond to the macOS permission prompt."
+                title: String(localized: "Waiting for Microphone Permission"),
+                detail: String(localized: "Respond to the macOS permission prompt.")
             )
         case .preparing:
             transitionPill(
-                title: "Preparing Recording",
-                detail: "Preparing the microphone and managed capture file."
+                title: String(localized: "Preparing Recording"),
+                detail: String(localized: "Preparing the microphone and managed capture file.")
             )
         case .recording:
             activeRecordingPill(
-                title: "Recording Microphone",
-                detail: microphone.inputDisplayName ?? "Default microphone",
+                title: String(localized: "Recording Microphone"),
+                detail: microphone.inputDisplayName ?? String(localized: "Default microphone"),
                 duration: microphone.elapsedTime,
                 stopAction: {
                     Task { await stopMicrophoneRecording() }
@@ -176,8 +159,8 @@ struct RootView: View {
             )
         case .finalizing:
             transitionPill(
-                title: "Finishing Recording",
-                detail: "Closing, validating, and adding the audio to Library."
+                title: String(localized: "Finishing Recording"),
+                detail: String(localized: "Closing, validating, and adding the audio to Library.")
             )
         case .idle, .failed:
             EmptyView()
@@ -189,27 +172,27 @@ struct RootView: View {
         switch systemAudio.phase {
         case .requestingMicrophonePermission:
             transitionPill(
-                title: "Waiting for Microphone Permission",
-                detail: "Microphone access is required only for the combined recording mode."
+                title: String(localized: "Waiting for Microphone Permission"),
+                detail: String(localized: "Microphone access is required only for the combined recording mode.")
             )
         case .selectingContent:
             transitionPill(
-                title: "Choose Audio to Capture",
-                detail: "Use the macOS sharing picker to choose a display, app, or window."
+                title: String(localized: "Choose Audio to Capture"),
+                detail: String(localized: "Use the macOS sharing picker to choose a display, app, or window.")
             )
         case .preparing:
             transitionPill(
-                title: "Preparing System Audio",
+                title: String(localized: "Preparing System Audio"),
                 detail: systemAudio.includesMicrophone
-                    ? "Preparing independent system and microphone tracks."
-                    : "Preparing the system-audio capture file."
+                    ? String(localized: "Preparing independent system and microphone tracks.")
+                    : String(localized: "Preparing the system-audio capture file.")
             )
         case .recording:
             activeRecordingPill(
-                title: systemAudio.includesMicrophone ? "Recording System + Microphone" : "Recording System Audio",
+                title: systemAudio.includesMicrophone ? String(localized: "Recording System + Microphone") : String(localized: "Recording System Audio"),
                 detail: systemAudio.includesMicrophone
-                    ? "Both original sources are being preserved separately."
-                    : "Audio from the selected macOS content is being captured.",
+                    ? String(localized: "Both original sources are being preserved separately.")
+                    : String(localized: "Audio from the selected macOS content is being captured."),
                 duration: systemAudio.elapsedTime,
                 changeSourceAction: {
                     systemAudio.changeSelection()
@@ -220,8 +203,8 @@ struct RootView: View {
             )
         case .changingSelection:
             activeRecordingPill(
-                title: "Recording — Choose New Source",
-                detail: "Capture continues while the macOS sharing picker is open.",
+                title: String(localized: "Recording — Choose New Source"),
+                detail: String(localized: "Capture continues while the macOS sharing picker is open."),
                 duration: systemAudio.elapsedTime,
                 stopAction: {
                     Task { await stopSystemRecording() }
@@ -229,10 +212,10 @@ struct RootView: View {
             )
         case .finalizing:
             transitionPill(
-                title: "Finishing System Audio",
+                title: String(localized: "Finishing System Audio"),
                 detail: systemAudio.includesMicrophone
-                    ? "Closing originals, aligning sources, and preparing playback."
-                    : "Closing, validating, and adding system audio to Library."
+                    ? String(localized: "Closing originals, aligning sources, and preparing playback.")
+                    : String(localized: "Closing, validating, and adding system audio to Library.")
             )
         case .idle, .failed:
             EmptyView()
@@ -240,19 +223,18 @@ struct RootView: View {
     }
 
     @ViewBuilder
-    private var recoveryStatusBar: some View {
+    private var recoveryBanner: some View {
         let total = microphone.recoveryIssues.count + systemAudio.recoveryIssues.count
 
         if total > 0 {
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
+                    .font(.callout)
+                    .foregroundStyle(.orange)
                     .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Recovery files need your attention")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(RecoveryCopy.reviewTitle(total))
                         .font(.callout.weight(.semibold))
                     Text(RecoveryCopy.countDescription(total))
                         .font(.caption)
@@ -261,21 +243,19 @@ struct RootView: View {
 
                 Spacer(minLength: 12)
 
-                Button("Review files…") { isRecoveryPresented = true }
+                Button(RecoveryCopy.reviewAction) { isRecoveryPresented = true }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .keyboardShortcut(.defaultAction)
-                    .help("Review, open, or discard interrupted capture files")
+                    .help(String(localized: "Review, open, or discard interrupted capture files"))
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .frame(maxWidth: 720, minHeight: 52)
-            .bardoGlassSurface(cornerRadius: 16)
-            .padding(.horizontal, 18)
-            .padding(.top, 8)
-            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+            .frame(maxWidth: 680)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("Recovery files need your attention. \(RecoveryCopy.countDescription(total)). Review files.")
+            .accessibilityLabel("\(RecoveryCopy.reviewTitle(total)). \(RecoveryCopy.reviewDetail(total)). \(RecoveryCopy.reviewAction)")
         }
     }
 
@@ -288,7 +268,8 @@ struct RootView: View {
     ) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "record.circle.fill")
-                .font(.title3)
+                .font(.body)
+                .foregroundStyle(.red)
                 .symbolEffect(.pulse)
                 .accessibilityHidden(true)
 
@@ -305,23 +286,38 @@ struct RootView: View {
                     .lineLimit(1)
             }
 
-            Spacer(minLength: 18)
+            Spacer(minLength: 16)
 
             if let changeSourceAction {
-                Button("Change Source…", action: changeSourceAction)
-                    .help("Choose different macOS content without restarting the recording")
+                Button(String(localized: "Change Source…"), action: changeSourceAction)
+                    .controlSize(.small)
+                    .help(String(localized: "Choose different macOS content without restarting the recording"))
             }
 
-            Button("Stop", role: .destructive, action: stopAction)
-                .keyboardShortcut(.escape, modifiers: [])
+            Button(action: stopAction) {
+                HStack(spacing: 5) {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 9, weight: .bold))
+                    Text(String(localized: "Stop"))
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(.red, in: Capsule())
+                .shadow(color: .red.opacity(0.35), radius: 4, y: 1)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.escape, modifiers: [])
+            .help(String(localized: "Stop recording (⎋)"))
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(maxWidth: 720)
-        .bardoGlassSurface(cornerRadius: 18, interactive: true)
-        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .bardoGlassCapsule(interactive: true)
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
+        .frame(maxWidth: 680)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(LibraryFormatting.duration(duration)) elapsed. \(detail)")
+        .accessibilityLabel("\(title), \(LibraryFormatting.duration(duration)). \(detail)")
     }
 
     private func transitionPill(title: String, detail: String) -> some View {
@@ -334,14 +330,15 @@ struct RootView: View {
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             Spacer()
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(maxWidth: 640)
-        .bardoGlassSurface(cornerRadius: 18)
-        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .bardoGlassCapsule(interactive: false)
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
+        .frame(maxWidth: 680)
     }
 
     @MainActor
@@ -394,9 +391,9 @@ struct RootView: View {
 }
 
 private enum RecoveryCopy {
-    static let title = String(localized: "Interrupted captures")
+    static let title = String(localized: "Interrupted recordings")
     static let close = String(localized: "Close")
-    static let reviewDescription = String(localized: "Bardo found incomplete captures after an interruption. They are still safe on your Mac. Review them in Finder or move the ones you do not need to the Trash.")
+    static let reviewDescription = String(localized: "Bardo found incomplete recordings after an interruption. They are still safe on your Mac. Review them in Finder or move the ones you do not need to the Trash.")
     static let openInFinder = String(localized: "Open in Finder")
     static let moveToTrash = String(localized: "Move to Trash…")
     static let moveToTrashTitle = String(localized: "Move capture to the Trash?")
@@ -406,6 +403,22 @@ private enum RecoveryCopy {
     static let cancel = String(localized: "Cancel")
     static let allClearTitle = String(localized: "All clear")
     static let allClearDescription = String(localized: "There are no incomplete captures waiting for review.")
+    static let reviewAction = String(localized: "Review recordings…")
+
+    static func reviewTitle(_ count: Int) -> String {
+        String.localizedStringWithFormat(
+            String(localized: count == 1
+                ? "1 interrupted recording needs review"
+                : "%lld interrupted recordings need review"),
+            count
+        )
+    }
+
+    static func reviewDetail(_ count: Int) -> String {
+        String(localized: count == 1
+            ? "Bardo recovered it and it’s safe."
+            : "Bardo recovered them and they’re safe.")
+    }
 
     static func moveAllToTrashTitle(_ count: Int) -> String {
         String.localizedStringWithFormat(
@@ -614,7 +627,7 @@ private struct RecoveryReviewView: View {
                         }
                     }
                 }
-                .background(.quaternary.opacity(0.22), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(.fill.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
         }
     }

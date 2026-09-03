@@ -10,25 +10,45 @@ struct ParakeetModelOperations: Sendable {
 
     static let live = ParakeetModelOperations(
         modelsExist: { url in
-            AsrModels.modelsExist(
+            let repoDir = url.appendingPathComponent(Repo.parakeetV3.folderName)
+            if AsrModels.modelsExist(at: repoDir, version: .v3, encoderPrecision: .int8) {
+                return true
+            }
+            return AsrModels.modelsExist(
                 at: url,
                 version: .v3,
                 encoderPrecision: .int8
             )
         },
         download: { url, progress in
-            _ = try await AsrModels.download(
+            let repo = Repo.parakeetV3
+            let targetRepoPath = url.appendingPathComponent(repo.folderName)
+            try await ModelHub.download(
+                repo,
                 to: url,
-                version: .v3,
-                encoderPrecision: .int8,
+                variant: ParakeetEncoderPrecision.int8.rawValue,
+                config: .default,
                 progressHandler: { update in
                     progress(update.fractionCompleted)
                 }
             )
+            let vocabFileName = ModelNames.ASR.vocabularyFile
+            let vocabURL = targetRepoPath.appendingPathComponent(vocabFileName)
+            if !FileManager.default.fileExists(atPath: vocabURL.path) {
+                let remoteURL = try ModelRegistry.resolveModel(repo.remotePath, vocabFileName)
+                let data = try await ModelHub.fetchFile(from: remoteURL, description: vocabFileName)
+                try FileManager.default.createDirectory(
+                    at: vocabURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: vocabURL, options: [.atomic])
+            }
         },
         load: { url, progress in
-            try await AsrModels.load(
-                from: url,
+            let repoDir = url.appendingPathComponent(Repo.parakeetV3.folderName)
+            let loadDir = FileManager.default.fileExists(atPath: repoDir.path) ? repoDir : url
+            return try await AsrModels.load(
+                from: loadDir,
                 version: .v3,
                 encoderPrecision: .int8,
                 progressHandler: { update in
@@ -336,6 +356,11 @@ actor ParakeetTranscriptionService: RecordingTranscribing {
     ) async throws {
         let models = try await modelManager.prepareForUse(progress: progress)
         _ = try await engine(models: models)
+    }
+
+    func reset() async throws {
+        loadedManager = nil
+        try await modelManager.reset()
     }
 
     func warmUpIfInstalled() async {

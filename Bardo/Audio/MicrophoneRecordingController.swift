@@ -208,7 +208,7 @@ final class MicrophoneRecordingController: ObservableObject {
             try await resolveStagingStore().discardPreparedCapture(recordingID: recordingID)
             await refreshRecoveryIssues()
         } catch {
-            errorMessage = "Bardo could not discard (issue.entryName): (error.localizedDescription)"
+            errorMessage = "Bardo could not discard \(issue.entryName): \(error.localizedDescription)"
         }
     }
 
@@ -218,7 +218,24 @@ final class MicrophoneRecordingController: ObservableObject {
             try await resolveStagingStore().moveToTrash(recordingID: recordingID)
             await refreshRecoveryIssues()
         } catch {
-            errorMessage = "Bardo could not move (issue.entryName) to the Trash: (error.localizedDescription)"
+            errorMessage = "Bardo could not move \(issue.entryName) to the Trash: \(error.localizedDescription)"
+        }
+    }
+
+    func moveAllRecoveryIssuesToTrash() async {
+        let issuesToMove = recoveryIssues.compactMap { issue -> UUID? in
+            issue.recordingID
+        }
+        guard !issuesToMove.isEmpty else { return }
+
+        do {
+            let store = try resolveStagingStore()
+            for recordingID in issuesToMove {
+                try await store.moveToTrash(recordingID: recordingID)
+            }
+            await refreshRecoveryIssues()
+        } catch {
+            errorMessage = "Bardo could not move the recovery captures to the Trash: \(error.localizedDescription)"
         }
     }
 

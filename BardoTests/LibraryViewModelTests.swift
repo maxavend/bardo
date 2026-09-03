@@ -3,6 +3,15 @@ import XCTest
 @testable import Bardo
 
 final class LibraryViewModelTests: XCTestCase {
+    func testRecordingSearchMatchesTitleAndTrimsWhitespace() {
+        let recording = Recording(title: "Weekly Product Sync", sources: [.importedFile])
+
+        XCTAssertTrue(RecordingSearch.matches(recording, query: "  product  "))
+        XCTAssertTrue(RecordingSearch.matches(recording, query: "weekly sync"))
+        XCTAssertFalse(RecordingSearch.matches(recording, query: "finance"))
+        XCTAssertTrue(RecordingSearch.matches(recording, query: "   "))
+    }
+
     @MainActor
     func testEmptyStoreIsAValidLibraryState() async throws {
         let rootURL = makeTemporaryDirectory()
@@ -161,6 +170,29 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertNil(model.selection)
         let persistedSecond = try await store.read(id: second.id)
         XCTAssertEqual(persistedSecond.id, second.id)
+    }
+
+    @MainActor
+    func testTranscriptionPresetInitializesFromAndPersistsToPreferences() async throws {
+        let rootURL = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let suiteName = "Bardo.LibraryViewModelPresetTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let preferences = TranscriptionPreferenceStore(defaults: defaults)
+        preferences.setSelectedPreset(.instant)
+
+        let model = LibraryViewModel(
+            store: RecordingStore(rootURL: rootURL),
+            transcriptionPreferences: preferences
+        )
+
+        XCTAssertEqual(model.selectedTranscriptionPreset, .instant)
+
+        model.selectedTranscriptionPreset = .maximumAccuracy
+        XCTAssertEqual(preferences.selectedPreset(), .maximumAccuracy)
     }
 
     private func makeTemporaryDirectory() -> URL {

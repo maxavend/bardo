@@ -23,6 +23,18 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker(String(localized: "Default Model"), selection: $model.selectedPreset) {
+                    ForEach(TranscriptionOption.catalog) { option in
+                        Text(option.label).tag(option.preset)
+                    }
+                }
+            } header: {
+                Label(String(localized: "Transcription Model"), systemImage: "waveform")
+            } footer: {
+                Text(String(localized: "Instant uses Parakeet for fastest transcription. Default uses Whisper Turbo. Más precisión uses Whisper Large."))
+            }
+
+            Section {
                 if model.rows.isEmpty {
                     HStack {
                         ProgressView()
@@ -125,31 +137,35 @@ private struct ModelSettingsRow: View {
     let action: (ModelSettingsAction) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .center, spacing: 12) {
                 Image(systemName: row.symbol)
+                    .font(.system(size: 15, weight: .medium))
                     .frame(width: 22)
                     .foregroundStyle(row.stateColor)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.title)
                         .font(.body.weight(.medium))
+                        .lineLimit(1)
                     Text(row.detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer(minLength: 12)
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     if !row.stateLabel.isEmpty {
                         Text(row.stateLabel)
-                            .font(.callout)
+                            .font(.caption)
                             .foregroundStyle(row.stateColor)
                             .lineLimit(1)
+                            .frame(minWidth: 76, alignment: .trailing)
                     }
                     stateControl
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
 
             if let progress = row.progressFraction {
@@ -166,7 +182,7 @@ private struct ModelSettingsRow: View {
                     .padding(.leading, 34)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 5)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }
@@ -278,12 +294,20 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
 private final class ModelSettingsViewModel: ObservableObject {
     @Published private(set) var rows: [ModelSettingsRowState] = []
     @Published private(set) var isRefreshing = false
+    @Published var selectedPreset: TranscriptionPreset {
+        didSet {
+            transcriptionPreferences.setSelectedPreset(selectedPreset)
+        }
+    }
 
+    private let transcriptionPreferences: TranscriptionPreferenceStore
     private var didRefresh = false
     private var refreshTask: Task<Void, Never>?
     private var operationTasks: [ManagedModel: Task<Void, Never>] = [:]
 
-    init() {
+    init(transcriptionPreferences: TranscriptionPreferenceStore = TranscriptionPreferenceStore()) {
+        self.transcriptionPreferences = transcriptionPreferences
+        self.selectedPreset = transcriptionPreferences.selectedPreset()
         rows = ManagedModel.allCases.map { makeRow(for: $0, state: .notInstalled) }
     }
 
@@ -321,6 +345,17 @@ private final class ModelSettingsViewModel: ObservableObject {
 
     func reset(_ model: ManagedModel) {
         do {
+            if model == .qwen {
+                Task {
+                    let generator = try? QwenMeetingMinutesGenerator.live()
+                    await generator?.reset()
+                }
+            } else if model == .parakeet {
+                Task {
+                    let service = try? ParakeetTranscriptionService.live()
+                    try? await service?.reset()
+                }
+            }
             try BardoModelStore.live().reset(model)
             setState(.notInstalled, for: model)
         } catch {
@@ -330,6 +365,17 @@ private final class ModelSettingsViewModel: ObservableObject {
 
     func resetAndInstall(_ model: ManagedModel) {
         do {
+            if model == .qwen {
+                Task {
+                    let generator = try? QwenMeetingMinutesGenerator.live()
+                    await generator?.reset()
+                }
+            } else if model == .parakeet {
+                Task {
+                    let service = try? ParakeetTranscriptionService.live()
+                    try? await service?.reset()
+                }
+            }
             try BardoModelStore.live().reset(model)
             setState(.notInstalled, for: model)
             install(model)
@@ -386,7 +432,13 @@ private final class ModelSettingsViewModel: ObservableObject {
                     }
                 }
             case .qwen:
-                return
+                let generator = try QwenMeetingMinutesGenerator.live()
+                try await generator.prepareForUse { fraction in
+                    let state = Self.qwenState(for: fraction)
+                    Task { @MainActor [weak self] in
+                        self?.setState(state, for: model)
+                    }
+                }
             }
 
             try Task.checkCancellation()
@@ -504,7 +556,7 @@ private final class ModelSettingsViewModel: ObservableObject {
         case .speakerKit:
             return ModelSettingsRowState(id: model, title: String(localized: "SpeakerKit / Pyannote"), detail: String(localized: "Identifies speakers and creates voice samples"), supportsInstallation: true, state: state)
         case .qwen:
-            return ModelSettingsRowState(id: model, title: String(localized: "Qwen 3.5 0.8B MLX 4-bit"), detail: String(localized: "Generates meeting minutes from your transcripts. Downloads automatically when needed."), supportsInstallation: false, state: state)
+            return ModelSettingsRowState(id: model, title: String(localized: "Qwen 3.5 0.8B MLX 4-bit"), detail: String(localized: "Installed during setup so meeting minutes start immediately."), supportsInstallation: true, state: state)
         }
     }
 
@@ -525,6 +577,11 @@ private final class ModelSettingsViewModel: ObservableObject {
         case .downloading:
             return .downloading(value)
         }
+    }
+
+    private nonisolated static func qwenState(for fraction: Double) -> ManagedModelState {
+        let value = min(1, max(0, fraction))
+        return value < 1 ? .downloading(value) : .preparing(1)
     }
 
     private nonisolated static func diarizationState(for snapshot: DiarizationSetupProgressSnapshot) -> ManagedModelState {

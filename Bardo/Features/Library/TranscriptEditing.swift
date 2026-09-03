@@ -103,9 +103,8 @@ struct TranscriptEditorSheet: View {
             if state.isMultiline {
                 TextEditor(text: $value)
                     .font(.body)
-                    .scrollContentBackground(.hidden)
-                    .padding(10)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .padding(8)
+                    .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .frame(minHeight: 170)
             } else {
                 TextField("Speaker name", text: $value)
@@ -217,7 +216,7 @@ struct SpeakerNamingSheet: View {
                 .foregroundStyle(.tertiary)
                 .frame(width: 74, alignment: .trailing)
         }
-        .padding(12)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(10)
+        .background(.fill.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
