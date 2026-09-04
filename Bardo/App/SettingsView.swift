@@ -325,6 +325,7 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
     }
 
     var progressFraction: Double? {
+        if usesIndeterminateProgress { return nil }
         switch state {
         case .downloading(let fraction), .preparing(let fraction):
             return min(1, max(0, fraction))
