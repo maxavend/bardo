@@ -15,7 +15,7 @@ struct BardoApp: App {
     }
 
     var body: some Scene {
-        Window("Bardo", id: "main") {
+        Window("Bardo", id: "main-v3-native-toolbar") {
             BardoLaunchView()
                 .frame(minWidth: 920, minHeight: 600)
         }
