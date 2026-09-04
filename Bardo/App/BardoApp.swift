@@ -17,11 +17,11 @@ struct BardoApp: App {
     var body: some Scene {
         Window("Bardo", id: "main") {
             BardoLaunchView()
-                .frame(minWidth: 1080, minHeight: 620)
+                .frame(minWidth: 920, minHeight: 600)
         }
-        .defaultSize(width: 1180, height: 760)
+        .defaultSize(width: 1240, height: 800)
         .windowResizability(.contentMinSize)
-        .windowToolbarStyle(.unifiedCompact)
+        .windowToolbarStyle(.unified)
 
         Settings {
             SettingsView()
