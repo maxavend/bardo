@@ -11,6 +11,9 @@ struct TranscriptContentView: View {
     @Binding var editor: TranscriptEditorState?
     @Binding var isSpeakerNamingPresented: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var followsLiveTranscription = true
+
     var onSelectMinutes: (() -> Void)? = nil
 
     var body: some View {
@@ -19,33 +22,65 @@ struct TranscriptContentView: View {
     }
 
     private var transcriptViewport: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: BardoSpacing.section) {
-                transcriptErrors
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: BardoSpacing.section) {
+                    transcriptErrors
 
-                if model.isTranscribing {
-                    transcriptionProgressView
-                } else if let transcript = model.transcript,
-                          transcript.recordingID == recording.id {
-                    if model.isDiarizing, model.diarizationRecordingID == recording.id {
-                        diarizationProgressView
-                    } else {
-                        transcriptHeader(for: transcript)
-                        transcriptConversation(transcript)
+                    if isTranscribingThisRecording {
+                        transcriptionLiveView
+                    } else if let transcript = model.transcript,
+                              transcript.recordingID == recording.id {
+                        if model.isDiarizing, model.diarizationRecordingID == recording.id {
+                            diarizationProgressView
+                        } else {
+                            transcriptHeader(for: transcript)
+                            transcriptConversation(transcript)
 
-                        if !transcript.segments.isEmpty {
-                            minutesNavigationGroup
-                                .padding(.top, 8)
+                            if !transcript.segments.isEmpty {
+                                minutesNavigationGroup
+                                    .padding(.top, 8)
+                            }
                         }
+                    } else {
+                        emptyTranscriptView
                     }
-                } else {
-                    emptyTranscriptView
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id(LiveTranscriptAnchor.tail)
+                }
+                .frame(maxWidth: 780, alignment: .leading)
+                .padding(.horizontal, BardoSpacing.detailHorizontal)
+                .padding(.vertical, BardoSpacing.section)
+                .frame(maxWidth: .infinity, alignment: .top)
+            }
+            .onScrollPhaseChange { _, phase in
+                if phase == .tracking || phase == .interacting {
+                    followsLiveTranscription = false
                 }
             }
-            .frame(maxWidth: 780, alignment: .leading)
-            .padding(.horizontal, BardoSpacing.detailHorizontal)
-            .padding(.vertical, BardoSpacing.section)
-            .frame(maxWidth: .infinity, alignment: .top)
+            .onChange(of: liveSegmentCount) { _, _ in
+                followLiveTranscript(using: proxy)
+            }
+            .onChange(of: model.transcriptionRecordingID) { _, recordingID in
+                if recordingID == recording.id {
+                    followsLiveTranscription = true
+                    followLiveTranscript(using: proxy)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if isTranscribingThisRecording && !followsLiveTranscription {
+                    Button {
+                        followsLiveTranscription = true
+                        followLiveTranscript(using: proxy, force: true)
+                    } label: {
+                        Label(String(localized: "Follow Live"), systemImage: "arrow.down")
+                    }
+                    .controlSize(.small)
+                    .padding(12)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -114,15 +149,116 @@ struct TranscriptContentView: View {
         }
     }
 
-    private var transcriptionProgressView: some View {
-        let progress = model.transcriptionProgress
-        return ProcessingView(
-            title: transcriptionStageText(progress?.stage),
-            detail: String(localized: "Audio stays on this Mac while Bardo processes it."),
-            fractionCompleted: progress?.fractionCompleted ?? 0,
-            cancelTitle: String(localized: "Cancel"),
-            cancelAction: { model.cancelTranscription() }
-        )
+    private var isTranscribingThisRecording: Bool {
+        model.isTranscribing && model.transcriptionRecordingID == recording.id
+    }
+
+    private var liveSegmentCount: Int {
+        guard isTranscribingThisRecording,
+              let live = model.liveTranscription,
+              live.recordingID == recording.id else {
+            return 0
+        }
+        return live.segments.count
+    }
+
+    private var transcriptionLiveView: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            transcriptionLiveStatus
+
+            if let live = model.liveTranscription, live.recordingID == recording.id {
+                let paragraphs = buildParagraphs(from: live.segments)
+
+                if !paragraphs.isEmpty {
+                    LazyVStack(alignment: .leading, spacing: 20) {
+                        ForEach(paragraphs) { paragraph in
+                            TranscriptParagraphRow(
+                                paragraph: paragraph,
+                                playback: playback,
+                                canEdit: false,
+                                onEditSegment: { _ in }
+                            )
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(String(localized: "Continuando la transcripción…"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                } else if !live.provisionalText.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(live.provisionalText)
+                            .font(.body)
+                            .lineSpacing(4)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.mini)
+                            Text(String(localized: "Texto provisional"))
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                } else {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(String(localized: "La transcripción aparecerá aquí en cuanto Bardo reconozca las primeras palabras."))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
+        }
+    }
+
+    private var transcriptionLiveStatus: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Label {
+                Text(transcriptionStageText(model.transcriptionProgress?.stage))
+                    .font(.callout.weight(.semibold))
+            } icon: {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            if let live = model.liveTranscription,
+               live.recordingID == recording.id,
+               live.processedAudioTime > 0 {
+                Text(
+                    "\(LibraryFormatting.duration(live.processedAudioTime)) / \(LibraryFormatting.duration(live.audioDuration))"
+                )
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            Button(String(localized: "Cancel"), role: .cancel) {
+                model.cancelTranscription()
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func followLiveTranscript(using proxy: ScrollViewProxy, force: Bool = false) {
+        guard isTranscribingThisRecording, force || followsLiveTranscription else { return }
+
+        let scroll = {
+            proxy.scrollTo(LiveTranscriptAnchor.tail, anchor: .bottom)
+        }
+        if reduceMotion {
+            scroll()
+        } else {
+            withAnimation(.easeOut(duration: 0.18), scroll)
+        }
     }
 
     private var diarizationProgressView: some View {
@@ -330,6 +466,10 @@ struct TranscriptContentView: View {
             Label(String(localized: "Meeting Minutes"), systemImage: "list.bullet.clipboard")
         }
     }
+}
+
+private enum LiveTranscriptAnchor {
+    static let tail = "bardo.transcript.live.tail"
 }
 
 private struct TranscriptParagraph: Identifiable {
