@@ -268,3 +268,5 @@
 "Preparing meeting-minutes files…" = "Preparing meeting-minutes files…";
 "Loading meeting-minutes model in local memory…" = "Loading meeting-minutes model in local memory…";
 "Checking local generation…" = "Checking local generation…";
+"Downloading…" = "Downloading…";
+"Checking…" = "Checking…";
