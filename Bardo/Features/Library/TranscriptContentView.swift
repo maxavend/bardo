@@ -186,7 +186,7 @@ struct TranscriptContentView: View {
                                 paragraph: paragraph,
                                 playback: playback,
                                 canEdit: false,
-                                streamsWords: true,
+                                usesKaraoke: false,
                                 onEditSegment: { _ in }
                             )
                         }
@@ -202,7 +202,9 @@ struct TranscriptContentView: View {
                     .accessibilityElement(children: .combine)
                 } else if !live.provisionalText.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        StreamingWordText(text: live.provisionalText)
+                        Text(live.provisionalText)
+                            .font(.body)
+                            .lineSpacing(4)
                             .foregroundStyle(.secondary)
 
                         HStack(spacing: 6) {
@@ -500,7 +502,7 @@ private struct TranscriptParagraphRow: View {
     let paragraph: TranscriptParagraph
     @ObservedObject var playback: AudioPlaybackController
     let canEdit: Bool
-    var streamsWords: Bool = false
+    var usesKaraoke: Bool = true
     let onEditSegment: (TranscriptSegment) -> Void
 
     var body: some View {
@@ -571,9 +573,7 @@ private struct TranscriptParagraphRow: View {
 
     @ViewBuilder
     private var paragraphText: some View {
-        if streamsWords {
-            StreamingWordText(text: paragraph.fullText)
-        } else if paragraph.hasEdits || paragraph.timedWords.isEmpty {
+        if !usesKaraoke || paragraph.hasEdits || paragraph.timedWords.isEmpty {
             Text(paragraph.fullText)
                 .font(.body)
                 .lineSpacing(4)
@@ -597,86 +597,6 @@ private struct TranscriptParagraphRow: View {
     }
 }
 
-
-private struct StreamingWordText: View {
-    let text: String
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var words: [StreamingWord] = []
-    @State private var revealTask: Task<Void, Never>?
-
-    var body: some View {
-        BardoWordFlowLayout(horizontalSpacing: 4, verticalSpacing: 5) {
-            ForEach(words) { word in
-                Text(word.text)
-                    .font(.body)
-                    .opacity(word.isVisible || reduceMotion ? 1 : 0)
-                    .blur(radius: word.isVisible || reduceMotion ? 0 : 1)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear {
-            synchronize(with: text)
-        }
-        .onChange(of: text) { _, newValue in
-            synchronize(with: newValue)
-        }
-        .onDisappear {
-            revealTask?.cancel()
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(text)
-    }
-
-    private func synchronize(with text: String) {
-        let incoming = tokenize(text)
-        var prefixCount = 0
-        let comparableCount = min(words.count, incoming.count)
-
-        while prefixCount < comparableCount,
-              words[prefixCount].text == incoming[prefixCount] {
-            prefixCount += 1
-        }
-
-        let retained = Array(words.prefix(prefixCount))
-        let additions = incoming.dropFirst(prefixCount).map {
-            StreamingWord(text: $0, isVisible: reduceMotion)
-        }
-        words = retained + additions
-
-        revealTask?.cancel()
-        guard !reduceMotion, prefixCount < words.count else {
-            for index in words.indices {
-                words[index].isVisible = true
-            }
-            return
-        }
-
-        revealTask = Task { @MainActor in
-            for index in prefixCount..<words.count {
-                if index > prefixCount {
-                    try? await Task.sleep(for: .milliseconds(60))
-                }
-                guard !Task.isCancelled, words.indices.contains(index) else { return }
-                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.35)) {
-                    words[index].isVisible = true
-                }
-            }
-        }
-    }
-
-    private func tokenize(_ text: String) -> [String] {
-        text
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
-    }
-}
-
-private struct StreamingWord: Identifiable {
-    let id = UUID()
-    let text: String
-    var isVisible: Bool
-}
 
 private struct KaraokeTranscriptText: View {
     let words: [TranscriptWord]
