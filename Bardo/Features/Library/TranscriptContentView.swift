@@ -26,8 +26,6 @@ struct TranscriptContentView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: BardoSpacing.section) {
-                    RecordingDocumentHeader(recording: recording)
-
                     transcriptErrors
 
                     if isTranscribingThisRecording {
@@ -53,9 +51,10 @@ struct TranscriptContentView: View {
                         .frame(height: max(1, bottomContentInset))
                         .id(LiveTranscriptAnchor.tail)
                 }
-                .frame(maxWidth: 780, alignment: .leading)
+                .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
                 .padding(.horizontal, BardoSpacing.detailHorizontal)
-                .padding(.vertical, BardoSpacing.section)
+                .padding(.top, 8)
+                .padding(.bottom, BardoSpacing.section)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
             .onScrollPhaseChange { _, phase in
@@ -187,6 +186,7 @@ struct TranscriptContentView: View {
                                 paragraph: paragraph,
                                 playback: playback,
                                 canEdit: false,
+                                streamsWords: true,
                                 onEditSegment: { _ in }
                             )
                         }
@@ -202,9 +202,7 @@ struct TranscriptContentView: View {
                     .accessibilityElement(children: .combine)
                 } else if !live.provisionalText.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(live.provisionalText)
-                            .font(.body)
-                            .lineSpacing(4)
+                        StreamingWordText(text: live.provisionalText)
                             .foregroundStyle(.secondary)
 
                         HStack(spacing: 6) {
@@ -275,24 +273,12 @@ struct TranscriptContentView: View {
     }
 
     private var emptyTranscriptView: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "waveform.and.mic")
-                .font(.system(size: 32, weight: .regular))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-
-            VStack(spacing: 6) {
-                Text(String(localized: "No Transcript Yet"))
-                    .font(.title3.weight(.semibold))
-
-                Text(String(localized: "Transcribe this recording to search the conversation, identify participants, and create meeting minutes."))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 380)
-            }
-
+        BardoEmptyState(
+            systemImage: "waveform.and.mic",
+            title: String(localized: "No Transcript Yet"),
+            detail: String(localized: "Transcribe this recording to search the conversation, identify participants, and create meeting minutes."),
+            footnote: String(localized: "Processed locally on this Mac")
+        ) {
             Button {
                 model.beginTranscription()
             } label: {
@@ -306,16 +292,7 @@ struct TranscriptContentView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
             .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
-
-            Label(
-                String(localized: "Processed locally on this Mac"),
-                systemImage: "lock.fill"
-            )
-            .font(.caption)
-            .foregroundStyle(.tertiary)
         }
-        .frame(maxWidth: .infinity, minHeight: 320)
-        .padding(.vertical, 24)
     }
 
     private func buildParagraphs(from segments: [TranscriptSegment]) -> [TranscriptParagraph] {
@@ -509,12 +486,21 @@ private struct TranscriptParagraph: Identifiable {
     var hasEdits: Bool {
         segments.contains { $0.editedText != nil }
     }
+
+    var timedWords: [TranscriptWord] {
+        segments.flatMap(\.words)
+    }
+
+    var endTime: TimeInterval {
+        segments.last?.endTime ?? startTime
+    }
 }
 
 private struct TranscriptParagraphRow: View {
     let paragraph: TranscriptParagraph
     @ObservedObject var playback: AudioPlaybackController
     let canEdit: Bool
+    var streamsWords: Bool = false
     let onEditSegment: (TranscriptSegment) -> Void
 
     var body: some View {
@@ -539,9 +525,7 @@ private struct TranscriptParagraphRow: View {
             )
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(paragraph.fullText)
-                    .font(.body)
-                    .lineSpacing(4)
+                paragraphText
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -582,6 +566,26 @@ private struct TranscriptParagraphRow: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(paragraph.fullText, forType: .string)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var paragraphText: some View {
+        if streamsWords {
+            StreamingWordText(text: paragraph.fullText)
+        } else if paragraph.hasEdits || paragraph.timedWords.isEmpty {
+            Text(paragraph.fullText)
+                .font(.body)
+                .lineSpacing(4)
+        } else {
+            KaraokeTranscriptText(
+                words: paragraph.timedWords,
+                fallbackText: paragraph.fullText,
+                playbackPosition: playback.position,
+                isPlaying: playback.isPlaying,
+                paragraphStart: paragraph.startTime,
+                paragraphEnd: paragraph.endTime
+            )
         }
     }
 
