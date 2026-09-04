@@ -25,6 +25,8 @@ struct TranscriptContentView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: BardoSpacing.section) {
+                    RecordingDocumentHeader(recording: recording)
+
                     transcriptErrors
 
                     if isTranscribingThisRecording {
@@ -272,9 +274,9 @@ struct TranscriptContentView: View {
 
     private var emptyTranscriptView: some View {
         ContentUnavailableView {
-            Label(String(localized: "Aún no hay transcripción"), systemImage: "waveform.and.mic")
+            Label(String(localized: "No Transcript Yet"), systemImage: "waveform.and.mic")
         } description: {
-            Text(String(localized: "Crea una transcripción privada y local con Whisper Large v3 Turbo."))
+            Text(String(localized: "Transcribe this recording on this Mac."))
         } actions: {
             Button {
                 model.beginTranscription()
@@ -282,7 +284,7 @@ struct TranscriptContentView: View {
                 Label(
                     recording.processingState == .failed
                         ? String(localized: "Retry Transcription")
-                        : String(localized: "Transcribir"),
+                        : String(localized: "Transcribe"),
                     systemImage: "waveform.badge.magnifyingglass"
                 )
             }
