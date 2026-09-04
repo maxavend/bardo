@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObserveInjection var redraw
     @StateObject private var model = ModelSettingsViewModel()
     @State private var pendingReset: PendingModelReset?
+    @State private var isLegacyQwenRemovalPresented = false
 
     var body: some View {
         Form {
@@ -79,6 +80,35 @@ struct SettingsView: View {
                         model.revealModelsFolder()
                     }
                 }
+
+                if model.hasLegacyQwenData {
+                    HStack(alignment: .center, spacing: 12) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(String(localized: "Older Qwen files"))
+                                    .fontWeight(.medium)
+                                Text(String(localized: "Bardo no longer uses Qwen. These files can be removed to recover storage."))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "archivebox")
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 12)
+
+                        Button(String(localized: "Remove Qwen Files…"), role: .destructive) {
+                            isLegacyQwenRemovalPresented = true
+                        }
+                    }
+                }
+
+                if let error = model.legacyQwenCleanupErrorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             } header: {
                 Label("Storage", systemImage: "externaldrive")
             } footer: {
@@ -104,6 +134,14 @@ struct SettingsView: View {
                 },
                 secondaryButton: .cancel(Text("Cancel"))
             )
+        }
+        .alert(String(localized: "Remove old Qwen files?"), isPresented: $isLegacyQwenRemovalPresented) {
+            Button(String(localized: "Cancel"), role: .cancel) {}
+            Button(String(localized: "Remove Files"), role: .destructive) {
+                model.removeLegacyQwenData()
+            }
+        } message: {
+            Text(String(localized: "Qwen is no longer used by Bardo. This removes only the old private Qwen folder and does not affect LFM2.5, transcripts, recordings, or meeting minutes."))
         }
         .enableInjection()
     }
@@ -263,7 +301,9 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
         case .preparing(let fraction):
             return String.localizedStringWithFormat(String(localized: "Preparing %@"), percentage(fraction))
         case .installed:
-            return String(localized: "Installed")
+            return id == .meetingMinutes
+                ? String(localized: "Ready")
+                : String(localized: "Installed")
         case .failed:
             return String(localized: "Failed")
         }
@@ -306,6 +346,8 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
 private final class ModelSettingsViewModel: ObservableObject {
     @Published private(set) var rows: [ModelSettingsRowState] = []
     @Published private(set) var isRefreshing = false
+    @Published private(set) var hasLegacyQwenData = false
+    @Published private(set) var legacyQwenCleanupErrorMessage: String?
     private var didRefresh = false
     private var refreshTask: Task<Void, Never>?
     private var operationTasks: [ManagedModel: Task<Void, Never>] = [:]
@@ -380,6 +422,7 @@ private final class ModelSettingsViewModel: ObservableObject {
         case .meetingMinutes:
             let generator = try? MeetingMinutesGenerator.live()
             await generator?.reset()
+            MeetingMinutesRuntimeReadiness.invalidate()
         }
         try BardoModelStore.live().reset(model)
     }
@@ -418,9 +461,9 @@ private final class ModelSettingsViewModel: ObservableObject {
                     }
                 }
             case .meetingMinutes:
-                let manager = try MeetingMinutesModelManager.live()
-                try await manager.prepareForUse { fraction in
-                    let state = Self.meetingMinutesState(for: fraction)
+                let generator = try MeetingMinutesGenerator.live()
+                try await generator.prepareForSetup { snapshot in
+                    let state = Self.meetingMinutesState(for: snapshot)
                     Task { @MainActor [weak self] in
                         self?.setState(state, for: model)
                     }
@@ -478,8 +521,10 @@ private final class ModelSettingsViewModel: ObservableObject {
             }
         }
 
-        let minutesInstalled = MeetingMinutesModelResourceResolver.isInstalled()
-        setState(minutesInstalled ? .installed : .notInstalled, for: .meetingMinutes)
+        refreshMeetingMinutesState()
+        if let store = try? BardoModelStore.live() {
+            hasLegacyQwenData = store.hasLegacyQwenData()
+        }
     }
 
     private func refreshModel(_ model: ManagedModel) async {
@@ -492,7 +537,34 @@ private final class ModelSettingsViewModel: ObservableObject {
             let service = try? SpeakerDiarizationService.live()
             setState(await service?.hasInstalledModels() == true ? .installed : .notInstalled, for: model)
         case .meetingMinutes:
-            setState(MeetingMinutesModelResourceResolver.isInstalled() ? .installed : .notInstalled, for: model)
+            refreshMeetingMinutesState()
+        }
+    }
+
+    func removeLegacyQwenData() {
+        legacyQwenCleanupErrorMessage = nil
+        do {
+            let store = try BardoModelStore.live()
+            try store.removeLegacyQwenData()
+            hasLegacyQwenData = store.hasLegacyQwenData()
+        } catch {
+            legacyQwenCleanupErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshMeetingMinutesState() {
+        guard MeetingMinutesModelResourceResolver.isInstalled() else {
+            setState(.notInstalled, for: .meetingMinutes)
+            return
+        }
+
+        if MeetingMinutesRuntimeReadiness.isReady() {
+            setState(.installed, for: .meetingMinutes)
+        } else {
+            setState(
+                .failed(String(localized: "The model is downloaded but still needs a local runtime check. Retry to verify it.")),
+                for: .meetingMinutes
+            )
         }
     }
 
@@ -511,7 +583,13 @@ private final class ModelSettingsViewModel: ObservableObject {
         case .speakerKit:
             return ModelSettingsRowState(id: model, title: String(localized: "SpeakerKit / Pyannote"), detail: String(localized: "Downloaded during first-run setup for speaker identification"), supportsInstallation: true, state: state)
         case .meetingMinutes:
-            return ModelSettingsRowState(id: model, title: String(localized: "Meeting Minutes"), detail: String(localized: "Downloaded during first-run setup for on-device generation."), supportsInstallation: true, state: state)
+            return ModelSettingsRowState(
+                id: model,
+                title: String(localized: "Meeting Minutes · LFM2.5"),
+                detail: String(localized: "LFM2.5 1.2B 4-bit is verified with a local generation check before Bardo marks it ready."),
+                supportsInstallation: true,
+                state: state
+            )
         }
     }
 
@@ -529,9 +607,16 @@ private final class ModelSettingsViewModel: ObservableObject {
         }
     }
 
-    private nonisolated static func meetingMinutesState(for fraction: Double) -> ManagedModelState {
-        let value = min(1, max(0, fraction))
-        return value < 1 ? .downloading(value) : .preparing(1)
+    private nonisolated static func meetingMinutesState(
+        for snapshot: MeetingMinutesSetupProgressSnapshot
+    ) -> ManagedModelState {
+        let value = min(1, max(0, snapshot.fractionCompleted))
+        switch snapshot.stage {
+        case .downloading:
+            return .downloading(value)
+        case .loading, .checkingRuntime:
+            return .preparing(value)
+        }
     }
 
     private nonisolated static func diarizationState(for snapshot: DiarizationSetupProgressSnapshot) -> ManagedModelState {
