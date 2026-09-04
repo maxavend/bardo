@@ -657,12 +657,6 @@ private struct KaraokeTranscriptText: View {
             && (isPlaying || hasEnteredParagraph)
     }
 
-    private func isCurrent(_ word: TranscriptWord) -> Bool {
-        isActiveParagraph
-            && playbackPosition >= word.startTime
-            && playbackPosition < max(word.endTime, word.startTime + 0.08)
-    }
-
     private func isSpokenOrCurrent(_ word: TranscriptWord) -> Bool {
         guard isActiveParagraph else { return false }
         return playbackPosition >= word.startTime
