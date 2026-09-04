@@ -373,6 +373,7 @@ private struct DetailModeSegmentedControl: NSViewRepresentable {
         }
     }
 
+    @MainActor
     final class Coordinator: NSObject {
         var selection: Binding<RecordingDetailView.DetailTab>
 

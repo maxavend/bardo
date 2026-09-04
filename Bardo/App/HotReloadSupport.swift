@@ -52,9 +52,10 @@ public final class InjectionObserver: ObservableObject {
 public struct ObserveInjection: DynamicProperty {
     @ObservedObject private var observer: InjectionObserver
 
-    @MainActor
     public init() {
-        _observer = ObservedObject(wrappedValue: InjectionObserver.shared)
+        _observer = ObservedObject(wrappedValue: MainActor.assumeIsolated {
+            InjectionObserver.shared
+        })
     }
 
     @MainActor

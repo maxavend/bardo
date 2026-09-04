@@ -462,7 +462,7 @@ private final class ModelSettingsViewModel: ObservableObject {
             switch model {
             case .whisperTurbo:
                 let manager = try TranscriptionModelManager.live()
-                _ = try await manager.ensureResourcesAvailable { fraction in
+                _ = try await manager.ensureResourcesAvailable { [weak self] fraction in
                     let state = Self.runtimeDownloadState(for: fraction)
                     Task { @MainActor [weak self] in
                         self?.setState(state, for: model)
@@ -470,7 +470,7 @@ private final class ModelSettingsViewModel: ObservableObject {
                 }
             case .speakerKit:
                 let service = try SpeakerDiarizationService.live()
-                try await service.prepareForUse { snapshot in
+                try await service.prepareForUse { [weak self] snapshot in
                     let state = Self.diarizationState(for: snapshot)
                     Task { @MainActor [weak self] in
                         self?.setState(state, for: model)
@@ -478,7 +478,7 @@ private final class ModelSettingsViewModel: ObservableObject {
                 }
             case .meetingMinutes:
                 let generator = try MeetingMinutesGenerator.live()
-                try await generator.prepareForSetup { snapshot in
+                try await generator.prepareForSetup { [weak self] snapshot in
                     let state = Self.meetingMinutesState(for: snapshot)
                     Task { @MainActor [weak self] in
                         self?.setState(state, for: model)
