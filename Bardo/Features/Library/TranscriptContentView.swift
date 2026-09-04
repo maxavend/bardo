@@ -78,17 +78,28 @@ struct TranscriptContentView: View {
                     followLiveTranscript(using: proxy)
                 }
             }
-            .overlay(alignment: .bottomTrailing) {
+            .overlay(alignment: .bottom) {
                 if isTranscribingThisRecording && !followsLiveTranscription {
-                    Button {
-                        followsLiveTranscription = true
-                        followLiveTranscript(using: proxy, force: true)
-                    } label: {
-                        Label(String(localized: "Follow Live"), systemImage: "arrow.down")
+                    HStack {
+                        Spacer(minLength: 0)
+
+                        Button {
+                            followsLiveTranscription = true
+                            followLiveTranscript(using: proxy, force: true)
+                        } label: {
+                            Label(String(localized: "Follow Live"), systemImage: "arrow.down")
+                        }
+                        .controlSize(.small)
                     }
-                    .controlSize(.small)
-                    .padding(.trailing, 12)
-                    .padding(.bottom, bottomContentInset + 12)
+                    .frame(maxWidth: BardoLayout.playbackMaxWidth)
+                    .padding(.horizontal, BardoLayout.playbackHorizontalPadding)
+                    .frame(maxWidth: .infinity)
+                    .padding(
+                        .bottom,
+                        BardoLayout.playbackBottomPadding
+                            + BardoLayout.playbackSurfaceHeight
+                            + BardoLayout.followLiveGapAbovePlayback
+                    )
                 }
             }
         }
