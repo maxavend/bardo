@@ -14,6 +14,29 @@ struct TranscriptionProgressSnapshot: Equatable, Sendable {
     let fractionCompleted: Double
 }
 
+struct TranscriptionLiveSnapshot: Equatable, Sendable {
+    let recordingID: Recording.ID
+    let segments: [TranscriptSegment]
+    let provisionalText: String
+    let processedAudioTime: TimeInterval
+    let audioDuration: TimeInterval
+
+    var fractionCompleted: Double {
+        guard audioDuration.isFinite, audioDuration > 0 else { return 0 }
+        return min(1, max(0, processedAudioTime / audioDuration))
+    }
+
+    static func empty(recordingID: Recording.ID, audioDuration: TimeInterval) -> TranscriptionLiveSnapshot {
+        TranscriptionLiveSnapshot(
+            recordingID: recordingID,
+            segments: [],
+            provisionalText: "",
+            processedAudioTime: 0,
+            audioDuration: audioDuration
+        )
+    }
+}
+
 enum TranscriptionSetupStage: String, Sendable {
     case checking
     case downloading
@@ -32,10 +55,26 @@ protocol RecordingTranscribing: Sendable {
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
     ) async throws -> Transcript
 
+    func transcribe(
+        recording: Recording,
+        store: RecordingStore,
+        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
+        liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
+    ) async throws -> Transcript
+
     func warmUpIfInstalled() async
 }
 
 extension RecordingTranscribing {
+    func transcribe(
+        recording: Recording,
+        store: RecordingStore,
+        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
+        liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
+    ) async throws -> Transcript {
+        try await transcribe(recording: recording, store: store, progress: progress)
+    }
+
     func warmUpIfInstalled() async {}
 }
 
@@ -84,6 +123,87 @@ private final class TranscriptionCancellationFlag: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return cancelled
+    }
+}
+
+final class TranscriptionLiveBuffer: @unchecked Sendable {
+    private struct SegmentKey: Hashable {
+        let startMilliseconds: Int
+        let endMilliseconds: Int
+
+        init(_ segment: TranscriptSegment) {
+            startMilliseconds = Int((segment.startTime * 1_000).rounded())
+            endMilliseconds = Int((segment.endTime * 1_000).rounded())
+        }
+    }
+
+    private let lock = NSLock()
+    private let recordingID: Recording.ID
+    private let audioDuration: TimeInterval
+    private var segmentsByKey: [SegmentKey: TranscriptSegment] = [:]
+    private var provisionalText = ""
+
+    init(recordingID: Recording.ID, audioDuration: TimeInterval) {
+        self.recordingID = recordingID
+        self.audioDuration = audioDuration
+    }
+
+    func updateProvisionalText(_ text: String) -> TranscriptionLiveSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+
+        provisionalText = segmentsByKey.isEmpty
+            ? TranscriptTextSanitizer.sanitize(text).trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+        return makeSnapshot()
+    }
+
+    func merge(_ segments: [TranscriptSegment]) -> TranscriptionLiveSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+
+        for segment in segments {
+            let key = SegmentKey(segment)
+            let existingID = segmentsByKey[key]?.id ?? segment.id
+            segmentsByKey[key] = TranscriptSegment(
+                id: existingID,
+                startTime: segment.startTime,
+                endTime: segment.endTime,
+                speakerID: segment.speakerID,
+                text: segment.text,
+                words: segment.words,
+                editedText: segment.editedText
+            )
+        }
+
+        if !segmentsByKey.isEmpty {
+            provisionalText = ""
+        }
+        return makeSnapshot()
+    }
+
+    func snapshot() -> TranscriptionLiveSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return makeSnapshot()
+    }
+
+    private func makeSnapshot() -> TranscriptionLiveSnapshot {
+        let sortedSegments = segmentsByKey.values.sorted {
+            if $0.startTime == $1.startTime {
+                return $0.endTime < $1.endTime
+            }
+            return $0.startTime < $1.startTime
+        }
+        let processedAudioTime = sortedSegments.map(\.endTime).max() ?? 0
+
+        return TranscriptionLiveSnapshot(
+            recordingID: recordingID,
+            segments: sortedSegments,
+            provisionalText: provisionalText,
+            processedAudioTime: processedAudioTime,
+            audioDuration: audioDuration
+        )
     }
 }
 
@@ -198,6 +318,20 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         store: RecordingStore,
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
     ) async throws -> Transcript {
+        try await transcribe(
+            recording: recording,
+            store: store,
+            progress: progress,
+            liveUpdate: { _ in }
+        )
+    }
+
+    func transcribe(
+        recording: Recording,
+        store: RecordingStore,
+        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
+        liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
+    ) async throws -> Transcript {
         idleUnloadTask?.cancel()
         idleUnloadTask = nil
         let cancellation = TranscriptionCancellationFlag()
@@ -207,7 +341,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                     recording: recording,
                     store: store,
                     cancellation: cancellation,
-                    progress: progress
+                    progress: progress,
+                    liveUpdate: liveUpdate
                 )
                 scheduleIdleUnload()
                 return transcript
@@ -224,7 +359,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         recording: Recording,
         store: RecordingStore,
         cancellation: TranscriptionCancellationFlag,
-        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
+        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
+        liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
     ) async throws -> Transcript {
         try checkCancellation(cancellation)
         let overallStart = ProcessInfo.processInfo.systemUptime
@@ -269,13 +405,63 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                 maxBufferedChunks: performanceProfile.maxBufferedChunks
             )
         )
+        let liveBuffer = TranscriptionLiveBuffer(
+            recordingID: recording.id,
+            audioDuration: duration
+        )
+        liveUpdate(liveBuffer.snapshot())
+
+        let previousSegmentDiscoveryCallback = whisper.segmentDiscoveryCallback
+        whisper.segmentDiscoveryCallback = { discoveredSegments in
+            let converted = discoveredSegments.compactMap { segment -> TranscriptSegment? in
+                let text = TranscriptTextSanitizer.sanitize(segment.text)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { return nil }
+
+                let words = (segment.words ?? []).map {
+                    TranscriptWord(
+                        startTime: TimeInterval($0.start),
+                        endTime: TimeInterval($0.end),
+                        text: $0.word,
+                        probability: $0.probability
+                    )
+                }
+
+                return TranscriptSegment(
+                    startTime: TimeInterval(segment.start),
+                    endTime: TimeInterval(segment.end),
+                    text: text,
+                    words: words
+                )
+            }
+
+            guard !converted.isEmpty else { return }
+            let snapshot = liveBuffer.merge(converted)
+            liveUpdate(snapshot)
+            progress(.init(stage: .transcribing, fractionCompleted: snapshot.fractionCompleted))
+        }
+        defer {
+            whisper.segmentDiscoveryCallback = previousSegmentDiscoveryCallback
+        }
+
         let results = try await whisper.transcribe(
             audioPath: audioURL.path,
             audioInputOptions: audioInputOptions,
             decodeOptions: options,
-            callback: { _ in !cancellation.isCancelled }
+            callback: { update in
+                if cancellation.isCancelled {
+                    return false
+                }
+
+                let snapshot = liveBuffer.updateProvisionalText(update.text)
+                if snapshot.segments.isEmpty, !snapshot.provisionalText.isEmpty {
+                    liveUpdate(snapshot)
+                }
+                return true
+            }
         )
         try checkCancellation(cancellation)
+        progress(.init(stage: .transcribing, fractionCompleted: 1))
 
         let segments = results.flatMap { result in
             result.segments.compactMap { segment -> TranscriptSegment? in
