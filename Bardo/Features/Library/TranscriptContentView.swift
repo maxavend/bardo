@@ -60,6 +60,13 @@ struct TranscriptContentView: View {
                     followsLiveTranscription = false
                 }
             }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.visibleRect.maxY >= geometry.contentSize.height - 40
+            } action: { _, isAtBottom in
+                if isAtBottom && isTranscribingThisRecording {
+                    followsLiveTranscription = true
+                }
+            }
             .onChange(of: liveSegmentCount) { _, _ in
                 followLiveTranscript(using: proxy)
             }
@@ -195,7 +202,6 @@ struct TranscriptContentView: View {
                             .font(.body)
                             .lineSpacing(4)
                             .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
 
                         HStack(spacing: 6) {
                             ProgressView()
