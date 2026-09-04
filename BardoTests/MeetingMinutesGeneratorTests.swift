@@ -25,6 +25,9 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: root.appendingPathComponent("config.json"))
         try Data("{}".utf8).write(to: root.appendingPathComponent("tokenizer.json"))
+        try Data(MeetingMinutesModel.modelRevision.utf8).write(
+            to: root.appendingPathComponent(MeetingMinutesModel.revisionMarkerFileName)
+        )
         let weights = root.appendingPathComponent("model.safetensors")
         try Data("weights".utf8).write(to: weights)
 
