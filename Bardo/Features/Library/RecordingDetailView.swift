@@ -15,7 +15,6 @@ struct RecordingDetailView: View {
     @State private var isDeleteConfirmationPresented = false
     @State private var isInspectorPresented = false
     @State private var selectedTab: DetailTab = .transcript
-    @State private var processingBeganAt: Date?
 
     enum DetailTab: String, CaseIterable, Identifiable, Hashable {
         case transcript
@@ -97,20 +96,12 @@ struct RecordingDetailView: View {
                 FloatingPlaybackBar(recording: recording, playback: playback)
             }
         }
-        .onAppear {
-            updateProcessingClock(isProcessing: isDetailProcessing)
-        }
-        .onChange(of: isDetailProcessing) { _, isProcessing in
-            updateProcessingClock(isProcessing: isProcessing)
-        }
         .onChange(of: recording.id) { _, _ in
             transcriptSearch = ""
             editor = nil
             pendingReplacementAction = nil
             isSpeakerNamingPresented = false
             selectedTab = .transcript
-            processingBeganAt = nil
-            updateProcessingClock(isProcessing: isDetailProcessing)
         }
         .onChange(of: model.isGeneratingMeetingMinutes) { _, isGenerating in
             if isGenerating {
@@ -190,46 +181,6 @@ struct RecordingDetailView: View {
             ))
         }
         .enableInjection()
-    }
-
-    private var contextBar: some View {
-        HStack(spacing: 10) {
-            Label(LibraryFormatting.source(recording.sources), systemImage: "waveform")
-                .help(toolbarSubtitle)
-
-            if let transcript = model.transcript, transcript.recordingID == recording.id {
-                Divider()
-                    .frame(height: 14)
-
-                Label(LibraryFormatting.language(transcript.languageCode), systemImage: "globe")
-
-                if !transcript.speakers.isEmpty {
-                    Divider()
-                        .frame(height: 14)
-
-                    Label(
-                        String.localizedStringWithFormat(String(localized: "%lld participantes"), transcript.speakers.count),
-                        systemImage: "person.2"
-                    )
-                }
-            }
-
-            if isDetailProcessing || recording.processingState == .failed {
-                Divider()
-                    .frame(height: 14)
-                processingMetadata
-            }
-
-            Spacer(minLength: 0)
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .padding(.horizontal, BardoSpacing.detailHorizontal)
-        .padding(.vertical, 8)
-        .overlay(alignment: .bottom) {
-            Divider()
-        }
     }
 
     @ViewBuilder
@@ -333,44 +284,6 @@ struct RecordingDetailView: View {
 
     private var recordingDisplayTitle: String {
         LibraryFormatting.recordingTitle(recording)
-    }
-
-    private var toolbarSubtitle: String {
-        "\(recording.createdAt.formatted(.dateTime.day().month(.wide).year())) · \(LibraryFormatting.duration(recording.duration))"
-    }
-
-    private var isDetailProcessing: Bool {
-        model.isTranscribing
-            || (model.isDiarizing && model.diarizationRecordingID == recording.id)
-            || model.isGeneratingMeetingMinutes
-            || recording.processingState == .processing
-    }
-
-    @ViewBuilder
-    private var processingMetadata: some View {
-        if isDetailProcessing {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let elapsed = context.date.timeIntervalSince(processingBeganAt ?? context.date)
-                Label(
-                    String.localizedStringWithFormat(
-                        String(localized: "Tiempo procesando %@"),
-                        LibraryFormatting.duration(elapsed)
-                    ),
-                    systemImage: "hourglass"
-                )
-            }
-        } else if recording.processingState == .failed {
-            Label(String(localized: "Needs attention"), systemImage: "exclamationmark.circle.fill")
-                .foregroundStyle(.orange)
-        }
-    }
-
-    private func updateProcessingClock(isProcessing: Bool) {
-        if isProcessing {
-            processingBeganAt = processingBeganAt ?? Date()
-        } else {
-            processingBeganAt = nil
-        }
     }
 
     private func copyTranscript(_ transcript: Transcript) {
