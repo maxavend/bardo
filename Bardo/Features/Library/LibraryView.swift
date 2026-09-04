@@ -45,11 +45,13 @@ struct LibraryView: View {
             prompt: Text(String(localized: "Search Recordings"))
         )
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                if let captureMenu {
+            if let captureMenu {
+                ToolbarItem(id: "bardo.library.record", placement: .primaryAction) {
                     captureMenu
                 }
+            }
 
+            ToolbarItem(id: "bardo.library.import", placement: .primaryAction) {
                 Button {
                     isFileImporterPresented = true
                 } label: {
