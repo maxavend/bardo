@@ -175,18 +175,6 @@ private struct RecoveryIssueSidebarRow: View {
         .accessibilityLabel("\(title), \(detail)")
     }
 
-    private var formattedEntryName: String {
-        let name = issue.entryName
-        if name.hasPrefix("Recording ") {
-            let idPart = String(name.dropFirst("Recording ".count))
-            return idPart.count > 8 ? "\(idPart.prefix(8))…" : idPart
-        }
-        if let uuid = UUID(uuidString: name) {
-            return "\(uuid.uuidString.prefix(8))…"
-        }
-        return name
-    }
-
     private var title: String {
         switch issue.kind {
         case .corruptManifest, .missingManifest, .identityMismatch:
