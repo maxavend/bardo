@@ -337,9 +337,7 @@ private struct DetailModeSelector: View {
             ForEach(RecordingDetailView.DetailTab.allCases) { tab in
                 Button {
                     guard selection != tab else { return }
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        selection = tab
-                    }
+                    selection = tab
                 } label: {
                     Text(tab.title)
                         .font(.callout.weight(selection == tab ? .semibold : .medium))
@@ -369,7 +367,8 @@ private struct DetailModeSelector: View {
             }
         }
         .padding(3)
-        .background(.quaternary.opacity(0.55), in: Capsule())
+        .background(Color.primary.opacity(0.08), in: Capsule())
+        .animation(.easeInOut(duration: 0.16), value: selection)
         .overlay {
             Capsule()
                 .stroke(.separator.opacity(0.35), lineWidth: 0.5)
