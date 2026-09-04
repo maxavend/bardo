@@ -26,6 +26,23 @@ extension View {
         }
     }
 
+    /// A stable Apple Music-like playback surface. The glass container itself
+    /// is intentionally non-interactive so button presses never scale or morph
+    /// the whole player.
+    @ViewBuilder
+    func bardoPlaybackSurface() -> some View {
+        if #available(macOS 26.0, *) {
+            self.glassEffect(.regular, in: .capsule)
+        } else {
+            self
+                .background(.regularMaterial, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(.separator.opacity(0.25), lineWidth: 0.5)
+                }
+        }
+    }
+
     /// Lets macOS 26 render transcript search as a compact toolbar control that
     /// expands fluidly on interaction. Earlier systems keep their native
     /// searchable presentation.
