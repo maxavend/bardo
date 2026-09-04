@@ -33,17 +33,33 @@ struct LibraryView: View {
                 .safeAreaInset(edge: .top, spacing: 0) {
                     if let activeCaptureBanner {
                         activeCaptureBanner
-                            .padding(.top, 8)
-                            .padding(.bottom, 6)
                             .padding(.horizontal, 20)
-                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .padding(.vertical, 8)
                     }
                 }
-                .animation(.spring(response: 0.35, dampingFraction: 1.0), value: activeCaptureBanner != nil)
-                .background(Color(nsColor: .windowBackgroundColor))
-                .ignoresSafeArea(.container, edges: .top)
         }
         .navigationSplitViewStyle(.balanced)
+        .searchable(
+            text: $recordingSearchText,
+            placement: .sidebar,
+            prompt: Text(String(localized: "Search Recordings"))
+        )
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if let captureMenu {
+                    captureMenu
+                }
+
+                Button {
+                    isFileImporterPresented = true
+                } label: {
+                    Label(String(localized: "Import Audio"), systemImage: "square.and.arrow.down")
+                }
+                .help(String(localized: "Import Audio (⇧⌘O)"))
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .disabled(model.isImporting || model.isTranscribing || model.isDiarizing)
+            }
+        }
         .task {
             await model.reload()
         }
@@ -102,7 +118,7 @@ struct LibraryView: View {
             model.cancelDiarization()
             model.stopPlayback()
         }
-        .frame(minWidth: 900, minHeight: BardoLayout.libraryToolbarHeight + 508)
+        .frame(minWidth: 900, minHeight: 560)
         .enableInjection()
     }
 
@@ -122,6 +138,10 @@ struct LibraryView: View {
                 Label(String(localized: "Select a Recording"), systemImage: "waveform")
             } description: {
                 Text(String(localized: "Choose a recording from the sidebar to play audio, read its transcript, or inspect details."))
+            } actions: {
+                Button(String(localized: "Import Audio")) {
+                    isFileImporterPresented = true
+                }
             }
         }
     }
