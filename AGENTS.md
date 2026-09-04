@@ -13,4 +13,5 @@ Bardo is a macOS app built with Swift 6 / SwiftUI. The project targets macOS 15+
 
 ## UI refactor principle
 
+- For toolbar view switching such as Transcripción / Minuta, use the native SwiftUI `Picker` with `.pickerStyle(.segmented)`. Do not recreate the selection pill, Liquid Glass morph, hover, pressed state, or segment animation with custom `Capsule`, `matchedGeometryEffect`, `GlassEffectContainer`, or `glassEffectID`; let SwiftUI/macOS own those states and transitions.
 Prefer native SwiftUI/AppKit macOS controls and behavior over visual emulation. Preserve working behavior and avoid redesigning stable UI unless the change is a clear usability or platform-consistency improvement.
