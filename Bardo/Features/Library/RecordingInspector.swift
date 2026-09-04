@@ -3,75 +3,87 @@ import SwiftUI
 struct RecordingInspector: View {
     let recording: Recording
     let transcript: Transcript?
+    let meetingMinutes: MeetingMinutes?
 
     var body: some View {
         Form {
-            Section("Recording") {
-                LabeledContent("Created") {
-                    Text(recording.createdAt, format: .dateTime.year().month().day().hour().minute().second())
+            Section(String(localized: "Recording")) {
+                LabeledContent(String(localized: "Created")) {
+                    Text(recording.createdAt, format: .dateTime.year().month().day().hour().minute())
                 }
-                LabeledContent("Duration", value: LibraryFormatting.duration(recording.duration))
-                LabeledContent("Source", value: LibraryFormatting.source(recording.sources))
-                LabeledContent("Status", value: LibraryFormatting.state(recording.processingState))
+                LabeledContent(String(localized: "Duration"), value: LibraryFormatting.duration(recording.duration))
+                LabeledContent(String(localized: "Source"), value: LibraryFormatting.source(recording.sources))
             }
 
-            if !recording.audioAssets.isEmpty {
-                ForEach(Array(recording.audioAssets.enumerated()), id: \.element.id) { index, asset in
-                    Section(recording.audioAssets.count == 1 ? "Audio" : "Audio Track \(index + 1)") {
-                        LabeledContent("File", value: asset.originalFileName)
-                        LabeledContent("Codec", value: asset.metadata.codec)
-                        LabeledContent("Sample Rate", value: LibraryFormatting.sampleRate(asset.metadata.sampleRate))
-                        LabeledContent("Channels", value: String(asset.metadata.channelCount))
-                        if recording.audioAssets.count > 1 {
-                            LabeledContent("Role", value: roleText(asset.role))
+            if let transcript, transcript.recordingID == recording.id {
+                Section(String(localized: "Conversation")) {
+                    LabeledContent(String(localized: "Language"), value: LibraryFormatting.language(transcript.languageCode))
+                    if transcript.diarizationMetadata != nil {
+                        LabeledContent(
+                            String(localized: "Participants"),
+                            value: String.localizedStringWithFormat(
+                                String(localized: "%lld Participants"),
+                                transcript.speakers.count
+                            )
+                        )
+                    }
+                }
+
+                if transcript.metadata.processingDuration != nil
+                    || transcript.diarizationMetadata?.processingDuration != nil
+                    || matchingMinutes?.processingDuration != nil {
+                    Section(String(localized: "Processing times")) {
+                        if let duration = transcript.metadata.processingDuration {
+                            LabeledContent(
+                                String(localized: "Transcription"),
+                                value: LibraryFormatting.processingDuration(duration)
+                            )
+                        }
+                        if let duration = transcript.diarizationMetadata?.processingDuration {
+                            LabeledContent(
+                                String(localized: "Speaker identification"),
+                                value: LibraryFormatting.processingDuration(duration)
+                            )
+                        }
+                        if let duration = matchingMinutes?.processingDuration {
+                            LabeledContent(
+                                String(localized: "Meeting Minutes"),
+                                value: LibraryFormatting.processingDuration(duration)
+                            )
                         }
                     }
                 }
             }
 
-            if let transcript, transcript.recordingID == recording.id {
-                Section("Transcript") {
-                    LabeledContent("Language", value: LibraryFormatting.language(transcript.languageCode))
-                    LabeledContent("Engine", value: "\(transcript.metadata.engine) \(transcript.metadata.engineVersion)")
-                    LabeledContent("Model", value: transcript.metadata.modelID)
-                    LabeledContent("Created") {
-                        Text(transcript.metadata.createdAt, format: .dateTime.year().month().day().hour().minute())
+            if !recording.audioAssets.isEmpty {
+                Section(String(localized: "Audio")) {
+                    if recording.audioAssets.count == 1, let asset = recording.audioAssets.first {
+                        LabeledContent(String(localized: "File"), value: asset.originalFileName)
+                    } else {
+                        LabeledContent(
+                            String(localized: "Audio Tracks"),
+                            value: String.localizedStringWithFormat(
+                                String(localized: "%lld audio tracks"),
+                                recording.audioAssets.count
+                            )
+                        )
                     }
-                }
-
-                if let diarization = transcript.diarizationMetadata {
-                    Section("Speakers") {
-                        LabeledContent("Detected", value: String(transcript.speakers.count))
-                        LabeledContent("Engine", value: "\(diarization.engine) \(diarization.engineVersion)")
-                        LabeledContent("Model", value: diarization.modelID)
-                    }
-                }
-            }
-
-            Section("Advanced") {
-                LabeledContent("Recording ID") {
-                    Text(recording.id.uuidString)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
                 }
             }
         }
         .formStyle(.grouped)
     }
 
-    private func roleText(_ role: AudioAssetRole) -> String {
-        switch role {
-        case .importedOriginal: "Imported Original"
-        case .microphoneOriginal: "Microphone Original"
-        case .systemOriginal: "System Original"
-        case .conversationMix: "Conversation Mix"
-        }
+    private var matchingMinutes: MeetingMinutes? {
+        guard let meetingMinutes, meetingMinutes.recordingID == recording.id else { return nil }
+        return meetingMinutes
     }
 }
 
 struct RecordingInformationSheet: View {
     let recording: Recording
     let transcript: Transcript?
+    let meetingMinutes: MeetingMinutes?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -99,7 +111,11 @@ struct RecordingInformationSheet: View {
 
             Divider()
 
-            RecordingInspector(recording: recording, transcript: transcript)
+            RecordingInspector(
+                recording: recording,
+                transcript: transcript,
+                meetingMinutes: meetingMinutes
+            )
         }
         .frame(width: 460, height: 560)
     }

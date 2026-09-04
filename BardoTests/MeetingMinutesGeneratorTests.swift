@@ -119,7 +119,11 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
     }
 
     func testLongTranscriptUsesSegmentBoundedExtractionThenFinalSynthesis() async throws {
-        let spy = TextGeneratorSpy(responses: ["Extract one", "Extract two", "Final minutes"])
+        let spy = TextGeneratorSpy(responses: [
+            #"[{"type":"context","topic":"First","statement":"Extract one","certainty":"qualified","sourceSegmentIDs":[]}]"#,
+            #"[{"type":"context","topic":"Second","statement":"Extract two","certainty":"qualified","sourceSegmentIDs":[]}]"#,
+            "Final minutes"
+        ])
         let generator = MeetingMinutesGenerator(
             textGenerator: spy,
             chunkingConfiguration: .init(targetTokens: 20, overlapSegmentCount: 0),
@@ -218,6 +222,23 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
         let stages = snapshots.value
         XCTAssertTrue(stages.contains(.preparingModel))
         XCTAssertTrue(stages.contains(.synthesizing))
+    }
+
+    func testInvalidExtractionFallsBackToTranscriptSegmentsInsteadOfModelProse() async throws {
+        let spy = TextGeneratorSpy(responses: ["not valid json", "not valid analysis", "Final minutes"])
+        let generator = MeetingMinutesGenerator(textGenerator: spy)
+        let transcript = makeTranscript(recordingID: UUID(), text: "Figma needs an empty state before handoff.")
+
+        _ = try await generator.generate(
+            from: MeetingMinutesInput(transcript: transcript, title: "Design review", context: nil),
+            progress: { (_: MeetingMinutesProgressSnapshot) in },
+            onStreamChunk: nil
+        )
+
+        let prompts = await spy.prompts
+        XCTAssertEqual(prompts.count, 3)
+        XCTAssertTrue(prompts[1].contains("Figma needs an empty state before handoff."))
+        XCTAssertFalse(prompts[1].contains("not valid json"))
     }
 
     func testRepetitionDetectorIdentifiesLineLevelLoopsAndCleans() {

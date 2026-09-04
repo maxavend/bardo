@@ -677,7 +677,7 @@ final class LibraryViewModel: ObservableObject {
         meetingMinutesProgressSnapshot = MeetingMinutesProgressSnapshot(
             stage: .preparingModel,
             fractionCompleted: 0,
-            message: String(localized: "Preparing meeting-minutes model in local memory…")
+            message: String(localized: "Preparing the conversation…")
         )
         streamingMeetingMinutesText = ""
         meetingMinutesTask = Task { [weak self] in
@@ -709,7 +709,6 @@ final class LibraryViewModel: ObservableObject {
               !Task.isCancelled else { return }
 
         do {
-            playback.unload()
             let generator = try resolveMeetingMinutesGenerator()
             do {
                 let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)

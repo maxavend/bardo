@@ -84,7 +84,8 @@ struct RecordingDetailView: View {
         .sheet(isPresented: $isRecordingInfoPresented) {
             RecordingInformationSheet(
                 recording: recording,
-                transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil
+                transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil,
+                meetingMinutes: model.meetingMinutes?.recordingID == recording.id ? model.meetingMinutes : nil
             )
         }
         .background {

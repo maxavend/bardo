@@ -317,14 +317,21 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         )
         let alignmentMilliseconds = max(0, ProcessInfo.processInfo.systemUptime - alignmentStart) * 1_000
         let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
+        var finalized = aligned
+        finalized.diarizationMetadata = DiarizationMetadata(
+            engine: "SpeakerKit",
+            engineVersion: Self.engineVersion,
+            modelID: Self.modelID,
+            processingDuration: elapsed
+        )
         lastMetrics = DiarizationPerformanceMetrics(
             audioSeconds: duration, elapsedSeconds: elapsed, realTimeFactor: elapsed / duration,
             alignmentAndTurnBuildMilliseconds: alignmentMilliseconds,
-            speakerCount: aligned.speakers.count, segmentCount: aligned.segments.count,
-            wordCount: aligned.segments.reduce(0) { $0 + $1.words.count }
+            speakerCount: finalized.speakers.count, segmentCount: finalized.segments.count,
+            wordCount: finalized.segments.reduce(0) { $0 + $1.words.count }
         )
-        Self.logger.info("Speaker identification finished audioSeconds=\(duration) elapsedSeconds=\(elapsed) rtf=\(elapsed / duration) speakers=\(aligned.speakers.count) segments=\(aligned.segments.count) words=\(aligned.segments.reduce(0) { $0 + $1.words.count })")
-        return aligned
+        Self.logger.info("Speaker identification finished audioSeconds=\(duration) elapsedSeconds=\(elapsed) rtf=\(elapsed / duration) speakers=\(finalized.speakers.count) segments=\(finalized.segments.count) words=\(finalized.segments.reduce(0) { $0 + $1.words.count })")
+        return finalized
     }
 
     private func loadIfNeeded(

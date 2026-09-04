@@ -178,7 +178,7 @@ final class TranscriptionLiveBuffer: @unchecked Sendable {
         defer { lock.unlock() }
 
         provisionalText = segmentsByKey.isEmpty
-            ? TranscriptTextSanitizer.sanitize(text).trimmingCharacters(in: .whitespacesAndNewlines)
+            ? TranscriptTextSanitizer.normalizeRecognizedText(text).trimmingCharacters(in: .whitespacesAndNewlines)
             : ""
         return makeSnapshot()
     }
@@ -253,6 +253,13 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         subsystem: "com.maxavend.bardo",
         category: "transcription.performance"
     )
+
+    /// Short decoder context for product-design vocabulary commonly used in meetings.
+    /// It improves lexical recognition without forcing a language or paraphrasing speech.
+    private static let transcriptionVocabulary = """
+    Figma, UX, UI, design system, empty state, supporting text, breadcrumb, breadcrumbs, handoff, layout, mobile, desktop,
+    modal, chip, release, sprint, weekly, prototype, prototipo, Chrome, Discord, roaming, LDI.
+    """
 
     private static let sharedServiceResult: Result<WhisperTranscriptionService, Error> = Result {
         WhisperTranscriptionService(modelManager: try TranscriptionModelManager.live())
@@ -414,12 +421,14 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         try checkCancellation(cancellation)
         progress(.init(stage: .transcribing, fractionCompleted: 0))
 
+        let vocabularyTokens = whisper.tokenizer?.encode(text: Self.transcriptionVocabulary)
         let options = DecodingOptions(
             temperatureFallbackCount: performanceProfile.temperatureFallbackCount,
             usePrefillPrompt: true,
             detectLanguage: true,
             skipSpecialTokens: true,
             wordTimestamps: true,
+            promptTokens: vocabularyTokens,
             concurrentWorkerCount: performanceProfile.concurrentWorkerCount,
             chunkingStrategy: performanceProfile.usesVAD ? .vad : nil
         )
@@ -440,7 +449,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         let previousSegmentDiscoveryCallback = whisper.segmentDiscoveryCallback
         whisper.segmentDiscoveryCallback = { discoveredSegments in
             let converted = discoveredSegments.compactMap { segment -> TranscriptSegment? in
-                let text = TranscriptTextSanitizer.sanitize(segment.text)
+                let text = TranscriptTextSanitizer.normalizeRecognizedText(segment.text)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { return nil }
 
@@ -501,7 +510,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                         probability: $0.probability
                     )
                 }
-                let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let text = TranscriptTextSanitizer.normalizeRecognizedText(segment.text)
                 guard !text.isEmpty else { return nil }
                 return TranscriptSegment(
                     startTime: TimeInterval(segment.start),
@@ -518,6 +527,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
 
         let language = results.lazy.map(\.language).first { !$0.isEmpty }
         let selection = await modelManager.selectedSelection()
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
         let transcript = Transcript(
             recordingID: recording.id,
             languageCode: language,
@@ -526,11 +536,11 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                 engine: "WhisperKit",
                 engineVersion: Self.engineVersion,
                 modelID: selection.modelID,
-                selection: selection
+                selection: selection,
+                processingDuration: elapsed
             )
         )
 
-        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
         let timings = results.map(\.timings)
         let fallbackCount = Int(timings.reduce(0) { $0 + $1.totalDecodingFallbacks })
         let windowCount = Int(timings.reduce(0) { $0 + $1.totalDecodingWindows })

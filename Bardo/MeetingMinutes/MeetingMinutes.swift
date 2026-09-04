@@ -21,6 +21,7 @@ struct MeetingMinutes: Codable, Equatable, Sendable {
     let modelRevision: String?
     let promptVersion: String?
     let pipelineVersion: String?
+    let processingDuration: TimeInterval?
 
     init(
         recordingID: Recording.ID,
@@ -32,7 +33,8 @@ struct MeetingMinutes: Codable, Equatable, Sendable {
         sourceTranscriptHash: String? = nil,
         modelRevision: String? = nil,
         promptVersion: String? = nil,
-        pipelineVersion: String? = nil
+        pipelineVersion: String? = nil,
+        processingDuration: TimeInterval? = nil
     ) {
         self.recordingID = recordingID
         self.sourceTranscriptMetadata = sourceTranscriptMetadata
@@ -44,6 +46,7 @@ struct MeetingMinutes: Codable, Equatable, Sendable {
         self.modelRevision = modelRevision
         self.promptVersion = promptVersion
         self.pipelineVersion = pipelineVersion
+        self.processingDuration = processingDuration
     }
 
     func isStale(comparedTo transcript: Transcript) -> Bool {
@@ -252,13 +255,13 @@ struct MeetingMinutesChunkingConfiguration: Equatable, Sendable {
 
     static var adaptiveTargetTokens: Int {
         let sixteenGB = 16 * 1_024 * 1_024 * 1_024
-        return ProcessInfo.processInfo.physicalMemory >= UInt64(sixteenGB) ? 7_000 : 3_500
+        return ProcessInfo.processInfo.physicalMemory >= UInt64(sixteenGB) ? 2_400 : 1_600
     }
 }
 
 enum MeetingMinutesPromptBuilder {
-    static let pipelineVersion = "2"
-    static let promptVersion = "1"
+    static let pipelineVersion = "3"
+    static let promptVersion = "2"
 
     static func chunks(
         for transcript: Transcript,
@@ -303,16 +306,19 @@ enum MeetingMinutesPromptBuilder {
         languageCode: String? = nil
     ) -> String {
         """
-        MAP: extract conservative, local evidence from this transcript section.
+        MAP: extract ALL substantive evidence from this transcript section. Do not compress the section into a few generic ideas.
         Return JSON only as an array of objects with exactly these fields:
         type (fact, context, proposal, preference, hypothesis, decision, agreement, pending, openQuestion, risk, nextStep),
         topic, statement, rationale, responsible, validator, certainty (explicit, qualified, unresolved),
         sourceSegmentIDs, startTime, endTime.
+        Create one evidence object per distinct substantive point. If the section contains many meaningful points, return many objects.
+        Keep concrete product/process terminology exactly as spoken when it is readable (for example Figma, empty state, handoff, weekly,
+        prototype, release, mobile, desktop, breadcrumb, supporting text). Prefer specific faithful statements over generic business language.
         Use the segment_id values from the transcript. Keep responsible nil unless the transcript explicitly assigns the task.
-        A nearby person may be a validator or mentionedPerson, not a responsible owner. A question is not an agreement.
-        Preserve proposals, preferences, hypotheses, unresolved items, and the reasons behind decisions. Never increase certainty.
-        Exclude greetings, jokes, personal conversation, filler, ASR noise, and empty confirmations unless they affect the meeting.
-        Do not infer external knowledge, advice, deadlines, names, or decisions.
+        A nearby person may be a validator or mentioned person, not a responsible owner. A question is not an agreement.
+        Preserve proposals, disagreements, preferences, hypotheses, unresolved items, constraints, rationale, and later changes of direction.
+        Never increase certainty. Exclude greetings, jokes, filler, ASR noise, and empty confirmations unless they affect the meeting.
+        Do not infer external knowledge, advice, deadlines, names, consensus, or decisions.
         \(languageInstruction(for: languageCode))
 
         Title: \(title)
@@ -330,12 +336,13 @@ enum MeetingMinutesPromptBuilder {
         languageCode: String? = nil
     ) -> String {
         """
-        REDUCE: reconstruct the final semantic state of the meeting from the evidence below.
+        REDUCE: reconstruct the final semantic state of the meeting from the evidence below without losing concrete detail.
         Return JSON only with fields summary, topics, agreements, pending, risks, nextSteps, conclusion.
         Each topic has title, context, criteria, evidence, decisions, pending. Each pending/nextSteps item has statement,
         responsible, validator, sourceSegmentIDs. Preserve sourceSegmentIDs and rationale from evidence.
-        Group evidence across sections, order it temporally, deduplicate it, and reconcile proposals with later decisions.
-        A later decision supersedes an earlier proposal on the same issue; retain the proposal only as context.
+        Group evidence across sections, order it temporally, deduplicate true duplicates, and reconcile proposals with later decisions.
+        Do not merge separate points merely because they share a broad topic. Keep constraints, rationale, alternatives, and process changes.
+        A later decision supersedes an earlier proposal on the same issue; retain the proposal as context when it explains the outcome.
         Keep unresolved alternatives, open questions, risks, and validation work. Do not force consensus.
         Never promote proposal to decision, preference to agreement, hypothesis to fact, or mentioned person to responsible.
         Use responsible only when explicitly assigned; otherwise use nil and preserve validator separately.
@@ -357,17 +364,19 @@ enum MeetingMinutesPromptBuilder {
         languageCode: String? = nil
     ) -> String {
         """
-        RENDER: write a professional meeting minute from the consolidated analysis below.
+        RENDER: write a detailed, useful meeting minute from the consolidated analysis below.
         Use clean Markdown and only the information in the analysis. Do not mention MAP, REDUCE, JSON, prompts, or the model.
-        Use a dynamic structure: omit empty sections and never write artificial "None" or generic risks.
-        Include date and identifiable participants only when present in the analysis/evidence.
-        Preserve uncertainty, rationale, decision evolution, open questions, validators, and provenance where useful.
-        The executive summary must stand alone. Do not repeat the index as the summary.
+        Preserve concrete terminology, names, product details, constraints, rationale, disagreements, decision evolution, open questions,
+        validators, and next steps. Never replace specific discussion with generic phrases such as "the team aligned", "maintain quality",
+        "proactive communication", or "solid commitment" unless that exact meaning is explicitly supported.
+        Do not invent dates, locations, objectives, owners, consensus, risks, or conclusions. Never output placeholders such as
+        "[Insert date]" or "[To be defined]". Omit any section that is not supported by the analysis.
+        The summary should capture the actual state of the conversation in 3–6 concrete bullets or short paragraphs.
         \(languageInstruction(for: languageCode))
 
-        Suggested structure when supported: title, date, objective, participants, executive summary, numbered topics with
-        context/criteria/decisions/pending, consolidated agreements, pending and validation, risks, immediate next steps,
-        conclusion. Do not force headings that have no content.
+        Preferred structure when supported: title; "Resumen"; "Decisiones y acuerdos"; "Temas tratados" with specific subtopics;
+        "Pendientes y próximos pasos"; and "Dudas o riesgos" only when real ones exist. Within each topic, explain what was discussed,
+        what changed, why, and what remains open. Do not force an objective, participant list, date, location, or conclusion.
 
         Title: \(title)
         Context: \(contextValue(context))
