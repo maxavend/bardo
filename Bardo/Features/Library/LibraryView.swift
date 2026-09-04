@@ -131,8 +131,7 @@ struct LibraryView: View {
                 recording: recording,
                 model: model,
                 playback: model.playback,
-                transcriptSearch: $transcriptSearchText,
-                captureMenu: captureMenu
+                transcriptSearch: $transcriptSearchText
             )
             .id(recording.id)
         } else {
