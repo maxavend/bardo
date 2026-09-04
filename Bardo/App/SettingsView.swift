@@ -207,7 +207,10 @@ private struct ModelSettingsRow: View {
                 stateControl
             }
 
-            if let progress = row.progressFraction {
+            if row.usesIndeterminateProgress {
+                ProgressView()
+                    .progressViewStyle(LinearProgressViewStyle())
+            } else if let progress = row.progressFraction {
                 ProgressView(value: progress)
             }
 
@@ -297,8 +300,10 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
         case .notInstalled:
             return supportsInstallation ? "" : String(localized: "On demand")
         case .downloading(let fraction):
+            if id == .meetingMinutes { return String(localized: "Downloading…") }
             return String.localizedStringWithFormat(String(localized: "Downloading %@"), percentage(fraction))
         case .preparing(let fraction):
+            if id == .meetingMinutes { return String(localized: "Checking…") }
             return String.localizedStringWithFormat(String(localized: "Preparing %@"), percentage(fraction))
         case .installed:
             return id == .meetingMinutes
@@ -306,6 +311,16 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
                 : String(localized: "Installed")
         case .failed:
             return String(localized: "Failed")
+        }
+    }
+
+    var usesIndeterminateProgress: Bool {
+        guard id == .meetingMinutes else { return false }
+        switch state {
+        case .downloading, .preparing:
+            return true
+        case .notInstalled, .installed, .failed:
+            return false
         }
     }
 
