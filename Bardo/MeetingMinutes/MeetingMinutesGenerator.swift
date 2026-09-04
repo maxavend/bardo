@@ -73,6 +73,10 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
         let mapOptions = MeetingMinutesGenerationOptions(maxTokens: 1_400, temperature: 0, topP: 0.9)
         let reduceOptions = MeetingMinutesGenerationOptions(maxTokens: 2_048, temperature: 0, topP: 0.9)
         let renderOptions = MeetingMinutesGenerationOptions(maxTokens: 3_072, temperature: 0, topP: 0.9)
+        let preparationRange = 0.00...0.10
+        let extractionRange = 0.10...0.66
+        let consolidationRange = 0.66...0.84
+        let renderingRange = 0.84...1.00
         var evidence = [MeetingEvidence]()
 
         progress(.init(
@@ -90,19 +94,31 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
             case .checkingRuntime:
                 message = String(localized: "Getting everything ready…")
             }
+            let setupFraction: Double
+            switch setupSnapshot.stage {
+            case .downloading:
+                setupFraction = 0.65 * setupSnapshot.fractionCompleted
+            case .loading:
+                setupFraction = 0.65 + (0.25 * setupSnapshot.fractionCompleted)
+            case .checkingRuntime:
+                setupFraction = 0.90 + (0.10 * setupSnapshot.fractionCompleted)
+            }
             progress(.init(
                 stage: .preparingModel,
-                fractionCompleted: 0,
+                fractionCompleted: Self.mapProgress(
+                    setupFraction,
+                    into: preparationRange
+                ),
                 message: message
             ))
         }
 
         for (index, chunk) in chunks.enumerated() {
             try Task.checkCancellation()
-            let start = Double(index) / Double(chunks.count + 2)
+            let chunkStart = Double(index) / Double(chunks.count)
             progress(.init(
                 stage: .extracting(current: index + 1, total: chunks.count),
-                fractionCompleted: start,
+                fractionCompleted: Self.mapProgress(chunkStart, into: extractionRange),
                 message: String.localizedStringWithFormat(
                     String(localized: "Reviewing the conversation · part %lld of %lld…"),
                     index + 1,
@@ -120,10 +136,10 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
                 ),
                 options: mapOptions,
                 progress: { value in
-                    let fraction = (Double(index) + value) / Double(chunks.count + 2)
+                    let extractionFraction = (Double(index) + value) / Double(chunks.count)
                     progress(.init(
                         stage: .extracting(current: index + 1, total: chunks.count),
-                        fractionCompleted: fraction,
+                        fractionCompleted: Self.mapProgress(extractionFraction, into: extractionRange),
                         message: String.localizedStringWithFormat(
                             String(localized: "Reviewing the conversation · part %lld of %lld…"),
                             index + 1,
@@ -143,10 +159,9 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
         try Task.checkCancellation()
         let reducedEvidence = MeetingMinutesEvidenceReducer.reduce(evidence)
         let encodedEvidence = try Self.encode(reducedEvidence)
-        let reduceStart = Double(chunks.count) / Double(chunks.count + 2)
         progress(.init(
             stage: .synthesizing,
-            fractionCompleted: reduceStart,
+            fractionCompleted: consolidationRange.lowerBound,
             message: String(localized: "Organizing decisions and pending items…")
         ))
 
@@ -161,7 +176,7 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
             progress: { value in
                 progress(.init(
                     stage: .synthesizing,
-                    fractionCompleted: reduceStart + (value / Double(chunks.count + 2)),
+                    fractionCompleted: Self.mapProgress(value, into: consolidationRange),
                     message: String(localized: "Organizing decisions and pending items…")
                 ))
             },
@@ -173,7 +188,7 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
 
         progress(.init(
             stage: .synthesizing,
-            fractionCompleted: (Double(chunks.count) + 1) / Double(chunks.count + 2),
+            fractionCompleted: renderingRange.lowerBound,
             message: String(localized: "Writing the meeting minutes…")
         ))
         let rendered = try await textGenerator.generate(
@@ -187,7 +202,7 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
             progress: { value in
                 progress(.init(
                     stage: .synthesizing,
-                    fractionCompleted: min(1, max(0, (Double(chunks.count) + 1 + value) / Double(chunks.count + 2))),
+                    fractionCompleted: Self.mapProgress(value, into: renderingRange),
                     message: String(localized: "Writing the meeting minutes…")
                 ))
             },
@@ -226,6 +241,14 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
             progress: { snapshot in progress(snapshot.fractionCompleted) },
             onStreamChunk: nil
         )
+    }
+
+    private static func mapProgress(
+        _ value: Double,
+        into range: ClosedRange<Double>
+    ) -> Double {
+        let normalized = min(1, max(0, value))
+        return range.lowerBound + ((range.upperBound - range.lowerBound) * normalized)
     }
 
     private static func restrictToChunk(_ evidence: MeetingEvidence, chunk: MeetingMinutesChunk) -> MeetingEvidence {

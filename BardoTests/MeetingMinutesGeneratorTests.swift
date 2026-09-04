@@ -210,18 +210,23 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
             context: nil
         )
 
-        let snapshots = LockedBox<[MeetingMinutesStage]>([])
+        let snapshots = LockedBox<[MeetingMinutesProgressSnapshot]>([])
         _ = try await generator.generate(
             from: input,
             progress: { snapshot in
-                snapshots.append(snapshot.stage)
+                snapshots.append(snapshot)
             },
             onStreamChunk: nil
         )
 
-        let stages = snapshots.value
+        let values = snapshots.value
+        let stages = values.map(\.stage)
         XCTAssertTrue(stages.contains(.preparingModel))
         XCTAssertTrue(stages.contains(.synthesizing))
+        XCTAssertEqual(values.last?.fractionCompleted, 1)
+        XCTAssertTrue(zip(values, values.dropFirst()).allSatisfy {
+            $0.fractionCompleted <= $1.fractionCompleted
+        })
     }
 
     func testInvalidExtractionFallsBackToTranscriptSegmentsInsteadOfModelProse() async throws {
