@@ -39,8 +39,12 @@ private struct BardoWelcomeView: View {
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 26) {
-                    Text(String(localized: "Welcome to Bardo"))
-                        .font(.title2.weight(.bold))
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(String(localized: "Welcome to"))
+                            .foregroundStyle(Color.accentColor)
+                        Text("Bardo")
+                    }
+                    .font(.title2.weight(.bold))
 
                     VStack(alignment: .leading, spacing: 18) {
                         WelcomeFeatureRow(
@@ -52,7 +56,7 @@ private struct BardoWelcomeView: View {
                         WelcomeFeatureRow(
                             systemImage: "person.2.wave.2",
                             title: String(localized: "Identify participants"),
-                            detail: String(localized: "Organize conversations by speaker with SpeakerKit.")
+                            detail: String(localized: "Organize conversations by speaker so each voice has its own place.")
                         )
 
                         WelcomeFeatureRow(
