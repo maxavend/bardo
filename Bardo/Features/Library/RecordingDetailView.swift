@@ -31,29 +31,38 @@ struct RecordingDetailView: View {
     }
 
     var body: some View {
-        Group {
-            switch selectedTab {
-            case .transcript:
-                TranscriptContentView(
-                    recording: recording,
-                    model: model,
-                    playback: playback,
-                    searchText: $transcriptSearch,
-                    editor: $editor,
-                    isSpeakerNamingPresented: $isSpeakerNamingPresented,
-                    bottomContentInset: playbackContentInset,
-                    onSelectMinutes: { selectedTab = .minutes }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        VStack(spacing: 0) {
+            RecordingDocumentHeader(recording: recording)
+                .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
+                .padding(.horizontal, BardoSpacing.detailHorizontal)
+                .padding(.top, BardoSpacing.section)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity, alignment: .top)
 
-            case .minutes:
-                MeetingMinutesView(
-                    recording: recording,
-                    model: model,
-                    bottomContentInset: playbackContentInset,
-                    onSwitchToTranscript: { selectedTab = .transcript }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Group {
+                switch selectedTab {
+                case .transcript:
+                    TranscriptContentView(
+                        recording: recording,
+                        model: model,
+                        playback: playback,
+                        searchText: $transcriptSearch,
+                        editor: $editor,
+                        isSpeakerNamingPresented: $isSpeakerNamingPresented,
+                        bottomContentInset: playbackContentInset,
+                        onSelectMinutes: { selectedTab = .minutes }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                case .minutes:
+                    MeetingMinutesView(
+                        recording: recording,
+                        model: model,
+                        bottomContentInset: playbackContentInset,
+                        onSwitchToTranscript: { selectedTab = .transcript }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
             }
         }
         .searchable(
@@ -324,49 +333,93 @@ struct RecordingDocumentHeader: View {
 
 private struct DetailModeSelector: View {
     @Binding var selection: RecordingDetailView.DetailTab
-    @Namespace private var selectionIndicator
+    @Namespace private var glassNamespace
     @State private var hoveredTab: RecordingDetailView.DetailTab?
 
     var body: some View {
+        Group {
+            if #available(macOS 26.0, *) {
+                liquidGlassSelector
+            } else {
+                fallbackSelector
+            }
+        }
+    }
+
+    @available(macOS 26.0, *)
+    private var liquidGlassSelector: some View {
+        GlassEffectContainer(spacing: 6) {
+            HStack(spacing: 2) {
+                ForEach(RecordingDetailView.DetailTab.allCases) { tab in
+                    segmentButton(tab, usesLiquidGlass: true)
+                }
+            }
+            .padding(3)
+            .background(Color.primary.opacity(0.06), in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(.separator.opacity(0.28), lineWidth: 0.5)
+            }
+        }
+        .animation(.spring(response: 0.26, dampingFraction: 0.88), value: selection)
+    }
+
+    private var fallbackSelector: some View {
         HStack(spacing: 2) {
             ForEach(RecordingDetailView.DetailTab.allCases) { tab in
-                Button {
-                    guard selection != tab else { return }
-                    selection = tab
-                } label: {
-                    Text(tab.title)
-                        .font(.callout.weight(selection == tab ? .semibold : .medium))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 14)
-                        .frame(height: 28)
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .background {
-                    if selection == tab {
-                        Capsule()
-                            .fill(.primary.opacity(0.14))
-                            .matchedGeometryEffect(
-                                id: "bardo.detail.mode.selection",
-                                in: selectionIndicator
-                            )
-                    } else if hoveredTab == tab {
-                        Capsule()
-                            .fill(.primary.opacity(0.06))
-                    }
-                }
-                .onHover { isHovering in
-                    hoveredTab = isHovering ? tab : (hoveredTab == tab ? nil : hoveredTab)
-                }
-                .accessibilityAddTraits(selection == tab ? [.isSelected] : [])
+                segmentButton(tab, usesLiquidGlass: false)
             }
         }
         .padding(3)
         .background(Color.primary.opacity(0.08), in: Capsule())
-        .animation(.easeInOut(duration: 0.16), value: selection)
         .overlay {
             Capsule()
                 .stroke(.separator.opacity(0.35), lineWidth: 0.5)
         }
+        .animation(.easeInOut(duration: 0.16), value: selection)
+    }
+
+    @ViewBuilder
+    private func segmentButton(
+        _ tab: RecordingDetailView.DetailTab,
+        usesLiquidGlass: Bool
+    ) -> some View {
+        Button {
+            guard selection != tab else { return }
+            selection = tab
+        } label: {
+            Text(tab.title)
+                .font(.callout.weight(selection == tab ? .semibold : .medium))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14)
+                .frame(height: 28)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .background {
+            if selection == tab {
+                if #available(macOS 26.0, *), usesLiquidGlass {
+                    Capsule()
+                        .fill(.clear)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .glassEffectID("bardo.detail.mode.selection", in: glassNamespace)
+                        .glassEffectTransition(.matchedGeometry)
+                } else {
+                    Capsule()
+                        .fill(.primary.opacity(0.14))
+                        .matchedGeometryEffect(
+                            id: "bardo.detail.mode.selection.fallback",
+                            in: glassNamespace
+                        )
+                }
+            } else if hoveredTab == tab {
+                Capsule()
+                    .fill(.primary.opacity(0.06))
+            }
+        }
+        .onHover { isHovering in
+            hoveredTab = isHovering ? tab : (hoveredTab == tab ? nil : hoveredTab)
+        }
+        .accessibilityAddTraits(selection == tab ? [.isSelected] : [])
     }
 }
