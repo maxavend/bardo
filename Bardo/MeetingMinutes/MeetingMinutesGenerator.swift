@@ -132,7 +132,8 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
                     transcript: input.transcript,
                     title: input.title,
                     context: input.context,
-                    languageCode: input.transcript.languageCode
+                    languageCode: input.preferredLanguageCode ?? input.transcript.languageCode,
+                    generationGuidance: input.generationGuidance
                 ),
                 options: mapOptions,
                 progress: { value in
@@ -170,7 +171,8 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
                 evidenceJSON: encodedEvidence,
                 title: input.title,
                 context: input.context,
-                languageCode: input.transcript.languageCode
+                languageCode: input.preferredLanguageCode ?? input.transcript.languageCode,
+                    generationGuidance: input.generationGuidance
             ),
             options: reduceOptions,
             progress: { value in
@@ -196,7 +198,8 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
                 analysisJSON: analysisJSON,
                 title: input.title,
                 context: input.context,
-                languageCode: input.transcript.languageCode
+                languageCode: input.preferredLanguageCode ?? input.transcript.languageCode,
+                    generationGuidance: input.generationGuidance
             ),
             options: renderOptions,
             progress: { value in
