@@ -282,3 +282,11 @@
 "The interrupted capture was preserved safely." = "La captura interrumpida se conservó de forma segura.";
 "The recording metadata is safe, but its audio file is missing." = "La información de la grabación está a salvo, pero falta su archivo de audio.";
 "Bardo left this item untouched for review." = "Bardo dejó este elemento intacto para que puedas revisarlo.";
+"Welcome to" = "Bienvenido a";
+"Transcribe conversations" = "Transcribe tus conversaciones";
+"Turn recordings into readable text locally on your Mac." = "Convierte grabaciones en texto legible directamente en tu Mac.";
+"Identify participants" = "Identifica a los participantes";
+"Organize conversations by speaker so each voice has its own place." = "Organiza la conversación por hablantes para que cada voz tenga su propio espacio.";
+"Create meeting minutes" = "Crea minutas automáticamente";
+"Summarize decisions, tasks, and next steps on-device." = "Resume decisiones, tareas y próximos pasos directamente en este Mac.";
+"Bardo processes your recordings locally on this Mac. Audio, transcripts, and minutes stay on your device." = "Bardo procesa tus grabaciones localmente en este Mac. El audio, las transcripciones y las minutas permanecen en tu dispositivo.";
