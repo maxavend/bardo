@@ -254,16 +254,35 @@ final class LibraryViewModel: ObservableObject {
             playback.unload()
             return
         }
-        guard !recording.audioAssets.isEmpty else {
-            playback.setUnavailable("This recording has no managed audio file.")
-            return
-        }
 
         // Keep the current player geometry/state alive while the new managed URL
         // resolves. Unloading here made toolbar/sidebar clicks visibly disable and
         // rebuild the player before the replacement audio was ready.
         if playback.isPlaying {
             playback.pause()
+        }
+
+        _ = await preparePlayback(playback, for: recording)
+    }
+
+    @discardableResult
+    func prepareSpeakerPreviewPlayback(_ previewPlayback: AudioPlaybackController) async -> Bool {
+        guard let recording = selectedRecording else {
+            previewPlayback.setUnavailable("This recording is no longer available.")
+            return false
+        }
+
+        return await preparePlayback(previewPlayback, for: recording)
+    }
+
+    @discardableResult
+    private func preparePlayback(
+        _ controller: AudioPlaybackController,
+        for recording: Recording
+    ) async -> Bool {
+        guard !recording.audioAssets.isEmpty else {
+            controller.setUnavailable("This recording has no managed audio file.")
+            return false
         }
 
         let recordingID = recording.id
@@ -276,22 +295,24 @@ final class LibraryViewModel: ObservableObject {
                     recordingID: recordingID,
                     audioAssetID: asset.id
                 )
-                guard selection == recordingID else { return }
+                guard selection == recordingID else { return false }
+
                 let metadata = AudioPlaybackMetadata(
                     title: recording.title,
                     trackLabel: asset.originalFileName
                 )
-                if playback.load(url: url, metadata: metadata) {
-                    return
+                if controller.load(url: url, metadata: metadata) {
+                    return true
                 }
-                lastError = playback.errorMessage
+                lastError = controller.errorMessage
             } catch {
-                guard selection == recordingID else { return }
+                guard selection == recordingID else { return false }
                 lastError = error.localizedDescription
             }
         }
 
-        playback.setUnavailable(lastError ?? "This recording has no playable managed audio.")
+        controller.setUnavailable(lastError ?? "This recording has no playable managed audio.")
+        return false
     }
 
     func loadTranscriptForSelection() async {
@@ -514,6 +535,14 @@ final class LibraryViewModel: ObservableObject {
             if selection == recordingID {
                 transcript = updated
                 meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: updated) ?? false
+
+                // Speaker identification must never leave the document player unusable.
+                // If playback was unavailable before or during diarization, restore it
+                // from the authoritative managed recording before presenting naming.
+                if !playback.isLoaded {
+                    _ = await preparePlayback(playback, for: recording)
+                }
+
                 if SpeakerNamingPolicy.shouldOpenNamingFlow(after: updated) {
                     shouldPresentSpeakerNamingSheet = true
                 }
@@ -621,19 +650,6 @@ final class LibraryViewModel: ObservableObject {
     func shouldOpenNamingFlow(after transcript: Transcript? = nil) -> Bool {
         guard let transcript = transcript ?? self.transcript else { return false }
         return SpeakerNamingPolicy.shouldOpenNamingFlow(after: transcript)
-    }
-
-    @discardableResult
-    func playSpeakerPreview(_ preview: SpeakerPreview) -> Bool {
-        guard let transcript,
-              transcript.recordingID == selection,
-              transcript.speakers.contains(where: { $0.id == preview.speakerID }),
-              preview.startTime >= 0,
-              preview.endTime > preview.startTime else {
-            return false
-        }
-
-        return playback.playPreview(from: preview.startTime, to: preview.endTime)
     }
 
     var hasActiveDiarizationTask: Bool {
