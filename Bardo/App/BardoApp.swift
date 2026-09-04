@@ -16,8 +16,12 @@ struct BardoApp: App {
 
     var body: some Scene {
         Window("Bardo", id: "main-v3-native-toolbar") {
-            BardoLaunchView()
-                .frame(minWidth: 920, minHeight: 600)
+            if WhisperBenchmarkConfiguration.isRequested {
+                EmptyView()
+            } else {
+                BardoLaunchView()
+                    .frame(minWidth: 920, minHeight: 600)
+            }
         }
         .defaultSize(width: 1240, height: 800)
         .windowResizability(.contentMinSize)
