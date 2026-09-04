@@ -65,7 +65,7 @@ struct RecordingDetailView: View {
             prompt: Text(String(localized: "Search Transcript"))
         )
         .toolbar {
-            ToolbarItem(placement: .principal) {
+            ToolbarItem(id: "bardo.detail.mode", placement: .principal) {
                 Picker(String(localized: "Recording View"), selection: $selectedTab) {
                     ForEach(DetailTab.allCases) { tab in
                         Text(tab.title).tag(tab)
@@ -77,14 +77,20 @@ struct RecordingDetailView: View {
                 .frame(width: 220)
             }
 
-            ToolbarItemGroup(placement: .primaryAction) {
+            ToolbarItem(id: "bardo.detail.info", placement: .primaryAction) {
                 Button {
                     isInspectorPresented.toggle()
                 } label: {
                     Label(String(localized: "Inspector"), systemImage: "sidebar.trailing")
                 }
-                .help(String(localized: "Show Recording Inspector"))
+                .help(
+                    isInspectorPresented
+                        ? String(localized: "Hide Recording Inspector")
+                        : String(localized: "Show Recording Inspector")
+                )
+            }
 
+            ToolbarItem(id: "bardo.detail.more", placement: .primaryAction) {
                 recordingActionsMenu
             }
         }
