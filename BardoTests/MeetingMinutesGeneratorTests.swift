@@ -3,6 +3,55 @@ import XCTest
 @testable import Bardo
 
 final class MeetingMinutesGeneratorTests: XCTestCase {
+
+    func testProductionMinutesModelUsesImmutablePinnedRevision() {
+        XCTAssertEqual(
+            MeetingMinutesModel.modelRevision,
+            "125e006d991147f3b432249d1bdf0821987f12b0"
+        )
+        XCTAssertNotEqual(MeetingMinutesModel.modelRevision, "main")
+    }
+
+    func testRuntimeReadyRequiresBothSuccessfulMarkerAndCompleteSnapshot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BardoMinutesReady-\(UUID().uuidString)", isDirectory: true)
+        let suiteName = "BardoMinutesReadyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: root.appendingPathComponent("config.json"))
+        try Data("{}".utf8).write(to: root.appendingPathComponent("tokenizer.json"))
+        let weights = root.appendingPathComponent("model.safetensors")
+        try Data("weights".utf8).write(to: weights)
+
+        XCTAssertFalse(
+            MeetingMinutesRuntimeReadiness.isReady(
+                applicationSupportRoot: root,
+                defaults: defaults
+            )
+        )
+
+        MeetingMinutesRuntimeReadiness.markReady(defaults: defaults)
+        XCTAssertTrue(
+            MeetingMinutesRuntimeReadiness.isReady(
+                applicationSupportRoot: root,
+                defaults: defaults
+            )
+        )
+
+        try FileManager.default.removeItem(at: weights)
+        XCTAssertFalse(
+            MeetingMinutesRuntimeReadiness.isReady(
+                applicationSupportRoot: root,
+                defaults: defaults
+            )
+        )
+    }
+
     func testInputContainsOnlyTranscriptTitleAndContextEvenWhenRecordingHasAudioAssets() throws {
         let recordingID = UUID(uuidString: "00000000-0000-0000-0000-000000000602")!
         let recording = Recording(
