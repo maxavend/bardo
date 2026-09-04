@@ -8,6 +8,7 @@ Bardo uses the following open-source software.
 - Version used by Bardo: `3.31.3`
 - Products linked by Bardo: `MLXLLM`, `MLXLMCommon`, `MLXHuggingFace`
 - Model asset: `mlx-community/LFM2.5-1.2B-Instruct-4bit`
+- Pinned model revision: `125e006d991147f3b432249d1bdf0821987f12b0`
 - Model architecture: `lfm2`
 - Model quantization: 4-bit
 - Distribution: downloaded during first-run setup into Bardo's private Application Support directory; an offline bundled snapshot is optional.
