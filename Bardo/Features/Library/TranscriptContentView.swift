@@ -229,16 +229,6 @@ struct TranscriptContentView: View {
                     .controlSize(.small)
             }
 
-            if let live = model.liveTranscription,
-               live.recordingID == recording.id,
-               live.processedAudioTime > 0 {
-                Text(
-                    "\(LibraryFormatting.duration(live.processedAudioTime)) / \(LibraryFormatting.duration(live.audioDuration))"
-                )
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-            }
-
             Spacer(minLength: 12)
 
             Button(String(localized: "Cancel"), role: .cancel) {
