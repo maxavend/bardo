@@ -252,3 +252,7 @@
 "Minutes" = "Minuta";
 "Processing time %@" = "Tiempo procesando %@";
 "Duration %@" = "Duración %@";
+"Follow Live" = "Seguir en vivo";
+"Continuando la transcripción…" = "Continuando la transcripción…";
+"Texto provisional" = "Texto provisional";
+"La transcripción aparecerá aquí en cuanto Bardo reconozca las primeras palabras." = "La transcripción aparecerá aquí en cuanto Bardo reconozca las primeras palabras.";
