@@ -597,6 +597,215 @@ private struct TranscriptParagraphRow: View {
     }
 }
 
+
+private struct StreamingWordText: View {
+    let text: String
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var words: [StreamingWord] = []
+    @State private var revealTask: Task<Void, Never>?
+
+    var body: some View {
+        BardoWordFlowLayout(horizontalSpacing: 4, verticalSpacing: 5) {
+            ForEach(words) { word in
+                Text(word.text)
+                    .font(.body)
+                    .opacity(word.isVisible || reduceMotion ? 1 : 0)
+                    .blur(radius: word.isVisible || reduceMotion ? 0 : 1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear {
+            synchronize(with: text)
+        }
+        .onChange(of: text) { _, newValue in
+            synchronize(with: newValue)
+        }
+        .onDisappear {
+            revealTask?.cancel()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
+    }
+
+    private func synchronize(with text: String) {
+        let incoming = tokenize(text)
+        var prefixCount = 0
+        let comparableCount = min(words.count, incoming.count)
+
+        while prefixCount < comparableCount,
+              words[prefixCount].text == incoming[prefixCount] {
+            prefixCount += 1
+        }
+
+        let retained = Array(words.prefix(prefixCount))
+        let additions = incoming.dropFirst(prefixCount).map {
+            StreamingWord(text: $0, isVisible: reduceMotion)
+        }
+        words = retained + additions
+
+        revealTask?.cancel()
+        guard !reduceMotion, prefixCount < words.count else {
+            for index in words.indices {
+                words[index].isVisible = true
+            }
+            return
+        }
+
+        revealTask = Task { @MainActor in
+            for index in prefixCount..<words.count {
+                if index > prefixCount {
+                    try? await Task.sleep(for: .milliseconds(60))
+                }
+                guard !Task.isCancelled, words.indices.contains(index) else { return }
+                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.35)) {
+                    words[index].isVisible = true
+                }
+            }
+        }
+    }
+
+    private func tokenize(_ text: String) -> [String] {
+        text
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+    }
+}
+
+private struct StreamingWord: Identifiable {
+    let id = UUID()
+    let text: String
+    var isVisible: Bool
+}
+
+private struct KaraokeTranscriptText: View {
+    let words: [TranscriptWord]
+    let fallbackText: String
+    let playbackPosition: TimeInterval
+    let isPlaying: Bool
+    let paragraphStart: TimeInterval
+    let paragraphEnd: TimeInterval
+
+    var body: some View {
+        if words.isEmpty {
+            Text(fallbackText)
+                .font(.body)
+                .lineSpacing(4)
+        } else {
+            BardoWordFlowLayout(horizontalSpacing: 4, verticalSpacing: 5) {
+                ForEach(words) { word in
+                    Text(word.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                        .font(.body.weight(isCurrent(word) ? .medium : .regular))
+                        .foregroundStyle(color(for: word))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.linear(duration: 0.08), value: playbackPosition)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(fallbackText)
+        }
+    }
+
+    private var isActiveParagraph: Bool {
+        let hasEnteredParagraph = playbackPosition > paragraphStart + 0.02
+        return playbackPosition >= paragraphStart
+            && playbackPosition <= paragraphEnd
+            && (isPlaying || hasEnteredParagraph)
+    }
+
+    private func isCurrent(_ word: TranscriptWord) -> Bool {
+        isActiveParagraph
+            && playbackPosition >= word.startTime
+            && playbackPosition < max(word.endTime, word.startTime + 0.08)
+    }
+
+    private func color(for word: TranscriptWord) -> Color {
+        guard isActiveParagraph else { return .primary }
+        if isCurrent(word) {
+            return .accentColor
+        }
+        if playbackPosition >= word.endTime {
+            return .primary
+        }
+        return .secondary.opacity(0.48)
+    }
+}
+
+private struct BardoWordFlowLayout: Layout {
+    var horizontalSpacing: CGFloat = 4
+    var verticalSpacing: CGFloat = 5
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var widestLine: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let requiredWidth = currentX == 0 ? size.width : currentX + horizontalSpacing + size.width
+
+            if requiredWidth > maxWidth, currentX > 0 {
+                widestLine = max(widestLine, currentX)
+                currentY += lineHeight + verticalSpacing
+                currentX = size.width
+                lineHeight = size.height
+            } else {
+                if currentX > 0 {
+                    currentX += horizontalSpacing
+                }
+                currentX += size.width
+                lineHeight = max(lineHeight, size.height)
+            }
+        }
+
+        widestLine = max(widestLine, currentX)
+        return CGSize(
+            width: proposal.width ?? widestLine,
+            height: currentY + lineHeight
+        )
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        var currentX = bounds.minX
+        var currentY = bounds.minY
+        var lineHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let nextX = currentX == bounds.minX
+                ? currentX + size.width
+                : currentX + horizontalSpacing + size.width
+
+            if nextX > bounds.maxX, currentX > bounds.minX {
+                currentX = bounds.minX
+                currentY += lineHeight + verticalSpacing
+                lineHeight = 0
+            } else if currentX > bounds.minX {
+                currentX += horizontalSpacing
+            }
+
+            subview.place(
+                at: CGPoint(x: currentX, y: currentY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(size)
+            )
+            currentX += size.width
+            lineHeight = max(lineHeight, size.height)
+        }
+    }
+}
+
 private struct ProcessingView: View {
     let title: String
     let detail: String
