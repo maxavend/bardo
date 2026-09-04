@@ -33,18 +33,8 @@ struct RecordingDetailView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            detailCustomHeader
-                .padding(.horizontal, BardoSpacing.detailHorizontal)
-                .padding(.top, 12)
-                .padding(.bottom, 12)
-
-            subHeader
-                .padding(.horizontal, BardoSpacing.detailHorizontal)
-                .padding(.bottom, 12)
-
-            Divider()
-                .opacity(0.2)
+        VStack(spacing: 0) {
+            contextBar
 
             switch selectedTab {
             case .transcript:
@@ -67,7 +57,37 @@ struct RecordingDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .navigationTitle("")
+        .navigationTitle(recordingDisplayTitle)
+        .navigationSubtitle(toolbarSubtitle)
+        .searchable(
+            text: $transcriptSearch,
+            placement: .toolbar,
+            prompt: Text(String(localized: "Search Transcript"))
+        )
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker(String(localized: "Recording View"), selection: $selectedTab) {
+                    ForEach(DetailTab.allCases) { tab in
+                        Text(tab.title).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.regular)
+                .frame(width: 220)
+            }
+
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    isInspectorPresented.toggle()
+                } label: {
+                    Label(String(localized: "Inspector"), systemImage: "sidebar.trailing")
+                }
+                .help(String(localized: "Show Recording Inspector"))
+
+                recordingActionsMenu
+            }
+        }
         .inspector(isPresented: $isInspectorPresented) {
             RecordingInspector(
                 recording: recording,
@@ -174,45 +194,47 @@ struct RecordingDetailView: View {
         .enableInjection()
     }
 
-    private var detailCustomHeader: some View {
-        HStack(alignment: .center, spacing: 16) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "waveform")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .padding(.top, 2)
+    private var contextBar: some View {
+        HStack(spacing: 10) {
+            Label(LibraryFormatting.source(recording.sources), systemImage: "waveform")
+                .help(toolbarSubtitle)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(recordingDisplayTitle)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
+            if let transcript = model.transcript, transcript.recordingID == recording.id {
+                Divider()
+                    .frame(height: 14)
 
-                    HStack(spacing: 5) {
-                        Image(systemName: "calendar")
-                            .imageScale(.small)
-                            .accessibilityHidden(true)
+                Label(LibraryFormatting.language(transcript.languageCode), systemImage: "globe")
 
-                        Text(toolbarSubtitle)
-                            .lineLimit(1)
-                    }
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.secondary)
+                if !transcript.speakers.isEmpty {
+                    Divider()
+                        .frame(height: 14)
+
+                    Label(
+                        String.localizedStringWithFormat(String(localized: "%lld participantes"), transcript.speakers.count),
+                        systemImage: "person.2"
+                    )
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 8) {
-                if let captureMenu {
-                    captureMenu
-                }
-
-                recordingHeaderActions
+            if isDetailProcessing || recording.processingState == .failed {
+                Divider()
+                    .frame(height: 14)
+                processingMetadata
             }
+
+            Spacer(minLength: 0)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .padding(.horizontal, BardoSpacing.detailHorizontal)
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) {
+            Divider()
         }
     }
 
-    private var recordingHeaderActions: some View {
+    private var recordingActionsMenu: some View {
         Menu {
             Button {
                 isRenamePresented = true
@@ -253,7 +275,9 @@ struct RecordingDetailView: View {
                     }
                 } label: {
                     Label(
-                        transcript.diarizationMetadata == nil ? String(localized: "Identify Speakers") : String(localized: "Identify Speakers Again"),
+                        transcript.diarizationMetadata == nil
+                            ? String(localized: "Identify Speakers")
+                            : String(localized: "Identify Speakers Again"),
                         systemImage: "person.2.wave.2"
                     )
                 }
@@ -281,61 +305,19 @@ struct RecordingDetailView: View {
             .disabled(model.isTranscribing || model.isDiarizing || model.isGeneratingMeetingMinutes)
             .keyboardShortcut(.delete, modifiers: [.command])
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 34, height: 34)
-                .bardoGlassCircle(interactive: true)
-                .contentShape(Circle())
+            Label(String(localized: "More"), systemImage: "ellipsis.circle")
+                .labelStyle(.iconOnly)
         }
-        .menuIndicator(.hidden)
-        .buttonStyle(.plain)
         .help(String(localized: "More recording and transcript actions"))
         .accessibilityLabel(String(localized: "More recording and transcript actions"))
     }
 
-    private var toolbarSubtitle: String {
-        "\(recording.createdAt.formatted(.dateTime.day().month(.wide).year())) — \(LibraryFormatting.duration(recording.duration))"
-    }
-
-    private var subHeader: some View {
-        HStack(alignment: .center, spacing: 14) {
-            tabSwitcher
-
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-
-                TextField(String(localized: "Buscar en transcripción…"), text: $transcriptSearch)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12, weight: .medium))
-
-                if !transcriptSearch.isEmpty {
-                    Button {
-                        transcriptSearch = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 10)
-            .frame(width: 210, height: 28)
-            .bardoGlassCapsule(interactive: true)
-
-            Spacer(minLength: 12)
-
-            detailContextMetadata
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     private var recordingDisplayTitle: String {
         LibraryFormatting.recordingTitle(recording)
+    }
+
+    private var toolbarSubtitle: String {
+        "\(recording.createdAt.formatted(.dateTime.day().month(.wide).year())) · \(LibraryFormatting.duration(recording.duration))"
     }
 
     private var isDetailProcessing: Bool {
@@ -345,91 +327,22 @@ struct RecordingDetailView: View {
             || recording.processingState == .processing
     }
 
-    private func metadataLabel(_ text: String, systemImage: String) -> some View {
-        Label(text, systemImage: systemImage)
-            .labelStyle(.titleAndIcon)
-            .imageScale(.small)
-    }
-
-    private var tabSwitcher: some View {
-        HStack(spacing: 0) {
-            ForEach(DetailTab.allCases) { tab in
-                let isSelected = selectedTab == tab
-                Button {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                        selectedTab = tab
-                    }
-                } label: {
-                    Text(tab.title)
-                        .font(.subheadline.weight(isSelected ? .semibold : .medium))
-                        .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 5)
-                        .background {
-                            if isSelected {
-                                Capsule()
-                                    .fill(.fill.quaternary)
-                                    .overlay {
-                                        Capsule()
-                                            .stroke(.separator.opacity(0.35), lineWidth: 0.5)
-                                    }
-                            }
-                        }
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(3)
-        .bardoGlassCapsule(interactive: true)
-        .accessibilityLabel(String(localized: "Recording View"))
-    }
-
-    private var detailContextMetadata: some View {
-        HStack(spacing: 8) {
-            if let transcript = model.transcript, transcript.recordingID == recording.id {
-                metadataLabel(LibraryFormatting.language(transcript.languageCode), systemImage: "globe")
-
-                Text("—")
-                    .foregroundStyle(.tertiary)
-
-                if !transcript.speakers.isEmpty {
-                    metadataLabel(
-                        String.localizedStringWithFormat(String(localized: "%lld participantes"), transcript.speakers.count),
-                        systemImage: "person.2"
-                    )
-
-                    Text("—")
-                        .foregroundStyle(.tertiary)
-                }
-            }
-
-            processingMetadata
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .help(toolbarSubtitle)
-    }
-
     @ViewBuilder
     private var processingMetadata: some View {
         if isDetailProcessing {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let elapsed = context.date.timeIntervalSince(processingBeganAt ?? context.date)
-                metadataLabel(
-                    String.localizedStringWithFormat(String(localized: "Tiempo procesando %@"), LibraryFormatting.duration(elapsed)),
+                Label(
+                    String.localizedStringWithFormat(
+                        String(localized: "Tiempo procesando %@"),
+                        LibraryFormatting.duration(elapsed)
+                    ),
                     systemImage: "hourglass"
                 )
             }
         } else if recording.processingState == .failed {
             Label(String(localized: "Needs attention"), systemImage: "exclamationmark.circle.fill")
                 .foregroundStyle(.orange)
-        } else {
-            metadataLabel(
-                String.localizedStringWithFormat(String(localized: "Tiempo procesando %@"), LibraryFormatting.duration(recording.duration)),
-                systemImage: "hourglass"
-            )
         }
     }
 
