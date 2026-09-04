@@ -14,6 +14,7 @@ struct TranscriptContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var followsLiveTranscription = true
 
+    var bottomContentInset: CGFloat = 0
     var onSelectMinutes: (() -> Void)? = nil
 
     var body: some View {
@@ -49,7 +50,7 @@ struct TranscriptContentView: View {
                     }
 
                     Color.clear
-                        .frame(height: 1)
+                        .frame(height: max(1, bottomContentInset))
                         .id(LiveTranscriptAnchor.tail)
                 }
                 .frame(maxWidth: 780, alignment: .leading)
@@ -87,7 +88,8 @@ struct TranscriptContentView: View {
                         Label(String(localized: "Follow Live"), systemImage: "arrow.down")
                     }
                     .controlSize(.small)
-                    .padding(12)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, bottomContentInset + 12)
                 }
             }
         }
@@ -273,11 +275,24 @@ struct TranscriptContentView: View {
     }
 
     private var emptyTranscriptView: some View {
-        ContentUnavailableView {
-            Label(String(localized: "No Transcript Yet"), systemImage: "waveform.and.mic")
-        } description: {
-            Text(String(localized: "Transcribe this recording on this Mac."))
-        } actions: {
+        VStack(spacing: 14) {
+            Image(systemName: "waveform.and.mic")
+                .font(.system(size: 32, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            VStack(spacing: 6) {
+                Text(String(localized: "No Transcript Yet"))
+                    .font(.title3.weight(.semibold))
+
+                Text(String(localized: "Transcribe this recording to search the conversation, identify participants, and create meeting minutes."))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 380)
+            }
+
             Button {
                 model.beginTranscription()
             } label: {
@@ -285,13 +300,22 @@ struct TranscriptContentView: View {
                     recording.processingState == .failed
                         ? String(localized: "Retry Transcription")
                         : String(localized: "Transcribe"),
-                    systemImage: "waveform.badge.magnifyingglass"
+                    systemImage: "waveform"
                 )
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
             .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
+
+            Label(
+                String(localized: "Processed locally on this Mac"),
+                systemImage: "lock.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.tertiary)
         }
-        .frame(maxWidth: .infinity, minHeight: 280)
+        .frame(maxWidth: .infinity, minHeight: 320)
+        .padding(.vertical, 24)
     }
 
     private func buildParagraphs(from segments: [TranscriptSegment]) -> [TranscriptParagraph] {
