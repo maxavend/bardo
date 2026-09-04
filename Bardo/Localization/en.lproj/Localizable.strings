@@ -291,3 +291,5 @@
 "Summarize decisions, tasks, and next steps on-device." = "Summarize decisions, tasks, and next steps on-device.";
 "Bardo processes your recordings locally on this Mac. Audio, transcripts, and minutes stay on your device." = "Bardo processes your recordings locally on this Mac. Audio, transcripts, and minutes stay on your device.";
 "Continue" = "Continue";
+"Transcribe this recording to search the conversation, identify participants, and create meeting minutes." = "Transcribe this recording to search the conversation, identify participants, and create meeting minutes.";
+"Processed locally on this Mac" = "Processed locally on this Mac";
