@@ -268,3 +268,5 @@
 "Preparing meeting-minutes files…" = "Preparando los archivos de minutas…";
 "Loading meeting-minutes model in local memory…" = "Cargando el modelo de minutas en la memoria local…";
 "Checking local generation…" = "Comprobando la generación local…";
+"Downloading…" = "Descargando…";
+"Checking…" = "Comprobando…";
