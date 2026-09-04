@@ -798,7 +798,7 @@ private struct BardoWordFlowLayout: Layout {
             subview.place(
                 at: CGPoint(x: currentX, y: currentY),
                 anchor: .topLeading,
-                proposal: ProposedViewSize(size)
+                proposal: ProposedViewSize(width: size.width, height: size.height)
             )
             currentX += size.width
             lineHeight = max(lineHeight, size.height)
