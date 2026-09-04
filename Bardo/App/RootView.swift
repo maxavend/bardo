@@ -9,6 +9,8 @@ struct RootView: View {
     @StateObject private var microphone = MicrophoneRecordingController()
     @StateObject private var systemAudio = SystemAudioRecordingController()
     @State private var isRecoveryPresented = false
+    @State private var isRecordingSetupPresented = false
+    @State private var pendingRecordingTitle: String?
 
     init(warmTranscriptionForRecording: @escaping @MainActor () -> Void = {}) {
         self.warmTranscriptionForRecording = warmTranscriptionForRecording
@@ -18,7 +20,8 @@ struct RootView: View {
         LibraryView(
             model: library,
             captureMenu: AnyView(captureMenuButton),
-            activeCaptureBanner: activeCaptureBanner
+            activeCaptureBanner: activeCaptureBanner,
+            onNewRecording: presentRecordingSetup
         )
             .task {
                 microphone.refreshPermissionState()
@@ -72,6 +75,33 @@ struct RootView: View {
                     }
                 )
             }
+            .sheet(isPresented: $isRecordingSetupPresented) {
+                RecordingSetupSheet(microphone: microphone) { mode, title in
+                    beginRecording(mode: mode, title: title)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.newRecording)) { _ in
+                presentRecordingSetup()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.pauseRecording)) { _ in
+                if microphone.phase == .recording {
+                    microphone.pause()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.resumeRecording)) { _ in
+                if microphone.phase == .paused {
+                    microphone.resume()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.stopRecording)) { _ in
+                Task {
+                    if microphone.phase == .recording || microphone.phase == .paused {
+                        await stopMicrophoneRecording()
+                    } else if systemAudio.isRecording {
+                        await stopSystemRecording()
+                    }
+                }
+            }
             .onDisappear {
                 Task {
                     if microphone.requiresTerminationFinalization {
@@ -99,31 +129,10 @@ struct RootView: View {
     }
 
     private var captureMenuButton: some View {
-        Menu {
-            Button {
-                Task { await startMicrophoneRecording() }
-            } label: {
-                Label(String(localized: "Microphone Only"), systemImage: "mic.fill")
-            }
-
-            Button {
-                Task { await startSystemRecording(includeMicrophone: true) }
-            } label: {
-                Label(String(localized: "Microphone + Internal Audio"), systemImage: "person.wave.2.fill")
-            }
-
-            Divider()
-
-            Button {
-                Task { await startSystemRecording(includeMicrophone: false) }
-            } label: {
-                Label(String(localized: "Internal Audio Only"), systemImage: "macbook.and.iphone")
-            }
-        } label: {
-            Label(String(localized: "Grabar"), systemImage: "record.circle")
+        Button(action: presentRecordingSetup) {
+            Label("Nueva grabación", systemImage: "record.circle")
         }
-        .help(String(localized: "Record: Microphone or Microphone + Internal Audio (⌘R)"))
-        .keyboardShortcut("r", modifiers: [.command])
+        .help("Nueva grabación (⌘N)")
         .disabled(microphone.isBusy || systemAudio.isBusy)
     }
 
@@ -132,19 +141,20 @@ struct RootView: View {
         switch microphone.phase {
         case .requestingPermission:
             transitionPill(
-                title: String(localized: "Waiting for Microphone Permission"),
-                detail: String(localized: "Respond to the macOS permission prompt.")
+                title: "Esperando permiso para usar el micrófono",
+                detail: "Responde al aviso de macOS para continuar."
             )
         case .preparing:
             transitionPill(
-                title: String(localized: "Preparing Recording"),
-                detail: String(localized: "Preparing the microphone and managed capture file.")
+                title: "Preparando la grabación",
+                detail: "Comprobando el micrófono y dejando listo el audio."
             )
         case .recording:
             activeRecordingPill(
-                title: String(localized: "Recording"),
-                detail: microphone.inputDisplayName ?? String(localized: "System microphone"),
+                title: "Grabando",
+                detail: microphone.inputDisplayName ?? "Micrófono del sistema",
                 duration: microphone.elapsedTime,
+                inputLevel: microphone.inputLevel,
                 pauseAction: { microphone.pause() },
                 stopAction: {
                     Task { await stopMicrophoneRecording() }
@@ -152,9 +162,10 @@ struct RootView: View {
             )
         case .paused:
             activeRecordingPill(
-                title: String(localized: "Recording Paused"),
-                detail: String(localized: "Resume when you're ready to continue."),
+                title: "Grabación en pausa",
+                detail: "Reanuda cuando quieras continuar.",
                 duration: microphone.elapsedTime,
+                inputLevel: 0,
                 resumeAction: { microphone.resume() },
                 stopAction: {
                     Task { await stopMicrophoneRecording() }
@@ -162,8 +173,8 @@ struct RootView: View {
             )
         case .finalizing:
             transitionPill(
-                title: String(localized: "Finishing Recording"),
-                detail: String(localized: "Closing, validating, and adding the audio to Library.")
+                title: "Guardando la grabación",
+                detail: "Terminando de guardar el audio en tu biblioteca."
             )
         case .idle, .failed:
             EmptyView()
@@ -175,27 +186,27 @@ struct RootView: View {
         switch systemAudio.phase {
         case .requestingMicrophonePermission:
             transitionPill(
-                title: String(localized: "Waiting for Microphone Permission"),
-                detail: String(localized: "Microphone access is required only for the combined recording mode.")
+                title: "Esperando permiso para usar el micrófono",
+                detail: "Lo necesitamos para incluir tu voz junto al audio del Mac."
             )
         case .selectingContent:
             transitionPill(
-                title: String(localized: "Choose Audio to Capture"),
-                detail: String(localized: "Use the macOS sharing picker to choose a display, app, or window.")
+                title: "Elige qué quieres grabar",
+                detail: "Selecciona una app, ventana o pantalla en el selector de macOS."
             )
         case .preparing:
             transitionPill(
-                title: String(localized: "Preparing System Audio"),
+                title: "Preparando la grabación",
                 detail: systemAudio.includesMicrophone
-                    ? String(localized: "Preparing independent system and microphone tracks.")
-                    : String(localized: "Preparing the system-audio capture file.")
+                    ? "Dejando listas tu voz y el audio del Mac."
+                    : "Dejando listo el audio del Mac."
             )
         case .recording:
             activeRecordingPill(
-                title: systemAudio.includesMicrophone ? String(localized: "Recording System + Microphone") : String(localized: "Recording System Audio"),
+                title: "Grabando",
                 detail: systemAudio.includesMicrophone
-                    ? String(localized: "Both original sources are being preserved separately.")
-                    : String(localized: "Audio from the selected macOS content is being captured."),
+                    ? "Tu voz y el audio del Mac se están guardando por separado."
+                    : "Grabando el audio del contenido que elegiste.",
                 duration: systemAudio.elapsedTime,
                 changeSourceAction: {
                     systemAudio.changeSelection()
@@ -206,8 +217,8 @@ struct RootView: View {
             )
         case .changingSelection:
             activeRecordingPill(
-                title: String(localized: "Recording — Choose New Source"),
-                detail: String(localized: "Capture continues while the macOS sharing picker is open."),
+                title: "Grabando · elige otra fuente",
+                detail: "La grabación continúa mientras eliges otro contenido.",
                 duration: systemAudio.elapsedTime,
                 stopAction: {
                     Task { await stopSystemRecording() }
@@ -215,10 +226,10 @@ struct RootView: View {
             )
         case .finalizing:
             transitionPill(
-                title: String(localized: "Finishing System Audio"),
+                title: "Guardando la grabación",
                 detail: systemAudio.includesMicrophone
-                    ? String(localized: "Closing originals, aligning sources, and preparing playback.")
-                    : String(localized: "Closing, validating, and adding system audio to Library.")
+                    ? "Organizando las pistas y preparando el audio."
+                    : "Terminando de guardar el audio en tu biblioteca."
             )
         case .idle, .failed:
             EmptyView()
@@ -263,13 +274,13 @@ struct RootView: View {
         title: String,
         detail: String,
         duration: TimeInterval,
+        inputLevel: Double? = nil,
         pauseAction: (() -> Void)? = nil,
         resumeAction: (() -> Void)? = nil,
         changeSourceAction: (() -> Void)? = nil,
         stopAction: @escaping () -> Void
     ) -> some View {
-        GroupBox {
-            HStack(spacing: 12) {
+        HStack(spacing: 12) {
                 Image(systemName: "record.circle.fill")
                     .foregroundStyle(.red)
                     .symbolEffect(.pulse)
@@ -281,6 +292,10 @@ struct RootView: View {
                             .font(.callout.weight(.semibold))
                         Text(LibraryFormatting.duration(duration))
                             .font(.callout.monospacedDigit())
+
+                        if let inputLevel {
+                            BardoInputLevelView(level: inputLevel)
+                        }
                     }
 
                     Text(detail)
@@ -314,16 +329,18 @@ struct RootView: View {
                 }
 
                 Button(action: stopAction) {
-                    Label(String(localized: "Stop"), systemImage: "stop.fill")
+                    Label("Finalizar", systemImage: "stop.fill")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
                 .controlSize(.small)
                 .keyboardShortcut(.escape, modifiers: [])
                 .help(String(localized: "Stop recording (⎋)"))
-            }
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .frame(maxWidth: 720)
+        .bardoGlassSurface(cornerRadius: 14)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(LibraryFormatting.duration(duration)). \(detail)")
     }
@@ -347,6 +364,23 @@ struct RootView: View {
             }
         }
         .frame(maxWidth: 720)
+    }
+
+    private func presentRecordingSetup() {
+        guard !microphone.isBusy, !systemAudio.isBusy else { return }
+        isRecordingSetupPresented = true
+    }
+
+    private func beginRecording(mode: BardoRecordingMode, title: String?) {
+        pendingRecordingTitle = title
+        switch mode {
+        case .microphone:
+            Task { await startMicrophoneRecording() }
+        case .conversation:
+            Task { await startSystemRecording(includeMicrophone: true) }
+        case .systemAudio:
+            Task { await startSystemRecording(includeMicrophone: false) }
+        }
     }
 
     @MainActor
@@ -381,6 +415,10 @@ struct RootView: View {
     private func publishToLibrary(_ recording: Recording?) async {
         await library.reload()
         if let recording {
+            if let pendingRecordingTitle {
+                await library.renameRecording(recording.id, to: pendingRecordingTitle)
+            }
+            self.pendingRecordingTitle = nil
             library.selection = recording.id
             await library.preparePlaybackForSelection()
         }
@@ -389,11 +427,11 @@ struct RootView: View {
     private var microphoneAlertTitle: String {
         switch microphone.permissionState {
         case .denied:
-            return "Microphone Access Denied"
+            return "Bardo no tiene acceso al micrófono"
         case .restricted:
-            return "Microphone Access Restricted"
+            return "El micrófono no está disponible"
         default:
-            return "Microphone Recording Failed"
+            return "No pudimos iniciar la grabación"
         }
     }
 }
