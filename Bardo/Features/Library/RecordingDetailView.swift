@@ -186,12 +186,9 @@ struct RecordingDetailView: View {
     }
 
     private var detailModePicker: some View {
-        DetailModeSegmentedControl(
-            selection: $selectedTab,
-            titles: DetailTab.allCases.map(\.title)
-        )
-        .fixedSize()
-        .accessibilityLabel(String(localized: "Recording View"))
+        DetailModeSelector(selection: $selectedTab)
+            .fixedSize()
+            .accessibilityLabel(String(localized: "Recording View"))
     }
 
     private var recordingActionsMenu: some View {
@@ -330,58 +327,52 @@ struct RecordingDocumentHeader: View {
     }
 }
 
-private struct DetailModeSegmentedControl: NSViewRepresentable {
+private struct DetailModeSelector: View {
     @Binding var selection: RecordingDetailView.DetailTab
-    let titles: [String]
+    @Namespace private var selectionIndicator
+    @State private var hoveredTab: RecordingDetailView.DetailTab?
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(selection: $selection)
-    }
-
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl(
-            labels: titles,
-            trackingMode: .selectOne,
-            target: context.coordinator,
-            action: #selector(Coordinator.selectionChanged(_:))
-        )
-        control.segmentStyle = .automatic
-        control.controlSize = .regular
-        control.selectedSegment = index(for: selection)
-        control.setContentHuggingPriority(.required, for: .horizontal)
-        control.setContentCompressionResistancePriority(.required, for: .horizontal)
-        return control
-    }
-
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        context.coordinator.selection = $selection
-        let expectedIndex = index(for: selection)
-        if control.selectedSegment != expectedIndex {
-            control.selectedSegment = expectedIndex
-        }
-    }
-
-    private func index(for selection: RecordingDetailView.DetailTab) -> Int {
-        switch selection {
-        case .transcript: 0
-        case .minutes: 1
-        }
-    }
-
-    final class Coordinator: NSObject {
-        var selection: Binding<RecordingDetailView.DetailTab>
-
-        init(selection: Binding<RecordingDetailView.DetailTab>) {
-            self.selection = selection
-        }
-
-        @objc func selectionChanged(_ sender: NSSegmentedControl) {
-            switch sender.selectedSegment {
-            case 1:
-                selection.wrappedValue = .minutes
-            default:
-                selection.wrappedValue = .transcript
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(RecordingDetailView.DetailTab.allCases) { tab in
+                Button {
+                    guard selection != tab else { return }
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        selection = tab
+                    }
+                } label: {
+                    Text(tab.title)
+                        .font(.callout.weight(selection == tab ? .semibold : .medium))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 14)
+                        .frame(height: 28)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .background {
+                    if selection == tab {
+                        Capsule()
+                            .fill(.primary.opacity(0.14))
+                            .matchedGeometryEffect(
+                                id: "bardo.detail.mode.selection",
+                                in: selectionIndicator
+                            )
+                    } else if hoveredTab == tab {
+                        Capsule()
+                            .fill(.primary.opacity(0.06))
+                    }
+                }
+                .onHover { isHovering in
+                    hoveredTab = isHovering ? tab : (hoveredTab == tab ? nil : hoveredTab)
+                }
+                .accessibilityAddTraits(selection == tab ? [.isSelected] : [])
             }
+        }
+        .padding(3)
+        .background(.quaternary.opacity(0.55), in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(.separator.opacity(0.35), lineWidth: 0.5)
         }
     }
 }
