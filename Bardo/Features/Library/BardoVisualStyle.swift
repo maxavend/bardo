@@ -10,6 +10,7 @@ enum BardoLayout {
     static let librarySidebarMaxWidth: CGFloat = 300
     static let libraryToolbarHeight: CGFloat = 52
     static let libraryDetailPadding: CGFloat = 20
+    static let playbackContentClearance: CGFloat = 96
 }
 
 enum BardoSpacing {
