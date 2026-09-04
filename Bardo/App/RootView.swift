@@ -611,7 +611,7 @@ private struct RecoveryReviewView: View {
                         }
                     }
                 }
-                .background(.fill.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
             }
         }
     }
