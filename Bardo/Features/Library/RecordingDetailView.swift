@@ -66,7 +66,6 @@ struct RecordingDetailView: View {
             placement: .toolbar,
             prompt: Text(String(localized: "Search Transcript"))
         )
-        .bardoMinimizedSearchToolbar()
         .toolbar {
             ToolbarItem(id: "bardo.detail.mode", placement: .principal) {
                 detailModePicker
