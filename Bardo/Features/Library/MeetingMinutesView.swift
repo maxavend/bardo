@@ -5,6 +5,7 @@ struct MeetingMinutesView: View {
     @ObserveInjection var redraw
     let recording: Recording
     @ObservedObject var model: LibraryViewModel
+    var bottomContentInset: CGFloat = 0
     var onSwitchToTranscript: (() -> Void)? = nil
 
     @State private var isRegenerateConfirmationPresented = false
@@ -41,6 +42,7 @@ struct MeetingMinutesView: View {
             .frame(maxWidth: 800, alignment: .leading)
             .padding(.horizontal, BardoSpacing.detailHorizontal)
             .padding(.vertical, BardoSpacing.section)
+            .padding(.bottom, bottomContentInset)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
