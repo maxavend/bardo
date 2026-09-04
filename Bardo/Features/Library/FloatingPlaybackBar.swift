@@ -13,27 +13,78 @@ struct FloatingPlaybackBar: View {
 
             playerContent
                 .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.vertical, 9)
                 .bardoGlassSurface(cornerRadius: BardoCornerRadius.floating, interactive: true)
-                .frame(maxWidth: 760)
+                .frame(maxWidth: 820)
         }
         .padding(.horizontal, 20)
-        .padding(.bottom, 12)
+        .padding(.bottom, 16)
         .frame(maxWidth: .infinity)
         .enableInjection()
     }
 
     private var playerContent: some View {
         HStack(spacing: 12) {
-            Text(LibraryFormatting.recordingTitle(recording))
-                .font(.caption)
-                .lineLimit(1)
-                .frame(maxWidth: 150, alignment: .leading)
-                .help(LibraryFormatting.recordingTitle(recording))
+            transportControls
 
             Divider()
-                .frame(height: 20)
+                .frame(height: 34)
 
+            Image(systemName: LibraryFormatting.sourceSymbol(recording.sources))
+                .font(.title3)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 30, height: 30)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(LibraryFormatting.recordingTitle(recording))
+                            .font(.caption.weight(.medium))
+                            .lineLimit(1)
+                            .help(LibraryFormatting.recordingTitle(recording))
+
+                        Text(LibraryFormatting.source(recording.sources))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 8)
+                }
+
+                HStack(spacing: 8) {
+                    Text(LibraryFormatting.duration(playback.position))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40, alignment: .trailing)
+
+                    Slider(
+                        value: Binding(
+                            get: { playback.position },
+                            set: { playback.seek(to: $0) }
+                        ),
+                        in: 0...max(playback.duration, 0.01)
+                    )
+                    .disabled(!playback.isLoaded)
+                    .accessibilityLabel(String(localized: "Playback position"))
+                    .accessibilityValue(LibraryFormatting.duration(playback.position))
+                    .layoutPriority(1)
+
+                    Text(LibraryFormatting.duration(playback.duration))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40, alignment: .leading)
+                }
+            }
+            .layoutPriority(1)
+        }
+        .controlSize(.regular)
+    }
+
+    private var transportControls: some View {
+        HStack(spacing: 8) {
             transportButton(
                 systemImage: "gobackward.15",
                 accessibilityLabel: String(localized: "Back 15 seconds"),
@@ -47,29 +98,7 @@ struct FloatingPlaybackBar: View {
                 accessibilityLabel: String(localized: "Forward 15 seconds"),
                 action: { playback.seek(to: playback.position + 15) }
             )
-
-            Text(LibraryFormatting.duration(playback.position))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 44, alignment: .trailing)
-
-            Slider(
-                value: Binding(
-                    get: { playback.position },
-                    set: { playback.seek(to: $0) }
-                ),
-                in: 0...max(playback.duration, 0.01)
-            )
-            .disabled(!playback.isLoaded)
-            .accessibilityLabel(String(localized: "Playback position"))
-            .accessibilityValue(LibraryFormatting.duration(playback.position))
-
-            Text(LibraryFormatting.duration(playback.duration))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 44, alignment: .leading)
         }
-        .controlSize(.regular)
     }
 
     private var playPauseButton: some View {
@@ -81,6 +110,7 @@ struct FloatingPlaybackBar: View {
                 systemImage: playback.isPlaying ? "pause.fill" : "play.fill"
             )
             .labelStyle(.iconOnly)
+            .frame(minWidth: 18)
         }
         .buttonStyle(.borderless)
         .disabled(!playback.isLoaded)
@@ -97,7 +127,7 @@ struct FloatingPlaybackBar: View {
         } label: {
             Label(String(localized: "Playback unavailable"), systemImage: "exclamationmark.triangle")
         }
-        .frame(maxWidth: 760)
+        .frame(maxWidth: 820)
     }
 
     private func transportButton(
@@ -108,6 +138,7 @@ struct FloatingPlaybackBar: View {
         Button(action: action) {
             Label(accessibilityLabel, systemImage: systemImage)
                 .labelStyle(.iconOnly)
+                .frame(minWidth: 18)
         }
         .buttonStyle(.borderless)
         .disabled(!playback.isLoaded)
