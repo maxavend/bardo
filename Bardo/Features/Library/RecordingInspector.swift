@@ -57,7 +57,6 @@ struct RecordingInspector: View {
             }
         }
         .formStyle(.grouped)
-        .inspectorColumnWidth(min: 300, ideal: 340, max: 440)
     }
 
     private func roleText(_ role: AudioAssetRole) -> String {
@@ -67,5 +66,41 @@ struct RecordingInspector: View {
         case .systemOriginal: "System Original"
         case .conversationMix: "Conversation Mix"
         }
+    }
+}
+
+struct RecordingInformationSheet: View {
+    let recording: Recording
+    let transcript: Transcript?
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "Recording Information"))
+                        .font(.headline)
+
+                    Text(LibraryFormatting.recordingTitle(recording))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Button(String(localized: "Done")) {
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(20)
+
+            Divider()
+
+            RecordingInspector(recording: recording, transcript: transcript)
+        }
+        .frame(width: 460, height: 560)
     }
 }
