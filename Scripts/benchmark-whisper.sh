@@ -113,6 +113,7 @@ if [[ "$SKIP_BUILD" != "1" || ! -x "$BINARY" ]]; then
     -scheme Bardo \
     -configuration Release \
     -derivedDataPath "$DERIVED_DATA" \
+    -skipPackagePluginValidation \
     CODE_SIGNING_ALLOWED=NO \
     build | tee "$OUTPUT/build.log"
 fi
