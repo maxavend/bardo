@@ -28,6 +28,14 @@ final class AVAudioRecorderCaptureBackend: NSObject, AudioCapturing {
         activeInputDisplayName ?? AVCaptureDevice.default(for: .audio)?.localizedName
     }
 
+    var inputLevel: Double {
+        guard let recorder, recorder.isRecording else { return 0 }
+        recorder.updateMeters()
+        let decibels = Double(recorder.averagePower(forChannel: 0))
+        guard decibels.isFinite else { return 0 }
+        return min(1, max(0, (decibels + 60) / 60))
+    }
+
     var isRecording: Bool {
         recorder?.isRecording == true
     }
@@ -53,7 +61,7 @@ final class AVAudioRecorderCaptureBackend: NSObject, AudioCapturing {
         }
 
         candidate.delegate = self
-        candidate.isMeteringEnabled = false
+        candidate.isMeteringEnabled = true
 
         guard candidate.prepareToRecord() else {
             candidate.stop()
@@ -70,6 +78,16 @@ final class AVAudioRecorderCaptureBackend: NSObject, AudioCapturing {
             recorder = nil
             throw AudioCaptureBackendError.startFailed
         }
+    }
+
+    func pause() {
+        guard let recorder, recorder.isRecording else { return }
+        recorder.pause()
+    }
+
+    func resume() {
+        guard let recorder, !recorder.isRecording else { return }
+        _ = recorder.record()
     }
 
     func stop() {

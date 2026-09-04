@@ -32,9 +32,18 @@ protocol AudioCapturing: AnyObject {
     var fileExtension: String { get }
     var currentTime: TimeInterval { get }
     var inputDisplayName: String? { get }
+    var inputLevel: Double { get }
     var isRecording: Bool { get }
     var eventHandler: ((AudioCaptureBackendEvent) -> Void)? { get set }
 
     func start(to url: URL) throws
+    func pause()
+    func resume()
     func stop()
+}
+
+extension AudioCapturing {
+    var inputLevel: Double { 0 }
+    func pause() {}
+    func resume() {}
 }

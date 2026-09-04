@@ -9,6 +9,7 @@ final class MicrophoneRecordingController: ObservableObject {
         case requestingPermission
         case preparing
         case recording
+        case paused
         case finalizing
         case failed
     }
@@ -17,14 +18,16 @@ final class MicrophoneRecordingController: ObservableObject {
     @Published private(set) var permissionState: MicrophonePermissionState
     @Published private(set) var elapsedTime: TimeInterval = 0
     @Published private(set) var inputDisplayName: String?
+    @Published private(set) var inputLevel: Double = 0
     @Published private(set) var errorMessage: String?
     @Published private(set) var recoveryIssues: [RecordingStoreIssue] = []
 
     var isRecording: Bool { phase == .recording }
+    var isPaused: Bool { phase == .paused }
 
     var isBusy: Bool {
         switch phase {
-        case .requestingPermission, .preparing, .recording, .finalizing:
+        case .requestingPermission, .preparing, .recording, .paused, .finalizing:
             return true
         case .idle, .failed:
             return false
@@ -32,7 +35,7 @@ final class MicrophoneRecordingController: ObservableObject {
     }
 
     var requiresTerminationFinalization: Bool {
-        phase == .recording || phase == .finalizing
+        phase == .recording || phase == .paused || phase == .finalizing
     }
 
     static var activeForApplicationTermination: MicrophoneRecordingController? {
@@ -118,9 +121,24 @@ final class MicrophoneRecordingController: ObservableObject {
         }
     }
 
+    func pause() {
+        guard phase == .recording else { return }
+        backend.pause()
+        refreshElapsedTime()
+        inputLevel = 0
+        phase = .paused
+    }
+
+    func resume() {
+        guard phase == .paused else { return }
+        backend.resume()
+        phase = .recording
+        startProgressUpdates()
+    }
+
     @discardableResult
     func stop() async -> Recording? {
-        guard phase == .recording, let session else { return nil }
+        guard (phase == .recording || phase == .paused), let session else { return nil }
 
         phase = .finalizing
         stopProgressUpdates()
@@ -161,6 +179,7 @@ final class MicrophoneRecordingController: ObservableObject {
             phase = .idle
             elapsedTime = 0
             inputDisplayName = nil
+            inputLevel = 0
             errorMessage = nil
             releaseGlobalCaptureLease()
             await refreshRecoveryIssues()
@@ -176,7 +195,7 @@ final class MicrophoneRecordingController: ObservableObject {
     }
 
     func prepareForApplicationTermination() async {
-        if phase == .recording {
+        if phase == .recording || phase == .paused {
             _ = await stop()
         }
 
@@ -251,6 +270,7 @@ final class MicrophoneRecordingController: ObservableObject {
             phase = .idle
             elapsedTime = 0
             inputDisplayName = nil
+            inputLevel = 0
         }
     }
 
@@ -290,6 +310,7 @@ final class MicrophoneRecordingController: ObservableObject {
             )
             inputDisplayName = backend.inputDisplayName
             elapsedTime = max(0, backend.currentTime)
+            inputLevel = backend.inputLevel
             phase = .recording
             startProgressUpdates()
         } catch {
@@ -298,6 +319,7 @@ final class MicrophoneRecordingController: ObservableObject {
             errorMessage = error.localizedDescription
             elapsedTime = 0
             inputDisplayName = nil
+            inputLevel = 0
             releaseGlobalCaptureLease()
             await refreshRecoveryIssues()
         }
@@ -324,6 +346,7 @@ final class MicrophoneRecordingController: ObservableObject {
                 try? await Task.sleep(for: .milliseconds(250))
                 guard !Task.isCancelled, let self, self.phase == .recording else { return }
                 self.refreshElapsedTime()
+                self.inputLevel = self.backend.inputLevel
             }
         }
     }
@@ -331,6 +354,7 @@ final class MicrophoneRecordingController: ObservableObject {
     private func stopProgressUpdates() {
         progressTask?.cancel()
         progressTask = nil
+        inputLevel = 0
     }
 
     private func handleBackendEvent(_ event: AudioCaptureBackendEvent) {
@@ -341,6 +365,7 @@ final class MicrophoneRecordingController: ObservableObject {
         backend.stop()
         self.session = nil
         phase = .failed
+        inputLevel = 0
         releaseGlobalCaptureLease()
 
         switch event {

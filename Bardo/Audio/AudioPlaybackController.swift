@@ -14,6 +14,8 @@ final class AudioPlaybackController: ObservableObject {
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var errorMessage: String?
     @Published private(set) var metadata: AudioPlaybackMetadata?
+    @Published private(set) var playbackRate: Float = 1
+    @Published private(set) var volume: Float = 1
 
     private var player: AVAudioPlayer?
     private var progressTask: Task<Void, Never>?
@@ -32,6 +34,9 @@ final class AudioPlaybackController: ObservableObject {
             guard player.prepareToPlay() else {
                 throw AudioPlaybackError.couldNotPrepare
             }
+            player.enableRate = true
+            player.rate = playbackRate
+            player.volume = volume
             self.player = player
             duration = player.duration
             position = player.currentTime
@@ -121,6 +126,19 @@ final class AudioPlaybackController: ObservableObject {
         } else {
             _ = play()
         }
+    }
+
+    func setPlaybackRate(_ rate: Float) {
+        let clamped = min(2, max(0.5, rate))
+        playbackRate = clamped
+        player?.enableRate = true
+        player?.rate = clamped
+    }
+
+    func setVolume(_ value: Float) {
+        let clamped = min(1, max(0, value))
+        volume = clamped
+        player?.volume = clamped
     }
 
     func seek(to time: TimeInterval) {
