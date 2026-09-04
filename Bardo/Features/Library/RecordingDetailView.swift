@@ -334,6 +334,7 @@ struct RecordingDocumentHeader: View {
 private struct DetailModeSelector: View {
     @Binding var selection: RecordingDetailView.DetailTab
     @Namespace private var glassNamespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hoveredTab: RecordingDetailView.DetailTab?
 
     var body: some View {
@@ -361,7 +362,10 @@ private struct DetailModeSelector: View {
                     .stroke(.separator.opacity(0.28), lineWidth: 0.5)
             }
         }
-        .animation(.spring(response: 0.26, dampingFraction: 0.88), value: selection)
+        .animation(
+            reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.88),
+            value: selection
+        )
     }
 
     private var fallbackSelector: some View {
@@ -376,7 +380,7 @@ private struct DetailModeSelector: View {
             Capsule()
                 .stroke(.separator.opacity(0.35), lineWidth: 0.5)
         }
-        .animation(.easeInOut(duration: 0.16), value: selection)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: selection)
     }
 
     @ViewBuilder
