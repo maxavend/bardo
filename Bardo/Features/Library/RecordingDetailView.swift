@@ -13,7 +13,7 @@ struct RecordingDetailView: View {
     @State private var isSpeakerNamingPresented = false
     @State private var isRenamePresented = false
     @State private var isDeleteConfirmationPresented = false
-    @State private var isInspectorPresented = false
+    @State private var isRecordingInfoPresented = false
     @State private var selectedTab: DetailTab = .transcript
 
     enum DetailTab: String, CaseIterable, Identifiable, Hashable {
@@ -66,32 +66,19 @@ struct RecordingDetailView: View {
                 detailModePicker
             }
 
-            if #available(macOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-            }
-
-            ToolbarItem(id: "bardo.detail.info", placement: .primaryAction) {
-                Button {
-                    isInspectorPresented.toggle()
-                } label: {
-                    Label(String(localized: "Inspector"), systemImage: "sidebar.trailing")
-                }
-                .help(
-                    isInspectorPresented
-                        ? String(localized: "Hide Recording Inspector")
-                        : String(localized: "Show Recording Inspector")
-                )
-            }
-
             ToolbarItem(id: "bardo.detail.more", placement: .primaryAction) {
                 recordingActionsMenu
             }
         }
-        .inspector(isPresented: $isInspectorPresented) {
-            RecordingInspector(
+        .sheet(isPresented: $isRecordingInfoPresented) {
+            RecordingInformationSheet(
                 recording: recording,
                 transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil
             )
+        }
+        .background {
+            BardoDetailBackground()
+                .ignoresSafeArea()
         }
         .overlay(alignment: .bottom) {
             if showsPlaybackBar {
@@ -193,6 +180,14 @@ struct RecordingDetailView: View {
 
     private var recordingActionsMenu: some View {
         Menu {
+            Button {
+                isRecordingInfoPresented = true
+            } label: {
+                Label(String(localized: "Recording Information…"), systemImage: "info.circle")
+            }
+
+            Divider()
+
             Button {
                 isRenamePresented = true
             } label: {
