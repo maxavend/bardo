@@ -96,6 +96,7 @@ if [ "$VERIFY_DMG_ONLY" != "1" ]; then
         -configuration Release \
         -destination 'platform=macOS,arch=arm64' \
         -derivedDataPath "$DERIVED_DATA_PATH" \
+        -skipPackagePluginValidation \
         ARCHS=arm64 \
         ONLY_ACTIVE_ARCH=YES \
         CODE_SIGNING_ALLOWED=NO \

@@ -51,6 +51,7 @@ jobs:
             -configuration Debug \
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath .derived-data \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             test > xcode-test.log 2>&1
           STATUS=$?
