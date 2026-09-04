@@ -9,45 +9,39 @@ struct MeetingMinutesView: View {
 
     @State private var isRegenerateConfirmationPresented = false
     @State private var copyFeedback: String?
-    @State private var cursorBlink = true
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: BardoSpacing.group) {
+            VStack(alignment: .leading, spacing: BardoSpacing.section) {
                 if let error = model.meetingMinutesErrorMessage {
-                    errorBanner(error)
+                    errorView(error)
                 }
 
-                    if model.isGeneratingMeetingMinutes {
-                        generationProgressBanner
+                if model.isGeneratingMeetingMinutes {
+                    generationProgressView
 
-                        if let streaming = model.streamingMeetingMinutesText, !streaming.isEmpty {
-                            minutesContentCard(text: streaming, isStreaming: true)
-                        } else {
-                            preparingModelPlaceholder
-                        }
-                    } else if let minutes = model.meetingMinutes,
-                              minutes.recordingID == recording.id {
-                        if model.meetingMinutesIsStale {
-                            staleMinutesBanner
-                        }
-                        minutesContentCard(text: minutes.text, isStreaming: false)
+                    if let streaming = model.streamingMeetingMinutesText, !streaming.isEmpty {
+                        minutesDocument(text: streaming, isStreaming: true)
                     } else {
-                        emptyStateView
+                        preparingModelPlaceholder
                     }
+                } else if let minutes = model.meetingMinutes,
+                          minutes.recordingID == recording.id {
+                    if model.meetingMinutesIsStale {
+                        staleMinutesView
+                    }
+
+                    minutesDocument(text: minutes.text, isStreaming: false)
+                } else {
+                    emptyStateView
                 }
-                .frame(maxWidth: 860, alignment: .leading)
-                .padding(.horizontal, BardoSpacing.detailHorizontal)
-                .padding(.vertical, BardoSpacing.section)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .scrollClipDisabled(false)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
-            if model.isGeneratingMeetingMinutes {
-                cursorBlink.toggle()
-            }
+            .frame(maxWidth: 800, alignment: .leading)
+            .padding(.horizontal, BardoSpacing.detailHorizontal)
+            .padding(.vertical, BardoSpacing.section)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .confirmationDialog(
             String(localized: "Regenerate Meeting Minutes?"),
             isPresented: $isRegenerateConfirmationPresented,
@@ -63,155 +57,168 @@ struct MeetingMinutesView: View {
         .enableInjection()
     }
 
-    private var generationProgressBanner: some View {
+    private var generationProgressView: some View {
         let snapshot = model.meetingMinutesProgressSnapshot
         let message = snapshot?.message ?? String(localized: "Generating meeting minutes…")
         let fraction = model.meetingMinutesProgress ?? 0
 
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(message)
-                    .font(.headline)
-                Spacer()
+        return GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                ProgressView(value: fraction)
+
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(String(localized: "Processing locally on your Mac."))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 12)
+
+                    Text("\(Int(fraction * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+
+                    Button(String(localized: "Cancel"), role: .cancel) {
+                        model.cancelMeetingMinutes()
+                    }
+                }
+            }
+        } label: {
+            HStack {
+                Label {
+                    Text(message)
+                } icon: {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
                 if let streaming = model.streamingMeetingMinutesText, !streaming.isEmpty {
+                    Spacer()
                     Text(String.localizedStringWithFormat(String(localized: "%lld characters"), streaming.count))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                Button(String(localized: "Cancel"), role: .cancel) {
-                    model.cancelMeetingMinutes()
-                }
-                .controlSize(.small)
-            }
-
-            ProgressView(value: fraction)
-
-            HStack {
-                Text(String(localized: "Processing locally on your Mac."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("\(Int(fraction * 100))%")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
             }
         }
-        .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var preparingModelPlaceholder: some View {
-        VStack(spacing: 12) {
+        ContentUnavailableView {
+            Label(String(localized: "Preparing Meeting Minutes"), systemImage: "list.bullet.clipboard")
+        } description: {
+            Text(String(localized: "Preparing the conversation analysis locally on this Mac."))
+        } actions: {
             ProgressView()
-                .controlSize(.regular)
-            Text(String(localized: "Preparing the conversation analysis…"))
-                .font(.callout)
-                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, minHeight: 180)
-        .background(.fill.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: 220)
     }
 
-    private func minutesContentCard(text: String, isStreaming: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            BardoMarkdownView(text: text, isStreaming: isStreaming, cursorVisible: cursorBlink)
+    private func minutesDocument(text: String, isStreaming: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            BardoMarkdownView(
+                text: text,
+                isStreaming: isStreaming,
+                cursorVisible: isStreaming
+            )
 
             if !isStreaming {
                 Divider()
 
                 HStack(spacing: 10) {
-                    Text(String(localized: "Generated on-device from transcript"))
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                    Label(
+                        String(localized: "Generated on-device from transcript"),
+                        systemImage: "lock.shield"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                     Spacer()
+
                     if let copyFeedback {
                         Label(copyFeedback, systemImage: "checkmark")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+
                     Button {
                         copyMinutes(text)
                     } label: {
                         Label(String(localized: "Copy"), systemImage: "doc.on.doc")
                     }
-                    .controlSize(.small)
+
+                    Button {
+                        isRegenerateConfirmationPresented = true
+                    } label: {
+                        Label(String(localized: "Regenerate"), systemImage: "arrow.clockwise")
+                    }
+                    .disabled(!model.canGenerateMeetingMinutes)
                 }
             }
         }
-        .padding(20)
-        .background(.fill.tertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .textSelection(.enabled)
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "list.bullet.clipboard")
-                .font(.system(size: 36, weight: .light))
-                .foregroundStyle(.secondary.opacity(0.8))
-
-            VStack(spacing: 5) {
-                Text(String(localized: "Meeting Minutes"))
-                    .font(.system(size: 15, weight: .semibold))
-                Text(String(localized: "Create a detailed, structured record of the conversation's topics, decisions, pending work, and next steps."))
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 480)
-            }
-
+        ContentUnavailableView {
+            Label(String(localized: "Meeting Minutes"), systemImage: "list.bullet.clipboard")
+        } description: {
+            Text(
+                model.canGenerateMeetingMinutes
+                    ? String(localized: "Create a structured record of topics, decisions, pending work, and next steps from the transcript.")
+                    : String(localized: "Complete the transcript before generating meeting minutes.")
+            )
+        } actions: {
             if model.canGenerateMeetingMinutes {
                 Button(String(localized: "Generate Minutes")) {
                     model.beginMeetingMinutes()
                 }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-            } else {
-                VStack(spacing: 6) {
-                    Text(String(localized: "A completed transcript is required before generating meeting minutes."))
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(.tertiary)
-
-                    if let onSwitchToTranscript {
-                        Button(String(localized: "Go to Transcript")) {
-                            onSwitchToTranscript()
-                        }
-                        .buttonStyle(.link)
-                        .font(.system(size: 12, weight: .medium))
-                    }
+            } else if let onSwitchToTranscript {
+                Button(String(localized: "Go to Transcript")) {
+                    onSwitchToTranscript()
                 }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 240)
-        .padding(.vertical, 32)
-        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, minHeight: 280)
     }
 
-    private func errorBanner(_ message: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.callout)
-                .foregroundStyle(.orange)
-            Spacer()
-            Button(String(localized: "Retry")) { model.beginMeetingMinutes() }
-                .buttonStyle(.link)
-            Button(String(localized: "Dismiss")) { model.clearMeetingMinutesError() }
-                .buttonStyle(.link)
+    private func errorView(_ message: String) -> some View {
+        GroupBox {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 12)
+
+                Button(String(localized: "Retry")) {
+                    model.beginMeetingMinutes()
+                }
+
+                Button(String(localized: "Dismiss")) {
+                    model.clearMeetingMinutesError()
+                }
+            }
+        } label: {
+            Label(String(localized: "Meeting Minutes Need Attention"), systemImage: "exclamationmark.triangle")
         }
-        .padding(12)
-        .background(.fill.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private var staleMinutesBanner: some View {
-        Label(
-            String(localized: "The transcript changed after these minutes were generated. Regenerate to update them."),
-            systemImage: "arrow.triangle.2.circlepath"
-        )
+    private var staleMinutesView: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Label(
+                String(localized: "The transcript changed after these minutes were generated."),
+                systemImage: "arrow.triangle.2.circlepath"
+            )
+            .foregroundStyle(.secondary)
+
+            Spacer(minLength: 12)
+
+            Button(String(localized: "Regenerate")) {
+                isRegenerateConfirmationPresented = true
+            }
+        }
         .font(.callout)
-        .foregroundStyle(.orange)
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.fill.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func copyMinutes(_ text: String) {
@@ -231,61 +238,54 @@ struct BardoMarkdownView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             let lines = text.components(separatedBy: "\n")
+
             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 let isLastLine = index == lines.count - 1
 
                 if trimmed.hasPrefix("# ") {
-                    let content = String(trimmed.dropFirst(2))
-                    Text(.init(content))
-                        .font(.title2.weight(.bold))
-                        .textSelection(.enabled)
-                        .padding(.top, index == 0 ? 0 : 8)
+                    Text(.init(String(trimmed.dropFirst(2))))
+                        .font(.title2.weight(.semibold))
+                        .padding(.top, index == 0 ? 0 : 10)
                 } else if trimmed.hasPrefix("## ") {
-                    let content = String(trimmed.dropFirst(3))
-                    Text(.init(content))
-                        .font(.title3.weight(.bold))
-                        .textSelection(.enabled)
-                        .padding(.top, 8)
+                    Text(.init(String(trimmed.dropFirst(3))))
+                        .font(.title3.weight(.semibold))
+                        .padding(.top, 10)
                 } else if trimmed.hasPrefix("### ") {
-                    let content = String(trimmed.dropFirst(4))
-                    Text(.init(content))
+                    Text(.init(String(trimmed.dropFirst(4))))
                         .font(.headline)
-                        .textSelection(.enabled)
-                        .padding(.top, 4)
+                        .padding(.top, 6)
                 } else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
-                    let content = String(trimmed.dropFirst(2))
                     HStack(alignment: .top, spacing: 8) {
                         Text("•")
-                            .font(.body.weight(.bold))
                             .foregroundStyle(.secondary)
-                        Text(.init(content))
+                        Text(.init(String(trimmed.dropFirst(2))))
                             .font(.body)
                             .lineSpacing(3)
-                            .textSelection(.enabled)
                     }
-                    .padding(.leading, 4)
                 } else if trimmed.isEmpty {
-                    Spacer().frame(height: 2)
+                    Spacer()
+                        .frame(height: 2)
                 } else {
                     HStack(alignment: .bottom, spacing: 2) {
                         Text(.init(trimmed))
                             .font(.body)
                             .lineSpacing(3)
-                            .textSelection(.enabled)
 
                         if isStreaming && isLastLine && cursorVisible {
                             Text("▌")
-                                .font(.body.weight(.bold))
+                                .font(.body.weight(.semibold))
                                 .foregroundStyle(Color.accentColor)
                         }
                     }
                 }
             }
 
-            if isStreaming && lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true && cursorVisible {
+            if isStreaming,
+               lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true,
+               cursorVisible {
                 Text("▌")
-                    .font(.body.weight(.bold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(Color.accentColor)
             }
         }
@@ -304,7 +304,9 @@ final class DetachedMinutesWindowManager {
     func show(minutesText: String, title: String) {
         if let window {
             window.title = String.localizedStringWithFormat(String(localized: "Meeting Minutes: %@"), title)
-            window.contentView = NSHostingView(rootView: DetachedMinutesContentView(title: title, text: minutesText))
+            window.contentView = NSHostingView(
+                rootView: DetachedMinutesContentView(title: title, text: minutesText)
+            )
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -319,7 +321,9 @@ final class DetachedMinutesWindowManager {
         win.title = String.localizedStringWithFormat(String(localized: "Meeting Minutes: %@"), title)
         win.isReleasedWhenClosed = false
         win.center()
-        win.contentView = NSHostingView(rootView: DetachedMinutesContentView(title: title, text: minutesText))
+        win.contentView = NSHostingView(
+            rootView: DetachedMinutesContentView(title: title, text: minutesText)
+        )
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = win
@@ -333,15 +337,18 @@ private struct DetachedMinutesContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: 12) {
                 Label(String(localized: "Meeting Minutes"), systemImage: "list.bullet.clipboard")
                     .font(.headline)
+
                 Spacer()
+
                 if let copyFeedback {
                     Label(copyFeedback, systemImage: "checkmark")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
                 Button {
                     NSPasteboard.general.clearContents()
                     if NSPasteboard.general.setString(text, forType: .string) {
@@ -350,7 +357,6 @@ private struct DetachedMinutesContentView: View {
                 } label: {
                     Label(String(localized: "Copy"), systemImage: "doc.on.doc")
                 }
-                .controlSize(.small)
             }
             .padding()
 
@@ -359,7 +365,8 @@ private struct DetachedMinutesContentView: View {
             ScrollView {
                 BardoMarkdownView(text: text, isStreaming: false)
                     .padding(24)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: 760, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
         }
         .frame(minWidth: 520, minHeight: 440)
