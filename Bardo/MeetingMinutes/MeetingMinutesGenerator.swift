@@ -79,7 +79,7 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
             fractionCompleted: 0,
             message: String(localized: "Preparing meeting-minutes model in local memory…")
         ))
-        try await textGenerator.prepareForUse { setupSnapshot in
+        try await textGenerator.prepareForUse { (setupSnapshot: MeetingMinutesSetupProgressSnapshot) in
             let message: String
             switch setupSnapshot.stage {
             case .downloading:
@@ -313,7 +313,7 @@ actor MLXTextGenerator: MeetingMinutesTextGenerating {
     }
 
     func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws {
-        try await prepareForUse { snapshot in
+        try await prepareForUse { (snapshot: MeetingMinutesSetupProgressSnapshot) in
             let fraction: Double
             switch snapshot.stage {
             case .downloading:
