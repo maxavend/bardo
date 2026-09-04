@@ -64,28 +64,42 @@ struct BardoEmptyState<Actions: View>: View {
                 .font(.system(size: 32, weight: .regular))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.secondary)
+                .frame(height: 38)
                 .accessibilityHidden(true)
 
             VStack(spacing: 6) {
                 Text(title)
                     .font(.title3.weight(.semibold))
+                    .frame(height: 24)
 
                 Text(detail)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 400)
+                    .frame(height: 42, alignment: .top)
             }
 
             actions
+                .frame(height: 32)
 
-            if let footnote {
-                Label(footnote, systemImage: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+            Group {
+                if let footnote {
+                    Label(footnote, systemImage: "lock.fill")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Color.clear
+                }
             }
+            .frame(height: 18)
         }
-        .frame(maxWidth: .infinity, minHeight: BardoLayout.emptyStateMinHeight)
-        .padding(.vertical, 24)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: BardoLayout.emptyStateMinHeight,
+            alignment: .top
+        )
+        .padding(.top, 54)
+        .padding(.bottom, 24)
     }
 }
