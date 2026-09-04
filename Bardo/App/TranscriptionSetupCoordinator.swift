@@ -6,7 +6,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     enum State: Equatable {
         case checking
         case installing(TranscriptionSetupProgressSnapshot)
-        case installingMinutes(Double)
+        case installingMinutes(MeetingMinutesSetupProgressSnapshot)
         case installingSpeakers(DiarizationSetupProgressSnapshot)
         case ready
         case cancelled
@@ -21,7 +21,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     private var preparationTask: Task<Void, Never>?
 
     private static var completionKey: String {
-        "Bardo.FullAISetup.v6.\(TranscriptionModelManager.modelID).\(SpeakerDiarizationService.modelID).\(MeetingMinutesModel.modelID)"
+        "Bardo.FullAISetup.v7.\(TranscriptionModelManager.modelID).\(SpeakerDiarizationService.modelID).\(MeetingMinutesModel.modelID).\(MeetingMinutesModel.modelRevision)"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -47,15 +47,15 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             try store.removeLegacyVoiceModelDirectories()
             let whisper = try WhisperTranscriptionService.live()
             let speakers = try SpeakerDiarizationService.live()
-            let minutes = try MeetingMinutesModelManager.live()
+            let minutes = try MeetingMinutesGenerator.live()
             let markedComplete = defaults.bool(forKey: Self.completionKey)
 
             let whisperInstalled = await whisper.hasInstalledModel()
             let speakersInstalled = await speakers.hasInstalledModels()
-            let minutesInstalled = MeetingMinutesModelResourceResolver.isInstalled()
-            let allModelsInstalled = whisperInstalled && speakersInstalled && minutesInstalled
+            let minutesReady = MeetingMinutesRuntimeReadiness.isReady()
+            let allModelsReady = whisperInstalled && speakersInstalled && minutesReady
 
-            if !force, markedComplete, allModelsInstalled {
+            if !force, markedComplete, allModelsReady {
                 // A completed setup must never pull the user back into first-run UI.
                 // Keep the app ready and warm reusable voice models in the background.
                 state = .ready
@@ -93,10 +93,10 @@ final class TranscriptionSetupCoordinator: ObservableObject {
         }
     }
 
-    private func prepareMinutes(_ minutes: MeetingMinutesModelManager) async throws {
-        try await minutes.prepareForUse { [weak self] fraction in
+    private func prepareMinutes(_ minutes: MeetingMinutesGenerator) async throws {
+        try await minutes.prepareForSetup { [weak self] snapshot in
             Task { @MainActor in
-                self?.state = .installingMinutes(min(1, max(0, fraction)))
+                self?.state = .installingMinutes(snapshot)
             }
         }
     }
