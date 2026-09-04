@@ -137,14 +137,6 @@ enum TranscriptionSetupCopy {
 
 struct TranscriptionSetupView: View {
     @ObserveInjection var redraw
-    private enum Layout {
-        static let titleHeight: CGFloat = 40
-        static let detailHeight: CGFloat = 24
-        static let progressLabelHeight: CGFloat = 18
-        static let stageLabelHeight: CGFloat = 22
-        static let asideHeight: CGFloat = 22
-        static let footerHeight: CGFloat = 20
-    }
 
     let state: TranscriptionSetupCoordinator.State
     let retry: () -> Void
@@ -163,134 +155,127 @@ struct TranscriptionSetupView: View {
         self.resetAndRetry = resetAndRetry
     }
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var messageIndex = 0
-
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(.background)
-                .ignoresSafeArea()
+        VStack(spacing: 24) {
+            Spacer(minLength: 24)
 
-            VStack(spacing: 22) {
-                Image(systemName: "waveform.badge.mic")
-                    .font(.system(size: 42, weight: .medium))
-                    .symbolRenderingMode(.hierarchical)
-                    .accessibilityHidden(true)
+            Image(systemName: "waveform.badge.mic")
+                .font(.largeTitle)
+                .symbolRenderingMode(.hierarchical)
+                .accessibilityHidden(true)
 
-                VStack(spacing: 8) {
-                    Text(title)
-                        .font(.title.weight(.semibold))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(1)
-                        .frame(maxWidth: 520, minHeight: Layout.titleHeight, maxHeight: Layout.titleHeight)
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.title2.weight(.semibold))
+                    .multilineTextAlignment(.center)
 
-                    Text(detail)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(1)
-                        .frame(maxWidth: 520, minHeight: Layout.detailHeight, maxHeight: Layout.detailHeight)
-                }
+                Text(detail)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: 520)
 
-                VStack(spacing: 14) {
-                    if case .failed = state {
-                        setupActions
-                    } else if case .cancelled = state {
-                        setupActions
+            GroupBox {
+                VStack(alignment: .leading, spacing: 14) {
+                    if isTerminalState {
+                        terminalStateContent
                     } else {
-                        HStack(spacing: 12) {
-                            ProgressView(value: progressValue)
-                                .progressViewStyle(.linear)
-
-                            Text(percentText)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .frame(width: 34, alignment: .trailing)
-                        }
-
-                        Text(progressLabel)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .frame(maxWidth: 410, minHeight: Layout.progressLabelHeight, maxHeight: Layout.progressLabelHeight)
-
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text(stageLabel)
-                                .font(.callout.weight(.medium))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .frame(height: Layout.stageLabelHeight)
-                        }
-
-                        if isCancellable {
-                            Button(role: .cancel, action: cancel) {
-                                Text(TranscriptionSetupCopy.cancelButton)
-                                    .lineLimit(1)
-                            }
-                        }
-
-                        Text(currentAside)
-                            .id(currentAside)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(1)
-                            .frame(maxWidth: 410, minHeight: Layout.asideHeight, maxHeight: Layout.asideHeight)
-                            .transition(.opacity)
+                        activeSetupContent
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 20)
-                .frame(width: 480)
-                .bardoGlassSurface(cornerRadius: BardoCornerRadius.setup)
-
-                Text(TranscriptionSetupCopy.footer)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
-                    .frame(maxWidth: 620, minHeight: Layout.footerHeight, maxHeight: Layout.footerHeight)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(48)
-        }
-        .frame(minWidth: 680, minHeight: 500)
-        .task(id: copyStage) {
-            messageIndex = 0
-            guard !reduceMotion else { return }
+            .frame(maxWidth: 520)
 
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: 3_800_000_000)
-                } catch {
-                    return
-                }
-                guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: 0.24)) {
-                    messageIndex = (messageIndex + 1) % messages.count
-                }
-            }
+            Text(TranscriptionSetupCopy.footer)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 520)
+
+            Spacer(minLength: 24)
         }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .enableInjection()
     }
 
-    @ViewBuilder
-    private var setupActions: some View {
-        HStack(spacing: 12) {
-            Button(action: retry) {
-                Text(TranscriptionSetupCopy.retryButton)
-                    .lineLimit(1)
-            }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+    private var activeSetupContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ProgressView(value: progressValue)
 
-            Button(action: resetAndRetry) {
-                Text(TranscriptionSetupCopy.resetButton)
-                    .lineLimit(1)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Label {
+                    Text(stageLabel)
+                } icon: {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                Spacer(minLength: 12)
+
+                Text(percentText)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
-                .controlSize(.large)
+
+            Text(progressLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if isCancellable {
+                HStack {
+                    Spacer()
+                    Button(TranscriptionSetupCopy.cancelButton, role: .cancel, action: cancel)
+                }
+            }
+        }
+    }
+
+    private var terminalStateContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label(stageLabel, systemImage: terminalStateSymbol)
+                .font(.headline)
+
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            setupActions
+        }
+    }
+
+    private var setupActions: some View {
+        HStack(spacing: 10) {
+            Button(TranscriptionSetupCopy.retryButton, action: retry)
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+
+            Button(TranscriptionSetupCopy.resetButton, action: resetAndRetry)
+
+            Spacer()
+        }
+    }
+
+    private var isTerminalState: Bool {
+        switch state {
+        case .cancelled, .failed:
+            return true
+        case .checking, .installing, .installingSpeakers, .ready:
+            return false
+        }
+    }
+
+    private var terminalStateSymbol: String {
+        switch state {
+        case .failed:
+            return "exclamationmark.triangle"
+        case .cancelled:
+            return "pause.circle"
+        default:
+            return "checkmark.circle"
         }
     }
 
@@ -340,16 +325,6 @@ struct TranscriptionSetupView: View {
         }
     }
 
-    private var messages: [String] {
-        TranscriptionSetupCopy.messages(for: copyStage)
-    }
-
-    private var currentAside: String {
-        let available = messages
-        guard !available.isEmpty else { return "" }
-        return available[min(messageIndex, available.count - 1)]
-    }
-
     private var progressValue: Double {
         switch state {
         case .checking:
@@ -376,9 +351,7 @@ struct TranscriptionSetupView: View {
             }
         case .ready:
             return 1
-        case .cancelled:
-            return 0
-        case .failed:
+        case .cancelled, .failed:
             return 0
         }
     }
