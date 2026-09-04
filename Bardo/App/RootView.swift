@@ -142,9 +142,20 @@ struct RootView: View {
             )
         case .recording:
             activeRecordingPill(
-                title: String(localized: "Recording Microphone"),
-                detail: microphone.inputDisplayName ?? String(localized: "Default microphone"),
+                title: String(localized: "Recording"),
+                detail: microphone.inputDisplayName ?? String(localized: "System microphone"),
                 duration: microphone.elapsedTime,
+                pauseAction: { microphone.pause() },
+                stopAction: {
+                    Task { await stopMicrophoneRecording() }
+                }
+            )
+        case .paused:
+            activeRecordingPill(
+                title: String(localized: "Recording Paused"),
+                detail: String(localized: "Resume when you're ready to continue."),
+                duration: microphone.elapsedTime,
+                resumeAction: { microphone.resume() },
                 stopAction: {
                     Task { await stopMicrophoneRecording() }
                 }
@@ -252,6 +263,8 @@ struct RootView: View {
         title: String,
         detail: String,
         duration: TimeInterval,
+        pauseAction: (() -> Void)? = nil,
+        resumeAction: (() -> Void)? = nil,
         changeSourceAction: (() -> Void)? = nil,
         stopAction: @escaping () -> Void
     ) -> some View {
@@ -277,6 +290,22 @@ struct RootView: View {
                 }
 
                 Spacer(minLength: 16)
+
+                if let pauseAction {
+                    Button(action: pauseAction) {
+                        Label(String(localized: "Pause"), systemImage: "pause.fill")
+                    }
+                    .controlSize(.small)
+                    .help(String(localized: "Pause recording"))
+                }
+
+                if let resumeAction {
+                    Button(action: resumeAction) {
+                        Label(String(localized: "Resume"), systemImage: "play.fill")
+                    }
+                    .controlSize(.small)
+                    .help(String(localized: "Resume recording"))
+                }
 
                 if let changeSourceAction {
                     Button(String(localized: "Change Source…"), action: changeSourceAction)
