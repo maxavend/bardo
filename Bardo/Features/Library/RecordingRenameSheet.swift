@@ -20,33 +20,47 @@ struct RecordingRenameSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Rename Recording")
-                .font(.title2.weight(.semibold))
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(localized: "Rename Recording"))
+                    .font(.title3.weight(.semibold))
 
-            TextField("Recording title", text: $title)
-                .textFieldStyle(.roundedBorder)
+                Text(String(localized: "Choose a name that will be used throughout your Library."))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            TextField(String(localized: "Recording title"), text: $title)
                 .focused($isTitleFocused)
                 .onSubmit(save)
 
+            Divider()
+
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel, action: onCancel)
-                Button("Save", action: save)
+
+                Button(String(localized: "Cancel"), role: .cancel, action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+
+                Button(String(localized: "Save"), action: save)
                     .buttonStyle(.borderedProminent)
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmedTitle.isEmpty)
             }
         }
         .padding(24)
-        .frame(width: 380)
+        .frame(width: 420)
         .task {
             isTitleFocused = true
         }
     }
 
+    private var trimmedTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func save() {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        onSave(trimmed)
+        guard !trimmedTitle.isEmpty else { return }
+        onSave(trimmedTitle)
     }
 }
