@@ -6,21 +6,21 @@ The Test and Latest DMGs are ad-hoc signed for development testing. They are not
 
 ## Model ownership and recovery
 
-Bardo bundles voice models and owns user-managed Qwen data below:
+Bardo owns its current runtime models below:
 
 ```text
-Bardo.app/Contents/Resources/Models/
-├── manifest.json
-├── WhisperKit/large-v3-v20240930_turbo_632MB/
-└── SpeakerKit/
-
 ~/Library/Application Support/Bardo/Models/
-└── qwen/
+├── whisper-turbo/
+├── speaker-kit/
+└── meeting-minutes/
+    └── LFM2.5-1.2B-Instruct-4bit/
 ```
 
-The voice bundle is validated with its SHA-256 manifest before loading. The global Hugging Face cache does not make Qwen Installed and is never removed by Reset. Voice setup has no runtime downloader; Qwen retains its private lifecycle.
+Meeting Minutes is pinned to `mlx-community/LFM2.5-1.2B-Instruct-4bit` revision `125e006d991147f3b432249d1bdf0821987f12b0`. A snapshot must carry the matching `.bardo-model-revision` marker and pass a real MLX load + short local generation health check before Settings shows it as Ready.
 
-Whisper Large v3 Turbo is the only transcription engine. SpeakerKit runs after transcription, and Qwen Meeting Minutes receives transcript text only. Qwen never receives the source audio.
+Qwen is not used by the current runtime. If an older build left `~/Library/Application Support/Bardo/Models/qwen/`, Settings may show it as legacy storage and offers an explicit removal action. Do not remove it automatically while testing migration behavior.
+
+Whisper Large v3 Turbo is the only transcription engine. SpeakerKit runs on managed conversation audio for diarization. LFM2.5 receives completed transcript text and metadata only; it never receives source audio.
 
 ## Install
 
@@ -32,11 +32,13 @@ Whisper Large v3 Turbo is the only transcription engine. SpeakerKit runs after t
 
 ## Smoke test order
 
-### 1. Launch and persistence
+### 1. Launch, first-run model verification and persistence
 
 - Bardo launches without crashing.
-- The Library appears.
-- Quit and reopen Bardo; the Library remains available.
+- On a clean install, confirm first-run progress remains responsive through voice, minutes and participant setup.
+- Confirm Meeting Minutes reaches its local loading/checking phase and setup does not complete if the LFM runtime health check fails.
+- After setup succeeds, open Settings and confirm Meeting Minutes · LFM2.5 shows Ready.
+- Quit and reopen Bardo; the Library should appear directly without replaying first-run setup, and model warm-up should not block the Library.
 
 ### 2. Audio import
 
@@ -106,8 +108,13 @@ Use audio with at least two distinct speakers if possible.
 ### 10. Meeting Minutes
 
 - Generate Meeting Minutes only after transcription has completed.
+- Confirm the first generation uses the already verified local LFM2.5 runtime and does not redownload the model.
+- Confirm final Markdown begins streaming during the render stage instead of appearing only at completion.
 - Confirm the output uses the transcript and available names/context, not the audio file.
-- For a long transcript, confirm chunked extraction completes without invented names, deadlines, decisions or agreements.
+- Confirm Spanish input produces Spanish headings and content.
+- Verify questions are not promoted to agreements, people are not assigned tasks unless explicitly responsible, and no absent deadlines/names/decisions are invented.
+- For a long transcript, confirm chunked MAP/REDUCE/RENDER processing completes without repetition loops.
+- Record time to first rendered token and total generation time on the physical Mac used for certification.
 
 ## What to report
 
@@ -126,7 +133,7 @@ Do not delete a failing Library item before collecting the above evidence unless
 ## Known development-build limitations
 
 - This DMG is ad-hoc signed and not notarized for public distribution.
-- First real WhisperKit/SpeakerKit download and inference, plus Qwen generation, are intentionally manual evidence, not CI evidence.
-- The Qwen production adapter uses an explicit private MLX/Hugging Face cache under Bardo. It does not claim ownership from a pre-existing global Hugging Face cache.
+- First real WhisperKit/SpeakerKit inference and LFM2.5 Meeting Minutes quality remain physical evidence, not CI quality evidence.
+- CI can validate the pinned LFM revision/readiness contract but does not substitute for a real Apple Silicon generation smoke test.
 - TCC permission behavior is macOS-controlled and may require relaunching the app after granting access.
 - Long-recording memory/thermal behavior remains a separate physical test; start with short recordings for this smoke pass.
