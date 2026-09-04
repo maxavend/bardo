@@ -363,8 +363,6 @@ struct TranscriptionSetupView: View {
         switch state {
         case .installing(let progress) where progress.stage == .downloading:
             return min(1, max(0, progress.fractionCompleted))
-        case .installingMinutes(let progress) where progress.stage == .downloading:
-            return min(1, max(0, progress.fractionCompleted))
         case .installingSpeakers(let progress) where progress.stage == .downloading:
             return min(1, max(0, progress.fractionCompleted))
         case .checking, .installing, .installingMinutes, .installingSpeakers, .ready, .cancelled, .failed:
