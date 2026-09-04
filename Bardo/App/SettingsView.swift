@@ -86,9 +86,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .contentMargins(.horizontal, 28, for: .scrollContent)
-        .contentMargins(.vertical, 24, for: .scrollContent)
-        .frame(minWidth: 560, idealWidth: 620, maxWidth: 720, minHeight: 520, idealHeight: 600, maxHeight: 760)
+        .frame(minWidth: 600, minHeight: 520)
         .task {
             await model.refreshIfNeeded()
         }
@@ -142,52 +140,47 @@ private struct ModelSettingsRow: View {
     let action: (ModelSettingsAction) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 12) {
-                Image(systemName: row.symbol)
-                    .font(.system(size: 15, weight: .medium))
-                    .frame(width: 22)
-                    .foregroundStyle(row.stateColor)
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(row.title)
+                            .fontWeight(.medium)
+                            .lineLimit(1)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.title)
-                        .font(.body.weight(.medium))
-                        .lineLimit(1)
-                    Text(row.detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        Text(row.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } icon: {
+                    Image(systemName: row.symbol)
+                        .foregroundStyle(row.stateColor)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: 8) {
-                    if !row.stateLabel.isEmpty {
-                        Text(row.stateLabel)
-                            .font(.caption)
-                            .foregroundStyle(row.stateColor)
-                            .lineLimit(1)
-                            .frame(minWidth: 76, alignment: .trailing)
-                    }
-                    stateControl
+                if !row.stateLabel.isEmpty {
+                    Text(row.stateLabel)
+                        .font(.caption)
+                        .foregroundStyle(row.stateColor)
+                        .lineLimit(1)
                 }
-                .fixedSize(horizontal: true, vertical: false)
+
+                stateControl
             }
 
             if let progress = row.progressFraction {
                 ProgressView(value: progress)
-                    .controlSize(.small)
-                    .padding(.leading, 34)
             }
 
             if case .failed(let message) = row.state {
                 Text(String.localizedStringWithFormat(String(localized: "Failed: %@"), message))
                     .font(.caption)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
-                    .padding(.leading, 34)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }
@@ -202,35 +195,49 @@ private struct ModelSettingsRow: View {
     private var stateControl: some View {
         switch row.primaryAction {
         case .install:
-            Button("Install") { action(.install) }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+            Button(String(localized: "Install")) {
+                action(.install)
+            }
+            .controlSize(.small)
+
         case .cancel:
-            Button("Cancel") { action(.cancel) }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            Button(String(localized: "Cancel"), role: .cancel) {
+                action(.cancel)
+            }
+            .controlSize(.small)
+
         case .retry:
-            Button("Retry") { action(.retry) }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+            Button(String(localized: "Retry")) {
+                action(.retry)
+            }
+            .controlSize(.small)
+
         case .reset, .resetAndInstall:
             Menu {
-                Button("Show in Finder") { action(.reveal) }
+                Button(String(localized: "Show in Finder")) {
+                    action(.reveal)
+                }
+
                 Divider()
-                Button("Reinstall Model…", role: .destructive) { action(.resetAndInstall) }
-                Button("Remove Model", role: .destructive) { action(.reset) }
+
+                Button(String(localized: "Reinstall Model…"), role: .destructive) {
+                    action(.resetAndInstall)
+                }
+
+                Button(String(localized: "Remove Model"), role: .destructive) {
+                    action(.reset)
+                }
             } label: {
-                Image(systemName: "ellipsis")
-                    .frame(width: 24, height: 24)
+                Label(
+                    String.localizedStringWithFormat(String(localized: "More actions for %@"), row.title),
+                    systemImage: "ellipsis.circle"
+                )
+                .labelStyle(.iconOnly)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
             .controlSize(.small)
-            .accessibilityLabel(String.localizedStringWithFormat(String(localized: "More actions for %@"), row.title))
-            .help("Show more actions")
-        case .reveal:
-            EmptyView()
-        case .unavailable:
+            .help(String(localized: "Show more actions"))
+
+        case .reveal, .unavailable:
             EmptyView()
         }
     }
