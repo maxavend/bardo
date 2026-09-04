@@ -116,12 +116,27 @@ struct LibrarySidebar: View {
         if !model.issues.isEmpty {
             Section {
                 DisclosureGroup {
-                    ForEach(model.issues) { issue in
+                    ForEach(Array(model.issues.prefix(3))) { issue in
                         RecoveryIssueSidebarRow(issue: issue)
+                    }
+
+                    if model.issues.count > 3 {
+                        Text(
+                            String.localizedStringWithFormat(
+                                String(localized: "%lld more items"),
+                                model.issues.count - 3
+                            )
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 24)
                     }
                 } label: {
                     Label(
-                        String.localizedStringWithFormat(String(localized: "%lld Recovery Items"), model.issues.count),
+                        String.localizedStringWithFormat(
+                            String(localized: "%lld items need review"),
+                            model.issues.count
+                        ),
                         systemImage: "exclamationmark.triangle"
                     )
                     .font(.caption)
@@ -145,19 +160,19 @@ private struct RecoveryIssueSidebarRow: View {
                 Text(title)
                     .font(.caption.weight(.medium))
                     .lineLimit(1)
-                Text(formattedEntryName)
+                Text(detail)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
         } icon: {
             Image(systemName: symbol)
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
-        .help(issue.message)
+        .help("\(detail)\n\(issue.message)\n\(issue.entryName)")
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(formattedEntryName)")
+        .accessibilityLabel("\(title), \(detail)")
     }
 
     private var formattedEntryName: String {
@@ -174,22 +189,31 @@ private struct RecoveryIssueSidebarRow: View {
 
     private var title: String {
         switch issue.kind {
-        case .corruptManifest:
-            return String(localized: "Corrupt manifest")
-        case .missingManifest:
-            return String(localized: "Missing manifest")
+        case .corruptManifest, .missingManifest, .identityMismatch:
+            return String(localized: "Incomplete recording")
         case .unsupportedSchemaVersion:
-            return String(localized: "Unsupported recording")
-        case .identityMismatch:
-            return String(localized: "Identity mismatch")
+            return String(localized: "Recording from a newer version")
         case .temporaryArtifact, .temporaryAudioArtifact:
             return String(localized: "Interrupted capture")
         case .missingAudioFile, .missingDerivedAudioFile:
-            return String(localized: "Missing audio")
-        case .unexpectedEntry:
-            return String(localized: "Unexpected file")
-        case .unreadableEntry:
-            return String(localized: "Unreadable file")
+            return String(localized: "Audio unavailable")
+        case .unexpectedEntry, .unreadableEntry:
+            return String(localized: "Recording needs attention")
+        }
+    }
+
+    private var detail: String {
+        switch issue.kind {
+        case .corruptManifest, .missingManifest, .identityMismatch:
+            return String(localized: "Bardo couldn't recover all of this recording's information.")
+        case .unsupportedSchemaVersion:
+            return String(localized: "Update Bardo to open this recording.")
+        case .temporaryArtifact, .temporaryAudioArtifact:
+            return String(localized: "The interrupted capture was preserved safely.")
+        case .missingAudioFile, .missingDerivedAudioFile:
+            return String(localized: "The recording metadata is safe, but its audio file is missing.")
+        case .unexpectedEntry, .unreadableEntry:
+            return String(localized: "Bardo left this item untouched for review.")
         }
     }
 
@@ -224,6 +248,7 @@ private struct RecordingRowView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(LibraryFormatting.recordingTitle(recording))
+                    .font(.body.weight(.medium))
                     .lineLimit(1)
 
                 Text(metadata)
@@ -322,9 +347,7 @@ private struct RecordingRowView: View {
     private var stateIcon: some View {
         switch recording.processingState {
         case .pending:
-            Image(systemName: LibraryFormatting.stateSymbol(recording.processingState))
-                .foregroundStyle(.tertiary)
-                .accessibilityLabel(LibraryFormatting.state(recording.processingState))
+            EmptyView()
         case .processing:
             ProgressView()
                 .controlSize(.small)
