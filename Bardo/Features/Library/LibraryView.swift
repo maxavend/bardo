@@ -4,61 +4,108 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
     @ObserveInjection var redraw
     @ObservedObject var model: LibraryViewModel
+
     private let captureMenu: AnyView?
     private let activeCaptureBanner: AnyView?
+    private let onNewRecording: () -> Void
 
+    @ObservedObject private var favorites = BardoFavoritesStore.shared
+    @State private var selectedSection: BardoLibrarySection = .home
+    @State private var navigationPath = NavigationPath()
     @State private var isFileImporterPresented = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var recordingSearchText = ""
+    @State private var globalSearchText = ""
     @State private var transcriptSearchText = ""
+    @State private var isInspectorPresented = false
+    @FocusState private var isSearchFocused: Bool
 
     init(
         model: LibraryViewModel,
         topAccessory: AnyView? = nil,
         captureMenu: AnyView? = nil,
-        activeCaptureBanner: AnyView? = nil
+        activeCaptureBanner: AnyView? = nil,
+        onNewRecording: @escaping () -> Void = {
+            NotificationCenter.default.post(name: BardoCommandNotification.newRecording, object: nil)
+        }
     ) {
         self.model = model
         self.captureMenu = captureMenu
         self.activeCaptureBanner = activeCaptureBanner ?? topAccessory
+        self.onNewRecording = onNewRecording
     }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebar(model: model, searchText: $recordingSearchText) {
-                isFileImporterPresented = true
-            }
+            LibrarySidebar(model: model, selection: $selectedSection)
         } detail: {
-            detail
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    if let activeCaptureBanner {
-                        activeCaptureBanner
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 8)
+            NavigationStack(path: $navigationPath) {
+                workspaceRoot
+                    .navigationDestination(for: UUID.self) { recordingID in
+                        recordingDestination(recordingID)
                     }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let activeCaptureBanner {
+                    activeCaptureBanner
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
                 }
+            }
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .searchable(
-            text: $recordingSearchText,
-            placement: .sidebar,
-            prompt: Text(String(localized: "Search Recordings"))
+            text: $globalSearchText,
+            placement: .toolbar,
+            prompt: Text("Buscar conversaciones, texto, minutas o participantes")
         )
+        .searchFocused($isSearchFocused)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 if let captureMenu {
                     captureMenu
+                } else {
+                    Button(action: onNewRecording) {
+                        Label("Nueva grabación", systemImage: "record.circle")
+                    }
+                    .help("Nueva grabación (⌘N)")
                 }
 
                 Button {
                     isFileImporterPresented = true
                 } label: {
-                    Label(String(localized: "Import Audio"), systemImage: "square.and.arrow.down")
+                    Label("Importar audio", systemImage: "square.and.arrow.down")
                 }
-                .help(String(localized: "Import Audio (⇧⌘O)"))
-                .keyboardShortcut("o", modifiers: [.command, .shift])
-                .disabled(model.isImporting || model.isTranscribing || model.isDiarizing)
+                .help("Importar audio (⇧⌘O)")
+                .disabled(model.isImporting)
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                if !navigationPath.isEmpty {
+                    Button {
+                        isInspectorPresented.toggle()
+                    } label: {
+                        Label("Información", systemImage: "sidebar.trailing")
+                    }
+                    .help(isInspectorPresented ? "Ocultar información" : "Mostrar información")
+                }
+            }
+        }
+        .inspector(isPresented: $isInspectorPresented) {
+            if let recording = model.selectedRecording, !navigationPath.isEmpty {
+                RecordingInspector(
+                    recording: recording,
+                    transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil,
+                    meetingMinutes: model.meetingMinutes?.recordingID == recording.id ? model.meetingMinutes : nil
+                )
+                .frame(minWidth: 280, idealWidth: 320)
+            } else {
+                ContentUnavailableView(
+                    "Sin información",
+                    systemImage: "info.circle",
+                    description: Text("Abre una conversación para ver sus detalles.")
+                )
+                .frame(minWidth: 280)
             }
         }
         .task {
@@ -67,8 +114,28 @@ struct LibraryView: View {
         .task(id: model.selection) {
             await model.prepareSelection()
         }
-        .onChange(of: model.selection) { _, _ in
+        .onChange(of: selectedSection) { _, _ in
+            navigationPath = NavigationPath()
             transcriptSearchText = ""
+            if globalSearchText.isEmpty {
+                model.selection = nil
+            }
+        }
+        .onChange(of: globalSearchText) { _, value in
+            if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                navigationPath = NavigationPath()
+                isInspectorPresented = false
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.importAudio)) { _ in
+            isFileImporterPresented = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.focusSearch)) { _ in
+            isSearchFocused = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.toggleInspector)) { _ in
+            guard !navigationPath.isEmpty else { return }
+            isInspectorPresented.toggle()
         }
         .fileImporter(
             isPresented: $isFileImporterPresented,
@@ -83,65 +150,88 @@ struct LibraryView: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            guard !model.isImporting,
-                  !model.isTranscribing,
-                  !model.isDiarizing,
-                  !urls.isEmpty else {
-                return false
-            }
+            guard !model.isImporting, !urls.isEmpty else { return false }
             Task { await model.importAudio(from: urls) }
             return true
         }
         .alert(
-            String(localized: "Audio Import Failed"),
+            "No pudimos importar el audio",
             isPresented: Binding(
                 get: { model.importErrorMessage != nil },
                 set: { if !$0 { model.clearImportError() } }
             )
         ) {
-            Button(String(localized: "OK")) { model.clearImportError() }
+            Button("Aceptar") { model.clearImportError() }
         } message: {
-            Text(model.importErrorMessage ?? String(localized: "The audio could not be imported."))
+            Text(model.importErrorMessage ?? "Revisa el archivo e inténtalo de nuevo.")
         }
         .alert(
-            String(localized: "Recording Action Failed"),
+            "No pudimos completar la acción",
             isPresented: Binding(
                 get: { model.recordingActionErrorMessage != nil },
                 set: { if !$0 { model.clearRecordingActionError() } }
             )
         ) {
-            Button(String(localized: "OK")) { model.clearRecordingActionError() }
+            Button("Aceptar") { model.clearRecordingActionError() }
         } message: {
-            Text(model.recordingActionErrorMessage ?? String(localized: "Bardo could not complete that action."))
+            Text(model.recordingActionErrorMessage ?? "Inténtalo de nuevo.")
         }
-        .onDisappear {
-            model.cancelTranscription()
-            model.cancelDiarization()
-            model.stopPlayback()
-        }
-        .frame(minWidth: 900, minHeight: 560)
+        .frame(minWidth: 980, minHeight: 620)
         .enableInjection()
     }
 
     @ViewBuilder
-    private var detail: some View {
-        if let recording = model.selectedRecording {
+    private var workspaceRoot: some View {
+        let query = globalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            BardoSearchResultsView(
+                query: query,
+                model: model,
+                onOpenRecording: openRecording
+            )
+        } else {
+            BardoWorkspaceSectionView(
+                section: selectedSection,
+                model: model,
+                favorites: favorites,
+                onOpenRecording: openRecording,
+                onNewRecording: onNewRecording,
+                onImport: { isFileImporterPresented = true }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func recordingDestination(_ recordingID: Recording.ID) -> some View {
+        if let recording = model.recordings.first(where: { $0.id == recordingID }) {
             RecordingDetailView(
                 recording: recording,
                 model: model,
                 playback: model.playback,
                 transcriptSearch: $transcriptSearchText
             )
-        } else {
-            ContentUnavailableView {
-                Label(String(localized: "Select a Recording"), systemImage: "waveform")
-            } description: {
-                Text(String(localized: "Choose a recording from the sidebar to play audio, read its transcript, or inspect details."))
-            } actions: {
-                Button(String(localized: "Import Audio")) {
-                    isFileImporterPresented = true
+            .onAppear {
+                if model.selection != recordingID {
+                    model.selection = recordingID
                 }
             }
+        } else {
+            ContentUnavailableView(
+                "Esta conversación ya no está disponible",
+                systemImage: "waveform.badge.exclamationmark",
+                description: Text("Puede haberse movido o eliminado.")
+            )
         }
+    }
+
+    private func openRecording(_ recordingID: Recording.ID) {
+        globalSearchText = ""
+        transcriptSearchText = ""
+        model.selection = recordingID
+
+        if !navigationPath.isEmpty {
+            navigationPath = NavigationPath()
+        }
+        navigationPath.append(recordingID)
     }
 }
