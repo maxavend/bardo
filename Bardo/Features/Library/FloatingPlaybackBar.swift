@@ -16,10 +16,10 @@ struct FloatingPlaybackBar: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 7)
                 .bardoPlaybackSurface()
-                .frame(maxWidth: 820)
+                .frame(maxWidth: BardoLayout.playbackMaxWidth)
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 16)
+        .padding(.horizontal, BardoLayout.playbackHorizontalPadding)
+        .padding(.bottom, BardoLayout.playbackBottomPadding)
         .frame(maxWidth: .infinity)
         .enableInjection()
     }
@@ -128,7 +128,7 @@ struct FloatingPlaybackBar: View {
         } label: {
             Label(String(localized: "Playback unavailable"), systemImage: "exclamationmark.triangle")
         }
-        .frame(maxWidth: 820)
+        .frame(maxWidth: BardoLayout.playbackMaxWidth)
     }
 
     private func transportButton(
