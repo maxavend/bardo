@@ -80,6 +80,17 @@ enum MeetingMinutesStage: Equatable, Sendable {
     case synthesizing
 }
 
+enum MeetingMinutesSetupStage: Equatable, Sendable {
+    case downloading
+    case loading
+    case checkingRuntime
+}
+
+struct MeetingMinutesSetupProgressSnapshot: Equatable, Sendable {
+    let stage: MeetingMinutesSetupStage
+    let fractionCompleted: Double
+}
+
 struct MeetingMinutesProgressSnapshot: Equatable, Sendable {
     let stage: MeetingMinutesStage
     let fractionCompleted: Double
@@ -88,6 +99,9 @@ struct MeetingMinutesProgressSnapshot: Equatable, Sendable {
 
 protocol MeetingMinutesTextGenerating: Sendable {
     func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws
+    func prepareForUse(
+        setupProgress: @escaping @Sendable (MeetingMinutesSetupProgressSnapshot) -> Void
+    ) async throws
     func reset() async
 
     func generate(
@@ -101,6 +115,14 @@ protocol MeetingMinutesTextGenerating: Sendable {
 extension MeetingMinutesTextGenerating {
     func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws {
         progress(1)
+    }
+
+    func prepareForUse(
+        setupProgress: @escaping @Sendable (MeetingMinutesSetupProgressSnapshot) -> Void
+    ) async throws {
+        try await prepareForUse { fraction in
+            setupProgress(.init(stage: .downloading, fractionCompleted: fraction))
+        }
     }
 
     func reset() async {}
