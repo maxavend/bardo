@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Structural proportions shared by the native macOS library shell.
