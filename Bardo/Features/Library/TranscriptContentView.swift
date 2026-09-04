@@ -257,7 +257,9 @@ struct TranscriptContentView: View {
         if reduceMotion {
             scroll()
         } else {
-            withAnimation(.easeOut(duration: 0.18), scroll)
+            withAnimation(.easeOut(duration: 0.18)) {
+                scroll()
+            }
         }
     }
 
