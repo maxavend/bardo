@@ -291,3 +291,5 @@
 "Summarize decisions, tasks, and next steps on-device." = "Resume decisiones, tareas y próximos pasos directamente en este Mac.";
 "Bardo processes your recordings locally on this Mac. Audio, transcripts, and minutes stay on your device." = "Bardo procesa tus grabaciones localmente en este Mac. El audio, las transcripciones y las minutas permanecen en tu dispositivo.";
 "Continue" = "Continuar";
+"Transcribe this recording to search the conversation, identify participants, and create meeting minutes." = "Transcribe esta grabación para buscar en la conversación, identificar participantes y crear una minuta.";
+"Processed locally on this Mac" = "Procesado localmente en este Mac";
