@@ -282,3 +282,11 @@
 "The interrupted capture was preserved safely." = "The interrupted capture was preserved safely.";
 "The recording metadata is safe, but its audio file is missing." = "The recording metadata is safe, but its audio file is missing.";
 "Bardo left this item untouched for review." = "Bardo left this item untouched for review.";
+"Welcome to" = "Welcome to";
+"Transcribe conversations" = "Transcribe conversations";
+"Turn recordings into readable text locally on your Mac." = "Turn recordings into readable text locally on your Mac.";
+"Identify participants" = "Identify participants";
+"Organize conversations by speaker so each voice has its own place." = "Organize conversations by speaker so each voice has its own place.";
+"Create meeting minutes" = "Create meeting minutes";
+"Summarize decisions, tasks, and next steps on-device." = "Summarize decisions, tasks, and next steps on-device.";
+"Bardo processes your recordings locally on this Mac. Audio, transcripts, and minutes stay on your device." = "Bardo processes your recordings locally on this Mac. Audio, transcripts, and minutes stay on your device.";
