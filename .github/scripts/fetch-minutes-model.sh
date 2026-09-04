@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MODEL_ID="mlx-community/LFM2.5-1.2B-Instruct-4bit"
-MODEL_REVISION="main"
+MODEL_REVISION="125e006d991147f3b432249d1bdf0821987f12b0"
 DESTINATION="${BARDO_MINUTES_MODEL_DESTINATION:-$REPO_ROOT/Bardo/Resources/Models/Minutes/LFM2.5-1.2B-Instruct-4bit}"
 REPLACE=0
 
@@ -75,6 +75,8 @@ try:
                 shutil.copyfileobj(response, stream, length=1024 * 1024)
         except urllib.error.HTTPError as error:
             raise SystemExit(f"could not download {relative} ({error.code}): {error.reason}")
+
+    (staging / ".bardo-model-revision").write_text(revision + "\n", encoding="utf-8")
 
     if destination.exists():
         shutil.rmtree(destination)
