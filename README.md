@@ -141,11 +141,11 @@ Application Support/Bardo/Models/meeting-minutes/
 └── LFM2.5-1.2B-Instruct-4bit/       # downloaded during first-run setup
 ```
 
-Voice models are downloaded during first-run setup into Bardo’s private Application Support model root and validated before loading. Bardo owns only the Whisper Turbo and SpeakerKit roots; it does not use or count a global Hugging Face cache. Legacy Whisper/Parakeet directories are removed only during the one-time migration; Qwen and meeting-minutes data remain private and untouched.
+Voice models are downloaded during first-run setup into Bardo’s private Application Support model root and validated before loading. Bardo does not use or count a global Hugging Face cache. Legacy Whisper/Parakeet directories are removed only during the one-time migration. Qwen is no longer part of the production runtime; an old private `Models/qwen/` directory is preserved unless the user explicitly removes it from Settings.
 
 Voice models are not required in the DMG. The first setup downloads the pinned models, reports progress, and reuses them locally on subsequent runs. Settings retains an explicit retry/install action for recovery. See `THIRD_PARTY_NOTICES.md` for upstream license and model-artifact notices.
 
-LFM2.5 is not an ASR backend. It receives only the completed transcript, available speaker names and minimal context, then generates Meeting Minutes through conservative MAP/REDUCE/RENDER stages. The model is resolved from a Bardo-managed local directory first, with a bundled Resources/Models/Minutes snapshot accepted when present. If neither exists, Bardo downloads the pinned public snapshot during first-run setup into `Application Support/Bardo/Models/meeting-minutes`, validates the required files, and reuses it locally; it never uses the global Hugging Face cache.
+LFM2.5 is not an ASR backend. It receives only the completed transcript, available speaker names and minimal context, then generates Meeting Minutes through conservative MAP/REDUCE/RENDER stages. Production is pinned to Hugging Face revision `125e006d991147f3b432249d1bdf0821987f12b0`. Bardo accepts only snapshots carrying that revision marker. First-run setup then loads the real MLX container and performs a short local generation health check; Meeting Minutes is marked Ready only after that check succeeds. The verified container remains warm for a bounded idle period.
 
 For local development, an offline snapshot can still be staged explicitly before building:
 
