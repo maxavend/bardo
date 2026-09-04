@@ -67,4 +67,46 @@ final class WhisperIncrementalPipelineTests: XCTestCase {
         let laterProgress = buffer.updateProvisionalText("otra hipótesis")
         XCTAssertEqual(laterProgress.provisionalText, "")
     }
+    func testDiagnosticOverridesApplyOnlyWhenDiagnosticsAreExplicitlyEnabled() {
+        let memory = 16 * UInt64(1_024 * 1_024 * 1_024)
+        let disabled = WhisperPerformanceProfile(
+            physicalMemory: memory,
+            environment: [
+                WhisperPerformanceProfile.workersOverrideKey: "6",
+                WhisperPerformanceProfile.chunkOverrideKey: "90",
+                WhisperPerformanceProfile.bufferedChunksOverrideKey: "1"
+            ]
+        )
+        XCTAssertEqual(disabled.concurrentWorkerCount, 8)
+        XCTAssertEqual(disabled.incrementalChunkDurationSeconds, 120)
+        XCTAssertEqual(disabled.maxBufferedChunks, 2)
+
+        let enabled = WhisperPerformanceProfile(
+            physicalMemory: memory,
+            environment: [
+                WhisperPerformanceProfile.diagnosticsFlag: "1",
+                WhisperPerformanceProfile.workersOverrideKey: "6",
+                WhisperPerformanceProfile.chunkOverrideKey: "90",
+                WhisperPerformanceProfile.bufferedChunksOverrideKey: "1"
+            ]
+        )
+        XCTAssertEqual(enabled.concurrentWorkerCount, 6)
+        XCTAssertEqual(enabled.incrementalChunkDurationSeconds, 90)
+        XCTAssertEqual(enabled.maxBufferedChunks, 1)
+    }
+
+    func testExplicitBenchmarkProfileClampsUnsafeValues() {
+        let profile = WhisperPerformanceProfile(
+            incrementalChunkDurationSeconds: 900,
+            maxBufferedChunks: 0,
+            concurrentWorkerCount: 99,
+            temperatureFallbackCount: 99
+        )
+
+        XCTAssertEqual(profile.incrementalChunkDurationSeconds, 600)
+        XCTAssertEqual(profile.maxBufferedChunks, 1)
+        XCTAssertEqual(profile.concurrentWorkerCount, 16)
+        XCTAssertEqual(profile.temperatureFallbackCount, 10)
+    }
+
 }

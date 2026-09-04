@@ -1,3 +1,4 @@
+import CoreML
 import Foundation
 import OSLog
 @preconcurrency import WhisperKit
@@ -234,8 +235,14 @@ final class TranscriptionLiveBuffer: @unchecked Sendable {
 
 struct WhisperTranscriptionMetrics: Equatable, Sendable {
     let audioSeconds: TimeInterval
+    let modelPreparationSeconds: TimeInterval
+    let modelLoadSeconds: TimeInterval
+    let inferenceSeconds: TimeInterval
+    let endToEndSeconds: TimeInterval
+    let timeToFirstTextSeconds: TimeInterval?
     let asrSeconds: TimeInterval
     let asrRealTimeFactor: Double
+    let endToEndRealTimeFactor: Double
     let segmentCount: Int
     let wordCount: Int
     let incrementalChunkDurationSeconds: Double
@@ -243,6 +250,12 @@ struct WhisperTranscriptionMetrics: Equatable, Sendable {
     let workerCount: Int
     let fallbackCount: Int
     let vadWindowCount: Int
+    let peakResidentMemoryBytes: UInt64?
+    let memoryPressureOccurred: Bool
+    let thermalStateAtStart: WhisperThermalLevel
+    let worstThermalState: WhisperThermalLevel
+    let thermalStateAtEnd: WhisperThermalLevel
+    let progressSamples: [WhisperRuntimeSample]
 }
 
 actor WhisperTranscriptionService: RecordingTranscribing {
@@ -250,6 +263,11 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     static let defaultIdleUnloadNanoseconds: UInt64 = 30 * 60 * 1_000_000_000
 
     private static let logger = Logger(
+        subsystem: "com.maxavend.bardo",
+        category: "transcription.performance"
+    )
+
+    private static let signposter = OSSignposter(
         subsystem: "com.maxavend.bardo",
         category: "transcription.performance"
     )
@@ -388,29 +406,46 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
     ) async throws -> Transcript {
         try checkCancellation(cancellation)
+
         let overallStart = ProcessInfo.processInfo.systemUptime
+        let initialThermalState = WhisperThermalLevel(ProcessInfo.processInfo.thermalState)
+        let runtimeProbe = WhisperPerformanceProfile.diagnosticsEnabled()
+            ? WhisperRuntimeProbe()
+            : nil
+        runtimeProbe?.start()
+        var runtimeProbeStopped = false
+        defer {
+            if !runtimeProbeStopped {
+                _ = runtimeProbe?.stop()
+            }
+        }
+
         let (audioURL, duration) = try await resolveAudio(recording: recording, store: store)
         guard duration.isFinite, duration > 0 else {
             throw RecordingTranscriptionError.invalidDuration
         }
 
         progress(.init(stage: .preparingModel, fractionCompleted: 0))
-        let resources = try await modelManager.ensureResourcesAvailable { fraction in
-            progress(.init(stage: .preparingModel, fractionCompleted: Self.clamped(fraction)))
+        let (resources, modelPreparationSeconds) = try await measure("WhisperModelPreparation") {
+            try await modelManager.ensureResourcesAvailable { fraction in
+                progress(.init(stage: .preparingModel, fractionCompleted: Self.clamped(fraction)))
+            }
         }
         try checkCancellation(cancellation)
 
-        let whisper: WhisperKit
-        do {
-            whisper = try await engine(resources: resources, progress: progress)
-        } catch {
-            loadedWhisper = nil
-            try await modelManager.reset()
-            let repairedResources = try await modelManager.ensureResourcesAvailable { fraction in
-                progress(.init(stage: .preparingModel, fractionCompleted: Self.clamped(fraction)))
+        let (whisper, modelLoadSeconds) = try await measure("WhisperModelLoad") {
+            do {
+                return try await engine(resources: resources, progress: progress)
+            } catch {
+                loadedWhisper = nil
+                try await modelManager.reset()
+                let repairedResources = try await modelManager.ensureResourcesAvailable { fraction in
+                    progress(.init(stage: .preparingModel, fractionCompleted: Self.clamped(fraction)))
+                }
+                return try await engine(resources: repairedResources, progress: progress)
             }
-            whisper = try await engine(resources: repairedResources, progress: progress)
         }
+
         try checkCancellation(cancellation)
         progress(.init(stage: .transcribing, fractionCompleted: 0))
 
@@ -462,7 +497,9 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             }
 
             guard !converted.isEmpty else { return }
+            runtimeProbe?.markFirstText()
             let snapshot = liveBuffer.merge(converted)
+            runtimeProbe?.markProgress(processedAudioSeconds: snapshot.processedAudioTime)
             liveUpdate(snapshot)
             progress(.init(stage: .transcribing, fractionCompleted: snapshot.fractionCompleted))
         }
@@ -470,24 +507,30 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             whisper.segmentDiscoveryCallback = previousSegmentDiscoveryCallback
         }
 
-        let results = try await whisper.transcribe(
-            audioPath: audioURL.path,
-            audioInputOptions: audioInputOptions,
-            decodeOptions: options,
-            callback: { update in
-                if cancellation.isCancelled {
-                    return false
-                }
+        let (results, inferenceSeconds) = try await measure("WhisperInference") {
+            try await whisper.transcribe(
+                audioPath: audioURL.path,
+                audioInputOptions: audioInputOptions,
+                decodeOptions: options,
+                callback: { update in
+                    if cancellation.isCancelled {
+                        return false
+                    }
 
-                let snapshot = liveBuffer.updateProvisionalText(update.text)
-                if snapshot.segments.isEmpty,
-                   !snapshot.provisionalText.isEmpty,
-                   provisionalRateLimiter.shouldEmit() {
-                    liveUpdate(snapshot)
+                    let snapshot = liveBuffer.updateProvisionalText(update.text)
+                    if !snapshot.provisionalText.isEmpty {
+                        runtimeProbe?.markFirstText()
+                    }
+                    if snapshot.segments.isEmpty,
+                       !snapshot.provisionalText.isEmpty,
+                       provisionalRateLimiter.shouldEmit() {
+                        liveUpdate(snapshot)
+                    }
+                    return true
                 }
-                return true
-            }
-        )
+            )
+        }
+
         try checkCancellation(cancellation)
         progress(.init(stage: .transcribing, fractionCompleted: 1))
 
@@ -530,24 +573,48 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             )
         )
 
-        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
+        let endToEndSeconds = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
         let timings = results.map(\.timings)
         let fallbackCount = Int(timings.reduce(0) { $0 + $1.totalDecodingFallbacks })
         let windowCount = Int(timings.reduce(0) { $0 + $1.totalDecodingWindows })
+
+        let runtimeSnapshot = runtimeProbe?.stop()
+        runtimeProbeStopped = true
+        let endThermalState = WhisperThermalLevel(ProcessInfo.processInfo.thermalState)
+        let peakMemory = runtimeSnapshot?.peakResidentMemoryBytes ?? 0
+        let timeToFirstText = runtimeSnapshot?.timeToFirstTextSeconds ?? -1
+        let memoryPressureOccurred = runtimeSnapshot?.memoryPressureOccurred ?? false
+        let startThermalState = runtimeSnapshot?.thermalStateAtStart ?? initialThermalState
+        let worstThermalState = runtimeSnapshot?.worstThermalState
+            ?? WhisperThermalLevel.worse(initialThermalState, endThermalState)
+
         lastMetrics = WhisperTranscriptionMetrics(
             audioSeconds: duration,
-            asrSeconds: elapsed,
-            asrRealTimeFactor: elapsed / duration,
+            modelPreparationSeconds: modelPreparationSeconds,
+            modelLoadSeconds: modelLoadSeconds,
+            inferenceSeconds: inferenceSeconds,
+            endToEndSeconds: endToEndSeconds,
+            timeToFirstTextSeconds: runtimeSnapshot?.timeToFirstTextSeconds,
+            asrSeconds: inferenceSeconds,
+            asrRealTimeFactor: inferenceSeconds / duration,
+            endToEndRealTimeFactor: endToEndSeconds / duration,
             segmentCount: transcript.segments.count,
             wordCount: transcript.segments.reduce(0) { $0 + $1.words.count },
             incrementalChunkDurationSeconds: performanceProfile.incrementalChunkDurationSeconds,
             maxBufferedChunks: performanceProfile.maxBufferedChunks,
             workerCount: performanceProfile.concurrentWorkerCount,
             fallbackCount: fallbackCount,
-            vadWindowCount: windowCount
+            vadWindowCount: windowCount,
+            peakResidentMemoryBytes: runtimeSnapshot?.peakResidentMemoryBytes,
+            memoryPressureOccurred: memoryPressureOccurred,
+            thermalStateAtStart: startThermalState,
+            worstThermalState: worstThermalState,
+            thermalStateAtEnd: runtimeSnapshot?.thermalStateAtEnd ?? endThermalState,
+            progressSamples: runtimeSnapshot?.progressSamples ?? []
         )
+
         Self.logger.info(
-            "Whisper metrics audioSeconds=\(duration) ASRSeconds=\(elapsed) ASR_RTF=\(elapsed / duration) segments=\(transcript.segments.count) words=\(transcript.segments.reduce(0) { $0 + $1.words.count }) workers=\(self.performanceProfile.concurrentWorkerCount) incrementalChunkSeconds=\(self.performanceProfile.incrementalChunkDurationSeconds) bufferedChunks=\(self.performanceProfile.maxBufferedChunks) fallbackCount=\(fallbackCount) vadWindows=\(windowCount)"
+            "Whisper metrics audioSeconds=\(duration) modelPreparationSeconds=\(modelPreparationSeconds) modelLoadSeconds=\(modelLoadSeconds) inferenceSeconds=\(inferenceSeconds) endToEndSeconds=\(endToEndSeconds) TTFT=\(timeToFirstText) ASR_RTF=\(inferenceSeconds / duration) E2E_RTF=\(endToEndSeconds / duration) peakResidentBytes=\(peakMemory) memoryPressure=\(memoryPressureOccurred) thermalStart=\(startThermalState.rawValue, privacy: .public) thermalWorst=\(worstThermalState.rawValue, privacy: .public) thermalEnd=\((runtimeSnapshot?.thermalStateAtEnd ?? endThermalState).rawValue, privacy: .public) segments=\(transcript.segments.count) words=\(transcript.segments.reduce(0) { $0 + $1.words.count }) workers=\(self.performanceProfile.concurrentWorkerCount) incrementalChunkSeconds=\(self.performanceProfile.incrementalChunkDurationSeconds) bufferedChunks=\(self.performanceProfile.maxBufferedChunks) fallbackCount=\(fallbackCount) vadWindows=\(windowCount)"
         )
         return transcript
     }
@@ -566,6 +633,11 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             model: nil,
             modelFolder: resources.modelFolder.path,
             tokenizerFolder: resources.tokenizerFolder,
+            computeOptions: ModelComputeOptions(
+                melCompute: .cpuAndGPU,
+                audioEncoderCompute: .cpuAndNeuralEngine,
+                textDecoderCompute: .cpuAndNeuralEngine
+            ),
             verbose: false,
             prewarm: true,
             load: true,
@@ -602,6 +674,14 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         throw RecordingTranscriptionError.noManagedAudio(recording.id)
     }
 
+    func unloadForDiagnostics() async {
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
+        guard let whisper = loadedWhisper else { return }
+        loadedWhisper = nil
+        await whisper.unloadModels()
+    }
+
     private func scheduleIdleUnload() {
         idleUnloadTask?.cancel()
         let delay = idleUnloadNanoseconds
@@ -616,6 +696,19 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         loadedWhisper = nil
         idleUnloadTask = nil
         await whisper.unloadModels()
+    }
+
+    private func measure<T>(
+        _ name: StaticString,
+        operation: () async throws -> T
+    ) async rethrows -> (T, TimeInterval) {
+        let signpost = Self.signposter.beginInterval(name)
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        defer {
+            Self.signposter.endInterval(name, signpost)
+        }
+        let value = try await operation()
+        return (value, max(0, ProcessInfo.processInfo.systemUptime - startedAt))
     }
 
     private func checkCancellation(_ cancellation: TranscriptionCancellationFlag) throws {

@@ -25,6 +25,12 @@ struct TranscriptionModelResources: Equatable, Sendable {
 struct WhisperPerformanceProfile: Equatable, Sendable {
     static let sixteenGigabyteThreshold: UInt64 = 16 * 1_024 * 1_024 * 1_024
 
+    static let diagnosticsFlag = "BARDO_WHISPER_DIAGNOSTICS"
+    static let benchmarkAudioKey = "BARDO_WHISPER_BENCHMARK_AUDIO"
+    static let workersOverrideKey = "BARDO_WHISPER_WORKERS"
+    static let chunkOverrideKey = "BARDO_WHISPER_CHUNK_SECONDS"
+    static let bufferedChunksOverrideKey = "BARDO_WHISPER_BUFFERED_CHUNKS"
+
     let physicalMemory: UInt64
     let incrementalChunkDurationSeconds: Double
     let maxBufferedChunks: Int
@@ -32,19 +38,59 @@ struct WhisperPerformanceProfile: Equatable, Sendable {
     let usesVAD: Bool
     let temperatureFallbackCount: Int
 
-    init(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
-        self.physicalMemory = physicalMemory
-        if physicalMemory >= Self.sixteenGigabyteThreshold {
-            incrementalChunkDurationSeconds = 120
-            maxBufferedChunks = 2
-            concurrentWorkerCount = 8
-        } else {
-            incrementalChunkDurationSeconds = 90
-            maxBufferedChunks = 1
-            concurrentWorkerCount = 4
+    init(
+        physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        let isSixteenGigabyteClass = physicalMemory >= Self.sixteenGigabyteThreshold
+        var chunkDuration = isSixteenGigabyteClass ? 120.0 : 90.0
+        var bufferedChunks = isSixteenGigabyteClass ? 2 : 1
+        var workers = isSixteenGigabyteClass ? 8 : 4
+
+        if Self.diagnosticsEnabled(in: environment) {
+            if let value = environment[Self.chunkOverrideKey].flatMap(Double.init),
+               (30...600).contains(value) {
+                chunkDuration = value
+            }
+            if let value = environment[Self.bufferedChunksOverrideKey].flatMap(Int.init),
+               (1...8).contains(value) {
+                bufferedChunks = value
+            }
+            if let value = environment[Self.workersOverrideKey].flatMap(Int.init),
+               (1...16).contains(value) {
+                workers = value
+            }
         }
+
+        self.physicalMemory = physicalMemory
+        incrementalChunkDurationSeconds = chunkDuration
+        maxBufferedChunks = bufferedChunks
+        concurrentWorkerCount = workers
         usesVAD = true
         temperatureFallbackCount = 5
+    }
+
+    init(
+        physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory,
+        incrementalChunkDurationSeconds: Double,
+        maxBufferedChunks: Int,
+        concurrentWorkerCount: Int,
+        usesVAD: Bool = true,
+        temperatureFallbackCount: Int = 5
+    ) {
+        self.physicalMemory = physicalMemory
+        self.incrementalChunkDurationSeconds = min(600, max(30, incrementalChunkDurationSeconds))
+        self.maxBufferedChunks = min(8, max(1, maxBufferedChunks))
+        self.concurrentWorkerCount = min(16, max(1, concurrentWorkerCount))
+        self.usesVAD = usesVAD
+        self.temperatureFallbackCount = min(10, max(0, temperatureFallbackCount))
+    }
+
+    static func diagnosticsEnabled(
+        in environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        environment[diagnosticsFlag] == "1"
+            || environment[benchmarkAudioKey]?.isEmpty == false
     }
 }
 

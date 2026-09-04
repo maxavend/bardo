@@ -12,6 +12,7 @@ xcuserdata/
 # Xcode build products
 DerivedData/
 .derived-data/
+.benchmark-derived-data/
 build/
 *.dSYM
 *.dSYM.zip
