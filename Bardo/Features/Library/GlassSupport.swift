@@ -43,15 +43,10 @@ extension View {
         }
     }
 
-    /// Lets macOS 26 render transcript search as a compact toolbar control that
-    /// expands fluidly on interaction. Earlier systems keep their native
-    /// searchable presentation.
-    @ViewBuilder
-    func bardoMinimizedSearchToolbar() -> some View {
-        if #available(macOS 26.0, *) {
-            self.searchToolbarBehavior(.minimize)
-        } else {
-            self
-        }
-    }
+    // IMPORTANT: SearchToolbarBehavior.minimize is explicitly unavailable on
+    // macOS in the Xcode 26 SDK. Do not gate it with #available(macOS:); that
+    // still fails to compile. For Bardo's macOS toolbar search, use SwiftUI
+    // .searchable(..., placement: .toolbar) or bridge to NSSearchToolbarItem
+    // when explicit collapsed/expanded AppKit behavior is required.
+
 }
