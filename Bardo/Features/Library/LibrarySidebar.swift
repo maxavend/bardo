@@ -8,59 +8,14 @@ struct LibrarySidebar: View {
     let onImport: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sidebarControls
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
-
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.85))
-        .navigationTitle("")
-        .navigationSplitViewColumnWidth(
-            min: BardoLayout.librarySidebarMinWidth,
-            ideal: BardoLayout.librarySidebarIdealWidth,
-            max: BardoLayout.librarySidebarMaxWidth
-        )
-        .enableInjection()
-    }
-
-    private var sidebarControls: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-
-                TextField(String(localized: "Buscar"), text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14, weight: .medium))
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 34)
-            .bardoGlassCapsule(interactive: true)
-
-            sidebarActionButton(systemImage: "square.and.arrow.up", label: String(localized: "Import Audio"))
-            sidebarActionButton(systemImage: "plus", label: String(localized: "Import Audio"))
-                .keyboardShortcut("o", modifiers: [.command, .shift])
-        }
-        .controlSize(.regular)
-    }
-
-    private func sidebarActionButton(systemImage: String, label: String) -> some View {
-        Button(action: onImport) {
-            Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 34, height: 34)
-                .bardoGlassCircle(interactive: true)
-        }
-        .buttonStyle(.bardoPressable)
-        .disabled(model.isImporting || model.isTranscribing || model.isDiarizing)
-        .help(label)
+        content
+            .navigationTitle(String(localized: "Library"))
+            .navigationSplitViewColumnWidth(
+                min: BardoLayout.librarySidebarMinWidth,
+                ideal: BardoLayout.librarySidebarIdealWidth,
+                max: 360
+            )
+            .enableInjection()
     }
 
     @ViewBuilder
@@ -116,25 +71,24 @@ struct LibrarySidebar: View {
                 }
             }
             .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
         }
     }
 
     @ViewBuilder
     private var statusSections: some View {
         if let feedback = model.recordingActionFeedback {
-            Section(String(localized: "Done")) {
-                Label(feedback, systemImage: "checkmark.circle.fill")
+            Section {
+                Label(feedback, systemImage: "checkmark.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
 
         if let actionError = model.recordingActionErrorMessage {
-            Section(String(localized: "Action Needs Attention")) {
-                Label(actionError, systemImage: "exclamationmark.triangle.fill")
+            Section {
+                Label(actionError, systemImage: "exclamationmark.triangle")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
             }
         }
 
@@ -152,10 +106,10 @@ struct LibrarySidebar: View {
         }
 
         if let errorMessage = model.errorMessage {
-            Section(String(localized: "Library")) {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+            Section {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
             }
         }
 
@@ -186,26 +140,21 @@ private struct RecoveryIssueSidebarRow: View {
     let issue: RecordingStoreIssue
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: symbol)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 16, height: 18)
-                .accessibilityHidden(true)
-
+        Label {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 Text(formattedEntryName)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+        } icon: {
+            Image(systemName: symbol)
+                .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 3)
-        .contentShape(Rectangle())
+        .padding(.vertical, 2)
         .help(issue.message)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(formattedEntryName)")
@@ -262,39 +211,31 @@ private struct RecordingRowView: View {
     @State private var isRenamePresented = false
     @State private var isDeleteConfirmationPresented = false
 
-    private var isSelected: Bool {
-        model.selection == recording.id
-    }
-
     private var isPlaying: Bool {
-        isSelected && model.playback.isPlaying
+        model.selection == recording.id && model.playback.isPlaying
     }
 
     var body: some View {
         HStack(spacing: 8) {
-            sourceIcon
+            Image(systemName: isPlaying ? "speaker.wave.2.fill" : "waveform")
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 18)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(LibraryFormatting.recordingTitle(recording))
-                    .font(.subheadline.weight(isSelected ? .semibold : .medium))
-                    .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.88))
                     .lineLimit(1)
 
-                HStack(spacing: 4) {
-                    Text(recording.createdAt.formatted(.dateTime.day().month(.abbreviated)))
-                    Text("·")
-                    Text(LibraryFormatting.duration(recording.duration))
-                }
-                .font(.caption2)
-                .foregroundStyle(isSelected ? Color.secondary : Color.secondary.opacity(0.8))
-                .lineLimit(1)
+                Text(metadata)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 4)
-
             stateIcon
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             guard RecordingActionPolicy.allows(.playPause, for: recording) else { return }
@@ -305,7 +246,10 @@ private struct RecordingRowView: View {
                 Button {
                     Task { await model.playRecording(recording.id) }
                 } label: {
-                    Label(String(localized: "Play"), systemImage: "play.fill")
+                    Label(
+                        isPlaying ? String(localized: "Pause") : String(localized: "Play"),
+                        systemImage: isPlaying ? "pause.fill" : "play.fill"
+                    )
                 }
             }
 
@@ -319,15 +263,15 @@ private struct RecordingRowView: View {
             .disabled(model.isTranscribing || model.isDiarizing)
 
             Button {
-                Task { await model.copyManagedLocation(recording.id) }
-            } label: {
-                Label(String(localized: "Copy Location"), systemImage: "doc.on.doc")
-            }
-
-            Button {
                 revealInFinder()
             } label: {
                 Label(String(localized: "Reveal in Finder"), systemImage: "folder")
+            }
+
+            Button {
+                Task { await model.copyManagedLocation(recording.id) }
+            } label: {
+                Label(String(localized: "Copy Location"), systemImage: "doc.on.doc")
             }
 
             Divider()
@@ -370,12 +314,8 @@ private struct RecordingRowView: View {
         .help("\(recording.createdAt.formatted(.dateTime.month(.abbreviated).day().hour().minute())) · \(LibraryFormatting.duration(recording.duration))")
     }
 
-    private var sourceIcon: some View {
-        Image(systemName: isPlaying ? "speaker.wave.2.fill" : "waveform")
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(isSelected ? Color.cyan : Color.cyan.opacity(0.75))
-            .frame(width: 20, height: 20)
-            .accessibilityHidden(true)
+    private var metadata: String {
+        "\(recording.createdAt.formatted(.dateTime.day().month(.abbreviated))) · \(LibraryFormatting.duration(recording.duration))"
     }
 
     @ViewBuilder
@@ -383,7 +323,6 @@ private struct RecordingRowView: View {
         switch recording.processingState {
         case .pending:
             Image(systemName: LibraryFormatting.stateSymbol(recording.processingState))
-                .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .accessibilityLabel(LibraryFormatting.state(recording.processingState))
         case .processing:
@@ -392,12 +331,10 @@ private struct RecordingRowView: View {
                 .accessibilityLabel(LibraryFormatting.state(recording.processingState))
         case .completed:
             Image(systemName: LibraryFormatting.stateSymbol(recording.processingState))
-                .font(.caption)
                 .foregroundStyle(.secondary)
                 .accessibilityLabel(LibraryFormatting.state(recording.processingState))
         case .failed:
             Image(systemName: LibraryFormatting.stateSymbol(recording.processingState))
-                .font(.caption)
                 .foregroundStyle(.orange)
                 .accessibilityLabel(LibraryFormatting.state(recording.processingState))
         }
