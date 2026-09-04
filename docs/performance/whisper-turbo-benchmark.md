@@ -85,11 +85,13 @@ The script:
 
 1. generates the Xcode project with XcodeGen;
 2. builds Bardo in Release;
-3. runs the Release executable directly in benchmark mode;
-4. bootstraps Whisper once before timed profiles so download/Core ML
+3. builds with `-skipPackagePluginValidation` so Xcode's headless trust prompt for the
+   exact-version-pinned MLX package plugin cannot block the physical benchmark;
+4. runs the Release executable directly in benchmark mode;
+5. bootstraps Whisper once before timed profiles so download/Core ML
    specialization does not bias profile comparisons;
-5. executes the requested profile matrix;
-6. writes JSON, per-run CSV, summary CSV, build log and benchmark log.
+6. executes the requested profile matrix;
+7. writes JSON, per-run CSV, summary CSV, build log and benchmark log.
 
 By default results are written under:
 
