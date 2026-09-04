@@ -393,7 +393,7 @@ private struct BardoStorageUsage {
         let library = (try? RecordingStore.defaultLibraryURL()).map(directorySize) ?? 0
         let models: Int64
         if let store = try? BardoModelStore.live() {
-            let roots = ManagedModel.allCases.map(store.root(for:))
+            let roots = ManagedModel.allCases.map { store.root(for: $0) }
             let parentRoots = Set(roots.map { $0.standardizedFileURL })
             models = parentRoots.reduce(0) { $0 + directorySize($1) }
         } else {
