@@ -270,3 +270,15 @@
 "Checking local generation…" = "Checking local generation…";
 "Downloading…" = "Downloading…";
 "Checking…" = "Checking…";
+"Transcribe this recording on this Mac." = "Transcribe this recording on this Mac.";
+"%lld items need review" = "%lld items need review";
+"%lld more items" = "%lld more items";
+"Incomplete recording" = "Incomplete recording";
+"Recording from a newer version" = "Recording from a newer version";
+"Audio unavailable" = "Audio unavailable";
+"Recording needs attention" = "Recording needs attention";
+"Bardo couldn't recover all of this recording's information." = "Bardo couldn't recover all of this recording's information.";
+"Update Bardo to open this recording." = "Update Bardo to open this recording.";
+"The interrupted capture was preserved safely." = "The interrupted capture was preserved safely.";
+"The recording metadata is safe, but its audio file is missing." = "The recording metadata is safe, but its audio file is missing.";
+"Bardo left this item untouched for review." = "Bardo left this item untouched for review.";
