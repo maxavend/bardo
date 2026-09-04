@@ -34,14 +34,14 @@ struct TranscriptContentView: View {
                               transcript.recordingID == recording.id {
                         if model.isDiarizing, model.diarizationRecordingID == recording.id {
                             diarizationProgressView
-                        } else {
-                            transcriptHeader(for: transcript)
-                            transcriptConversation(transcript)
+                        }
 
-                            if !transcript.segments.isEmpty {
-                                minutesNavigationGroup
-                                    .padding(.top, 8)
-                            }
+                        transcriptHeader(for: transcript)
+                        transcriptConversation(transcript)
+
+                        if !transcript.segments.isEmpty {
+                            minutesNavigationGroup
+                                .padding(.top, 8)
                         }
                     } else {
                         emptyTranscriptView
