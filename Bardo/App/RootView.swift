@@ -120,22 +120,8 @@ struct RootView: View {
                 Label(String(localized: "Internal Audio Only"), systemImage: "macbook.and.iphone")
             }
         } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "record.circle")
-                    .font(.system(size: 14, weight: .semibold))
-                Text(String(localized: "Grabar"))
-                    .font(.system(size: 13, weight: .semibold))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 34)
-            .bardoGlassCapsule(interactive: true)
-            .contentShape(Capsule())
+            Label(String(localized: "Grabar"), systemImage: "record.circle")
         }
-        .menuIndicator(.hidden)
-        .buttonStyle(.plain)
         .help(String(localized: "Record: Microphone or Microphone + Internal Audio (⌘R)"))
         .keyboardShortcut("r", modifiers: [.command])
         .disabled(microphone.isBusy || systemAudio.isBusy)
@@ -233,33 +219,30 @@ struct RootView: View {
         let total = microphone.recoveryIssues.count + systemAudio.recoveryIssues.count
 
         if total > 0 {
-            HStack(alignment: .center, spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
-                    .accessibilityHidden(true)
+            GroupBox {
+                HStack(alignment: .center, spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(RecoveryCopy.reviewTitle(total))
-                        .font(.callout.weight(.semibold))
-                    Text(RecoveryCopy.countDescription(total))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(RecoveryCopy.reviewTitle(total))
+                            .font(.callout.weight(.semibold))
+                        Text(RecoveryCopy.countDescription(total))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
-                Spacer(minLength: 12)
+                    Spacer(minLength: 16)
 
-                Button(RecoveryCopy.reviewAction) { isRecoveryPresented = true }
-                    .buttonStyle(.bordered)
+                    Button(RecoveryCopy.reviewAction) {
+                        isRecoveryPresented = true
+                    }
                     .controlSize(.small)
-                    .keyboardShortcut(.defaultAction)
                     .help(String(localized: "Review, open, or discard interrupted capture files"))
+                }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
-            .frame(maxWidth: 680)
+            .frame(maxWidth: 720)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(RecoveryCopy.reviewTitle(total)). \(RecoveryCopy.reviewDetail(total)). \(RecoveryCopy.reviewAction)")
         }
@@ -272,79 +255,69 @@ struct RootView: View {
         changeSourceAction: (() -> Void)? = nil,
         stopAction: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "record.circle.fill")
-                .font(.body)
-                .foregroundStyle(.red)
-                .symbolEffect(.pulse)
-                .accessibilityHidden(true)
+        GroupBox {
+            HStack(spacing: 12) {
+                Image(systemName: "record.circle.fill")
+                    .foregroundStyle(.red)
+                    .symbolEffect(.pulse)
+                    .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 8) {
-                    Text(title)
-                        .font(.callout.weight(.semibold))
-                    Text(LibraryFormatting.duration(duration))
-                        .font(.callout.monospacedDigit())
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        Text(title)
+                            .font(.callout.weight(.semibold))
+                        Text(LibraryFormatting.duration(duration))
+                            .font(.callout.monospacedDigit())
+                    }
+
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
 
-            Spacer(minLength: 16)
+                Spacer(minLength: 16)
 
-            if let changeSourceAction {
-                Button(String(localized: "Change Source…"), action: changeSourceAction)
-                    .controlSize(.small)
-                    .help(String(localized: "Choose different macOS content without restarting the recording"))
-            }
-
-            Button(action: stopAction) {
-                HStack(spacing: 5) {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 9, weight: .bold))
-                    Text(String(localized: "Stop"))
-                        .font(.subheadline.weight(.semibold))
+                if let changeSourceAction {
+                    Button(String(localized: "Change Source…"), action: changeSourceAction)
+                        .controlSize(.small)
+                        .help(String(localized: "Choose different macOS content without restarting the recording"))
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(.red, in: Capsule())
-                .shadow(color: .red.opacity(0.35), radius: 4, y: 1)
+
+                Button(action: stopAction) {
+                    Label(String(localized: "Stop"), systemImage: "stop.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .controlSize(.small)
+                .keyboardShortcut(.escape, modifiers: [])
+                .help(String(localized: "Stop recording (⎋)"))
             }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.escape, modifiers: [])
-            .help(String(localized: "Stop recording (⎋)"))
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .bardoGlassCapsule(interactive: true)
-        .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
-        .frame(maxWidth: 680)
+        .frame(maxWidth: 720)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(LibraryFormatting.duration(duration)). \(detail)")
     }
 
     private func transitionPill(title: String, detail: String) -> some View {
-        HStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.small)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.callout.weight(.semibold))
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        GroupBox {
+            HStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.small)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.callout.weight(.semibold))
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
             }
-            Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .bardoGlassCapsule(interactive: false)
-        .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
-        .frame(maxWidth: 680)
+        .frame(maxWidth: 720)
     }
 
     @MainActor
