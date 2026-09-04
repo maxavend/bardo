@@ -710,7 +710,6 @@ final class LibraryViewModel: ObservableObject {
                 )
                 try Task.checkCancellation()
                 try await resolveMeetingMinutesStore().save(generated)
-                await generator.reset()
                 guard selection == recording.id else { return }
                 meetingMinutes = generated
                 streamingMeetingMinutesText = nil
