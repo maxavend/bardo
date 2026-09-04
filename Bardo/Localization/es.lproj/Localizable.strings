@@ -64,7 +64,7 @@
 "More actions for %@" = "Más acciones para %@";
 "Models are stored privately on your Mac." = "Los modelos se almacenan de forma privada en tu Mac.";
 "Search Recordings" = "Buscar grabaciones";
-"Search Transcript" = "Buscar transcripción";
+"Search Transcript" = "Buscar en la transcripción";
 "Clear search" = "Borrar búsqueda";
 "Unknown" = "Desconocido";
 "Unknown source" = "Origen desconocido";
@@ -89,7 +89,7 @@
 "Audio stays on this Mac while WhisperKit processes it." = "El audio permanece en este Mac mientras WhisperKit lo procesa.";
 "Speaker identification runs locally with SpeakerKit." = "La identificación de hablantes se ejecuta localmente con SpeakerKit.";
 "Cancel Speaker Identification" = "Cancelar identificación de hablantes";
-"No Transcript Yet" = "Aún no hay transcripción";
+"No Transcript Yet" = "Sin transcripción";
 "Create a private, on-device transcript with WhisperKit. The speech model is prepared locally the first time you use it." = "Crea una transcripción privada en el dispositivo con WhisperKit. El modelo de voz se prepara localmente la primera vez que lo usas.";
 "Retry Transcription" = "Reintentar transcripción";
 "Transcribe" = "Transcribir";
@@ -270,3 +270,15 @@
 "Checking local generation…" = "Comprobando la generación local…";
 "Downloading…" = "Descargando…";
 "Checking…" = "Comprobando…";
+"Transcribe this recording on this Mac." = "Transcribe esta grabación en este Mac.";
+"%lld items need review" = "%lld elementos necesitan revisión";
+"%lld more items" = "%lld elementos más";
+"Incomplete recording" = "Grabación incompleta";
+"Recording from a newer version" = "Grabación de una versión más reciente";
+"Audio unavailable" = "Audio no disponible";
+"Recording needs attention" = "La grabación necesita atención";
+"Bardo couldn't recover all of this recording's information." = "Bardo no pudo recuperar toda la información de esta grabación.";
+"Update Bardo to open this recording." = "Actualiza Bardo para abrir esta grabación.";
+"The interrupted capture was preserved safely." = "La captura interrumpida se conservó de forma segura.";
+"The recording metadata is safe, but its audio file is missing." = "La información de la grabación está a salvo, pero falta su archivo de audio.";
+"Bardo left this item untouched for review." = "Bardo dejó este elemento intacto para que puedas revisarlo.";
