@@ -42,17 +42,18 @@ final class TranscriptUXTests: XCTestCase {
         }
     }
 
-    func testSetupProgressCopyExplainsCurrentStepAndOverallProgress() {
-        let copy = TranscriptionSetupCopy.progressLabel(
-            for: .listening,
-            stageFraction: 0.62,
-            overallFraction: 0.29
-        )
+    func testFirstRunProgressCopyCoversEveryPreparationPhase() {
+        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .listening), "Preparando el reconocimiento de voz…")
+        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .preparingMinutes), "Preparando minutas…")
+        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .welcomingVoices), "Organizando las voces…")
 
-        XCTAssertTrue(copy.contains("62%"))
-        XCTAssertTrue(copy.contains("29%"))
-        XCTAssertFalse(copy.lowercased().contains("model"))
-        XCTAssertFalse(copy.contains("\n"))
+        for stage in [
+            TranscriptionSetupCopy.Stage.listening,
+            .preparingMinutes,
+            .welcomingVoices
+        ] {
+            XCTAssertGreaterThanOrEqual(TranscriptionSetupCopy.messages(for: stage).count, 3)
+        }
     }
 
     func testManualChangeFlagsDistinguishTextAndSpeakerNames() {
