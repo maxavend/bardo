@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 @MainActor
@@ -9,6 +10,16 @@ final class BardoAppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         InjectionObserver.shared.loadInjectionBundleIfNeeded()
         #endif
+
+        guard WhisperBenchmarkConfiguration.isRequested else { return }
+
+        // Benchmark mode is opt-in via environment and intentionally bypasses normal UI work.
+        // Running the Release executable directly keeps measurements representative of production.
+        NSApp.hide(nil)
+        Task {
+            let status = await WhisperPhysicalBenchmarkRunner.runFromEnvironment()
+            exit(status)
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
