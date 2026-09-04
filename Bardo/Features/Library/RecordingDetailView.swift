@@ -8,6 +8,7 @@ struct RecordingDetailView: View {
     @ObservedObject var playback: AudioPlaybackController
 
     @Binding var transcriptSearch: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
     @State private var isSpeakerNamingPresented = false
@@ -31,7 +32,7 @@ struct RecordingDetailView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .topLeading) {
             switch selectedTab {
             case .transcript:
                 TranscriptContentView(
@@ -44,6 +45,8 @@ struct RecordingDetailView: View {
                     onSelectMinutes: { selectedTab = .minutes }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .transition(.opacity)
+
             case .minutes:
                 MeetingMinutesView(
                     recording: recording,
@@ -51,8 +54,13 @@ struct RecordingDetailView: View {
                     onSwitchToTranscript: { selectedTab = .transcript }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .transition(.opacity)
             }
         }
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: 0.14),
+            value: selectedTab
+        )
         .searchable(
             text: $transcriptSearch,
             placement: .toolbar,
@@ -183,25 +191,18 @@ struct RecordingDetailView: View {
         .enableInjection()
     }
 
-    @ViewBuilder
     private var detailModePicker: some View {
-        if #available(macOS 26.0, *) {
-            detailModePickerContent
-                .pickerStyle(.tabs)
-        } else {
-            detailModePickerContent
-                .pickerStyle(.segmented)
-        }
-    }
-
-    private var detailModePickerContent: some View {
         Picker(String(localized: "Recording View"), selection: $selectedTab) {
             ForEach(DetailTab.allCases) { tab in
-                Text(tab.title).tag(tab)
+                Text(tab.title)
+                    .tag(tab)
             }
         }
+        .pickerStyle(.segmented)
         .labelsHidden()
         .controlSize(.regular)
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityLabel(String(localized: "Recording View"))
     }
 
     private var recordingActionsMenu: some View {
