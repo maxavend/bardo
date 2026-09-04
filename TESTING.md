@@ -116,6 +116,16 @@ Use audio with at least two distinct speakers if possible.
 - For a long transcript, confirm chunked MAP/REDUCE/RENDER processing completes without repetition loops.
 - Record time to first rendered token and total generation time on the physical Mac used for certification.
 
+## Whisper performance certification
+
+Whisper performance tuning is intentionally separate from the functional smoke test above.
+Use the Release benchmark harness documented in `docs/performance/whisper-turbo-benchmark.md`
+to compare workers, chunk/buffer profiles and sustained long-form thermal behavior.
+
+Do not change the production 16 GB profile from physical-memory heuristics to a device-certified
+profile until the benchmark JSON/CSV for the tested Git SHA has passed the quality, memory,
+thermal and stability gates.
+
 ## What to report
 
 For any issue, capture:
