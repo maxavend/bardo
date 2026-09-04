@@ -244,16 +244,26 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func prepareSelection() async {
-        await preparePlaybackForSelection()
-        await loadTranscriptForSelection()
+        async let playbackPreparation: Void = preparePlaybackForSelection()
+        async let transcriptPreparation: Void = loadTranscriptForSelection()
+        _ = await (playbackPreparation, transcriptPreparation)
     }
 
     func preparePlaybackForSelection() async {
-        playback.unload()
-        guard let recording = selectedRecording else { return }
+        guard let recording = selectedRecording else {
+            playback.unload()
+            return
+        }
         guard !recording.audioAssets.isEmpty else {
             playback.setUnavailable("This recording has no managed audio file.")
             return
+        }
+
+        // Keep the current player geometry/state alive while the new managed URL
+        // resolves. Unloading here made toolbar/sidebar clicks visibly disable and
+        // rebuild the player before the replacement audio was ready.
+        if playback.isPlaying {
+            playback.pause()
         }
 
         let recordingID = recording.id
