@@ -130,6 +130,10 @@ final class TranscriptionSetupCoordinator: ObservableObject {
                 try store.removeLegacyVoiceModelDirectories()
                 try await WhisperTranscriptionService.live().reset()
                 try await SpeakerDiarizationService.live().reset()
+                let minutes = try? MeetingMinutesGenerator.live()
+                await minutes?.reset()
+                MeetingMinutesRuntimeReadiness.invalidate()
+                try store.reset(.meetingMinutes)
                 defaults.set(false, forKey: Self.completionKey)
                 await prepareIfNeeded(force: true)
             } catch is CancellationError {
