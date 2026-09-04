@@ -39,6 +39,7 @@ struct LibraryView: View {
                 }
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .searchable(
             text: $recordingSearchText,
             placement: .sidebar,
