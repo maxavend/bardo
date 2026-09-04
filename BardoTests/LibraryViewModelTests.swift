@@ -82,6 +82,44 @@ final class LibraryViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testSpeakerPreviewUsesIndependentPlayerWithoutMutatingDocumentPlayback() async throws {
+        let rootURL = makeTemporaryDirectory()
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let sourceURL = rootURL.appendingPathComponent("speaker-preview.wav")
+        try AudioTestFixture.makeWAV(at: sourceURL, duration: 0.8)
+
+        let libraryURL = rootURL.appendingPathComponent("Library", isDirectory: true)
+        let store = RecordingStore(rootURL: libraryURL)
+        let importer = AudioImportService(store: store)
+        let recording = try await importer.importFile(at: sourceURL)
+
+        let model = LibraryViewModel(store: store)
+        await model.reload()
+
+        XCTAssertEqual(model.selection, recording.id)
+        XCTAssertTrue(model.playback.isLoaded)
+        model.playback.seek(to: 0.2)
+        let documentPosition = model.playback.position
+        let documentMetadata = model.playback.metadata
+
+        let previewPlayback = AudioPlaybackController()
+        let previewLoaded = await model.prepareSpeakerPreviewPlayback(previewPlayback)
+
+        XCTAssertTrue(previewLoaded)
+        XCTAssertTrue(previewPlayback.isLoaded)
+        XCTAssertEqual(model.playback.position, documentPosition, accuracy: 0.01)
+        XCTAssertEqual(model.playback.metadata, documentMetadata)
+        XCTAssertNil(model.playback.errorMessage)
+
+        XCTAssertTrue(previewPlayback.playPreview(from: 0.1, to: 0.3))
+        XCTAssertTrue(previewPlayback.isPlaying)
+        XCTAssertFalse(model.playback.isPlaying)
+        XCTAssertEqual(model.playback.position, documentPosition, accuracy: 0.01)
+    }
+
+    @MainActor
     func testRenameRecordingPersistsTrimmedTitle() async throws {
         let rootURL = makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
