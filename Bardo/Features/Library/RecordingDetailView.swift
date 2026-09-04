@@ -8,7 +8,6 @@ struct RecordingDetailView: View {
     @ObservedObject var playback: AudioPlaybackController
 
     @Binding var transcriptSearch: String
-    var captureMenu: AnyView? = nil
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
     @State private var isSpeakerNamingPresented = false
