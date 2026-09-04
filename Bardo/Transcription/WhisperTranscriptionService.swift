@@ -126,6 +126,31 @@ private final class TranscriptionCancellationFlag: @unchecked Sendable {
     }
 }
 
+private final class TranscriptionLiveRateLimiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let minimumInterval: TimeInterval
+    private var lastEmissionUptime: TimeInterval?
+
+    init(minimumInterval: TimeInterval = 0.12) {
+        self.minimumInterval = minimumInterval
+    }
+
+    func shouldEmit(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let lastEmissionUptime else {
+            self.lastEmissionUptime = now
+            return true
+        }
+        guard now - lastEmissionUptime >= minimumInterval else {
+            return false
+        }
+        self.lastEmissionUptime = now
+        return true
+    }
+}
+
 final class TranscriptionLiveBuffer: @unchecked Sendable {
     private struct SegmentKey: Hashable {
         let startMilliseconds: Int
@@ -409,6 +434,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             recordingID: recording.id,
             audioDuration: duration
         )
+        let provisionalRateLimiter = TranscriptionLiveRateLimiter()
         liveUpdate(liveBuffer.snapshot())
 
         let previousSegmentDiscoveryCallback = whisper.segmentDiscoveryCallback
@@ -454,7 +480,9 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                 }
 
                 let snapshot = liveBuffer.updateProvisionalText(update.text)
-                if snapshot.segments.isEmpty, !snapshot.provisionalText.isEmpty {
+                if snapshot.segments.isEmpty,
+                   !snapshot.provisionalText.isEmpty,
+                   provisionalRateLimiter.shouldEmit() {
                     liveUpdate(snapshot)
                 }
                 return true
