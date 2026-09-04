@@ -510,7 +510,7 @@ enum WhisperPhysicalBenchmarkRunner {
     private static func normalizedWords(_ text: String) -> [String] {
         normalizedCharacters(text)
             .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
+            .map { String($0) }
     }
 
     private static func normalizedCharacters(_ text: String) -> String {
@@ -681,10 +681,10 @@ enum WhisperPhysicalBenchmarkRunner {
                 String(run.metrics.modelLoadSeconds),
                 String(run.metrics.inferenceSeconds),
                 String(run.metrics.endToEndSeconds),
-                run.metrics.timeToFirstTextSeconds.map(String.init) ?? "",
+                run.metrics.timeToFirstTextSeconds.map { String($0) } ?? "",
                 String(run.metrics.asrRealTimeFactor),
                 String(run.metrics.endToEndRealTimeFactor),
-                run.metrics.peakResidentMemoryBytes.map(String.init) ?? "",
+                run.metrics.peakResidentMemoryBytes.map { String($0) } ?? "",
                 String(run.metrics.memoryPressureOccurred),
                 run.metrics.thermalStateAtStart.rawValue,
                 run.metrics.worstThermalState.rawValue,
@@ -695,8 +695,8 @@ enum WhisperPhysicalBenchmarkRunner {
                 String(run.metrics.vadWindowCount),
                 run.quality.languageCode ?? "",
                 String(run.quality.wordTimestampCoverage),
-                run.quality.wordErrorRate.map(String.init) ?? "",
-                run.quality.characterErrorRate.map(String.init) ?? ""
+                run.quality.wordErrorRate.map { String($0) } ?? "",
+                run.quality.characterErrorRate.map { String($0) } ?? ""
             ]
             lines.append(values.map(csvEscape).joined(separator: ","))
         }
@@ -723,12 +723,12 @@ enum WhisperPhysicalBenchmarkRunner {
                 String(summary.minASRRealTimeFactor),
                 String(summary.maxASRRealTimeFactor),
                 String(summary.medianEndToEndRealTimeFactor),
-                summary.medianTimeToFirstTextSeconds.map(String.init) ?? "",
-                summary.peakResidentMemoryBytes.map(String.init) ?? "",
+                summary.medianTimeToFirstTextSeconds.map { String($0) } ?? "",
+                summary.peakResidentMemoryBytes.map { String($0) } ?? "",
                 String(summary.memoryPressureOccurred),
                 summary.worstThermalState.rawValue,
-                summary.medianWordErrorRate.map(String.init) ?? "",
-                summary.medianCharacterErrorRate.map(String.init) ?? ""
+                summary.medianWordErrorRate.map { String($0) } ?? "",
+                summary.medianCharacterErrorRate.map { String($0) } ?? ""
             ]
             lines.append(values.map(csvEscape).joined(separator: ","))
         }
