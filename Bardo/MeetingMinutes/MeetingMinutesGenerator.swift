@@ -454,19 +454,22 @@ actor MLXTextGenerator: MeetingMinutesTextGenerating {
             )
         )
 
-        var producedText = false
+        var output = ""
+        let stopTokens = ["<|im_end|>", "<|endoftext|>", "<|end_of_text|>", "<|assistant|>"]
         for await generation in stream {
             try Task.checkCancellation()
             guard case .chunk(let chunk) = generation else { continue }
-            if !chunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                producedText = true
-                break
+            var cleanChunk = chunk
+            for stop in stopTokens {
+                cleanChunk = cleanChunk.replacingOccurrences(of: stop, with: "")
             }
+            output.append(cleanChunk)
+            if output.lowercased().contains("ready") { break }
         }
 
-        guard producedText else {
+        guard output.lowercased().contains("ready") else {
             throw MeetingMinutesError.modelNotAvailable(
-                "LFM2.5 loaded, but Bardo could not complete a local generation check."
+                "LFM2.5 loaded, but Bardo could not complete its local generation check."
             )
         }
     }
