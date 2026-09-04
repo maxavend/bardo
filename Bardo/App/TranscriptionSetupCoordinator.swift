@@ -6,6 +6,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     enum State: Equatable {
         case checking
         case installing(TranscriptionSetupProgressSnapshot)
+        case installingMinutes(Double)
         case installingSpeakers(DiarizationSetupProgressSnapshot)
         case ready
         case cancelled
@@ -55,10 +56,11 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             let allModelsInstalled = whisperInstalled && speakersInstalled && minutesInstalled
 
             if !force, markedComplete, allModelsInstalled {
-                try await prepareTranscriptionModels(whisper: whisper)
-                try await prepareMinutes(minutes)
-                try await prepareSpeakers(speakers)
+                // A completed setup must never pull the user back into first-run UI.
+                // Keep the app ready and warm reusable voice models in the background.
                 state = .ready
+                await whisper.warmUpIfInstalled()
+                await speakers.warmUpIfInstalled()
                 return
             }
 
@@ -94,7 +96,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     private func prepareMinutes(_ minutes: MeetingMinutesModelManager) async throws {
         try await minutes.prepareForUse { [weak self] fraction in
             Task { @MainActor in
-                self?.state = .installing(.init(stage: .optimizingForMac, fractionCompleted: fraction))
+                self?.state = .installingMinutes(min(1, max(0, fraction)))
             }
         }
     }
