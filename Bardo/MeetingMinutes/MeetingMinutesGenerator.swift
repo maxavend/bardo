@@ -33,7 +33,24 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
     }
 
     func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws {
-        try await textGenerator.prepareForUse(progress: progress)
+        try await prepareForSetup { snapshot in
+            let fraction: Double
+            switch snapshot.stage {
+            case .downloading:
+                fraction = 0.70 * snapshot.fractionCompleted
+            case .loading:
+                fraction = 0.70 + (0.20 * snapshot.fractionCompleted)
+            case .checkingRuntime:
+                fraction = 0.90 + (0.10 * snapshot.fractionCompleted)
+            }
+            progress(min(1, max(0, fraction)))
+        }
+    }
+
+    func prepareForSetup(
+        progress: @escaping @Sendable (MeetingMinutesSetupProgressSnapshot) -> Void
+    ) async throws {
+        try await textGenerator.prepareForUse(setupProgress: progress)
     }
 
     func reset() async {
@@ -62,6 +79,22 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
             fractionCompleted: 0,
             message: String(localized: "Preparing meeting-minutes model in local memory…")
         ))
+        try await textGenerator.prepareForUse { setupSnapshot in
+            let message: String
+            switch setupSnapshot.stage {
+            case .downloading:
+                message = String(localized: "Preparing meeting-minutes files…")
+            case .loading:
+                message = String(localized: "Loading meeting-minutes model in local memory…")
+            case .checkingRuntime:
+                message = String(localized: "Checking local generation…")
+            }
+            progress(.init(
+                stage: .preparingModel,
+                fractionCompleted: 0,
+                message: message
+            ))
+        }
 
         for (index, chunk) in chunks.enumerated() {
             try Task.checkCancellation()
@@ -264,21 +297,91 @@ import Tokenizers
 
 /// The only model/runtime-specific implementation used by the minutes pipeline.
 actor MLXTextGenerator: MeetingMinutesTextGenerating {
-    private let modelRootURL: URL
-    private var container: ModelContainer?
+    static let defaultIdleUnloadNanoseconds: UInt64 = 10 * 60 * 1_000_000_000
 
-    init(modelRootURL: URL) {
+    private let modelRootURL: URL
+    private let idleUnloadNanoseconds: UInt64
+    private var container: ModelContainer?
+    private var idleUnloadTask: Task<Void, Never>?
+
+    init(
+        modelRootURL: URL,
+        idleUnloadNanoseconds: UInt64 = MLXTextGenerator.defaultIdleUnloadNanoseconds
+    ) {
         self.modelRootURL = modelRootURL.standardizedFileURL
+        self.idleUnloadNanoseconds = idleUnloadNanoseconds
     }
 
     func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws {
-        _ = try await MeetingMinutesModelDownloader.ensureAvailable(
-            managedRoot: modelRootURL,
-            progress: progress
-        )
+        try await prepareForUse { snapshot in
+            let fraction: Double
+            switch snapshot.stage {
+            case .downloading:
+                fraction = 0.70 * snapshot.fractionCompleted
+            case .loading:
+                fraction = 0.70 + (0.20 * snapshot.fractionCompleted)
+            case .checkingRuntime:
+                fraction = 0.90 + (0.10 * snapshot.fractionCompleted)
+            }
+            progress(min(1, max(0, fraction)))
+        }
+    }
+
+    func prepareForUse(
+        setupProgress: @escaping @Sendable (MeetingMinutesSetupProgressSnapshot) -> Void
+    ) async throws {
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
+
+        do {
+            if MeetingMinutesRuntimeReadiness.isReady(), container != nil {
+                setupProgress(.init(stage: .loading, fractionCompleted: 1))
+                setupProgress(.init(stage: .checkingRuntime, fractionCompleted: 1))
+                scheduleIdleUnload()
+                return
+            }
+
+            if !MeetingMinutesRuntimeReadiness.isReady() {
+                setupProgress(.init(stage: .downloading, fractionCompleted: 0))
+                _ = try await MeetingMinutesModelDownloader.ensureAvailable(
+                    managedRoot: modelRootURL,
+                    progress: { fraction in
+                        setupProgress(.init(
+                            stage: .downloading,
+                            fractionCompleted: min(1, max(0, fraction))
+                        ))
+                    }
+                )
+            }
+
+            try Task.checkCancellation()
+            setupProgress(.init(stage: .loading, fractionCompleted: 0))
+            let loaded = try await loadContainer { fraction in
+                setupProgress(.init(
+                    stage: .loading,
+                    fractionCompleted: min(1, max(0, fraction))
+                ))
+            }
+            setupProgress(.init(stage: .loading, fractionCompleted: 1))
+
+            if !MeetingMinutesRuntimeReadiness.isReady() {
+                try Task.checkCancellation()
+                setupProgress(.init(stage: .checkingRuntime, fractionCompleted: 0))
+                try await runHealthCheck(using: loaded)
+                MeetingMinutesRuntimeReadiness.markReady()
+            }
+            setupProgress(.init(stage: .checkingRuntime, fractionCompleted: 1))
+            scheduleIdleUnload()
+        } catch {
+            MeetingMinutesRuntimeReadiness.invalidate()
+            container = nil
+            throw error
+        }
     }
 
     func reset() async {
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
         container = nil
     }
 
@@ -289,6 +392,9 @@ actor MLXTextGenerator: MeetingMinutesTextGenerating {
         onStreamChunk: (@Sendable (String) -> Void)? = nil
     ) async throws -> String {
         try Task.checkCancellation()
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
+        defer { scheduleIdleUnload() }
         let container = try await loadContainer(progress: progress)
         let input = try await container.prepare(input: UserInput(chat: [
             .system("You are Bardo's conservative meeting-minutes writer. Use only the user's transcript evidence."),
@@ -329,6 +435,54 @@ actor MLXTextGenerator: MeetingMinutesTextGenerating {
         progress(1)
         let cleaned = RepetitionDetector.cleanRepetition(from: output)
         return cleaned.isEmpty ? output : cleaned
+    }
+
+    private func runHealthCheck(using container: ModelContainer) async throws {
+        let input = try await container.prepare(input: UserInput(chat: [
+            .system("You are performing a local runtime health check."),
+            .user("Reply with READY.")
+        ]))
+        let stream = try await container.generate(
+            input: input,
+            parameters: GenerateParameters(
+                maxTokens: 8,
+                temperature: 0,
+                topP: 1,
+                topK: 20,
+                repetitionPenalty: 1,
+                repetitionContextSize: 16
+            )
+        )
+
+        var producedText = false
+        for await generation in stream {
+            try Task.checkCancellation()
+            guard case .chunk(let chunk) = generation else { continue }
+            if !chunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                producedText = true
+                break
+            }
+        }
+
+        guard producedText else {
+            throw MeetingMinutesError.modelNotAvailable(
+                "LFM2.5 loaded, but Bardo could not complete a local generation check."
+            )
+        }
+    }
+
+    private func scheduleIdleUnload() {
+        idleUnloadTask?.cancel()
+        let delay = idleUnloadNanoseconds
+        idleUnloadTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: delay) } catch { return }
+            await self?.unloadAfterIdleTimeout()
+        }
+    }
+
+    private func unloadAfterIdleTimeout() {
+        container = nil
+        idleUnloadTask = nil
     }
 
     private func loadContainer(progress: @escaping @Sendable (Double) -> Void) async throws -> ModelContainer {
