@@ -52,7 +52,7 @@ struct RecordingDetailView: View {
                         bottomContentInset: playbackContentInset,
                         onSelectMinutes: { selectedTab = .minutes }
                     )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .transition(.opacity)
 
                 case .minutes:
                     MeetingMinutesView(
@@ -61,9 +61,11 @@ struct RecordingDetailView: View {
                         bottomContentInset: playbackContentInset,
                         onSwitchToTranscript: { selectedTab = .transcript }
                     )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .transition(.opacity)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .animation(.easeInOut(duration: 0.15), value: selectedTab)
         }
         .searchable(
             text: $transcriptSearch,
@@ -182,15 +184,11 @@ struct RecordingDetailView: View {
     }
 
     private var detailModePicker: some View {
-        Picker(String(localized: "Recording View"), selection: $selectedTab) {
-            ForEach(DetailTab.allCases) { tab in
-                Text(tab.title)
-                    .tag(tab)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.regular)
+        DetailModeSegmentedControl(
+            selection: $selectedTab,
+            titles: DetailTab.allCases.map(\.title)
+        )
+        .fixedSize()
         .accessibilityLabel(String(localized: "Recording View"))
     }
 
@@ -337,3 +335,59 @@ struct RecordingDocumentHeader: View {
         return "\(date) · \(LibraryFormatting.duration(recording.duration)) · \(LibraryFormatting.source(recording.sources))"
     }
 }
+
+private struct DetailModeSegmentedControl: NSViewRepresentable {
+    @Binding var selection: RecordingDetailView.DetailTab
+    let titles: [String]
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection)
+    }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl(
+            labels: titles,
+            trackingMode: .selectOne,
+            target: context.coordinator,
+            action: #selector(Coordinator.selectionChanged(_:))
+        )
+        control.segmentStyle = .capsule
+        control.controlSize = .regular
+        control.selectedSegment = index(for: selection)
+        control.setContentHuggingPriority(.required, for: .horizontal)
+        control.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        let expectedIndex = index(for: selection)
+        if control.selectedSegment != expectedIndex {
+            control.selectedSegment = expectedIndex
+        }
+    }
+
+    private func index(for selection: RecordingDetailView.DetailTab) -> Int {
+        switch selection {
+        case .transcript: 0
+        case .minutes: 1
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var selection: Binding<RecordingDetailView.DetailTab>
+
+        init(selection: Binding<RecordingDetailView.DetailTab>) {
+            self.selection = selection
+        }
+
+        @objc func selectionChanged(_ sender: NSSegmentedControl) {
+            switch sender.selectedSegment {
+            case 1:
+                selection.wrappedValue = .minutes
+            default:
+                selection.wrappedValue = .transcript
+            }
+        }
+    }
+}
+

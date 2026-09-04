@@ -529,6 +529,7 @@ private struct TranscriptParagraphRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .pointerStyle(.link)
             .disabled(!playback.isLoaded)
             .help(
                 String.localizedStringWithFormat(
@@ -626,7 +627,7 @@ private struct KaraokeTranscriptText: View {
             BardoWordFlowLayout(horizontalSpacing: 4, verticalSpacing: 5) {
                 ForEach(words) { word in
                     Text(word.text.trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(.body.weight(isCurrent(word) ? .medium : .regular))
+                        .font(.body.weight(isSpokenOrCurrent(word) ? .semibold : .regular))
                         .foregroundStyle(color(for: word))
                 }
             }
@@ -650,12 +651,14 @@ private struct KaraokeTranscriptText: View {
             && playbackPosition < max(word.endTime, word.startTime + 0.08)
     }
 
+    private func isSpokenOrCurrent(_ word: TranscriptWord) -> Bool {
+        guard isActiveParagraph else { return false }
+        return playbackPosition >= word.startTime
+    }
+
     private func color(for word: TranscriptWord) -> Color {
         guard isActiveParagraph else { return .primary }
-        if isCurrent(word) {
-            return .accentColor
-        }
-        if playbackPosition >= word.endTime {
+        if isSpokenOrCurrent(word) {
             return .primary
         }
         return .secondary.opacity(0.48)
