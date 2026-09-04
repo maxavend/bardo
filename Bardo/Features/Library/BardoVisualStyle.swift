@@ -13,7 +13,13 @@ enum BardoLayout {
     static let libraryDetailPadding: CGFloat = 20
     static let detailContentMaxWidth: CGFloat = 800
     static let emptyStateMinHeight: CGFloat = 340
+
+    static let playbackMaxWidth: CGFloat = 820
+    static let playbackHorizontalPadding: CGFloat = 20
+    static let playbackBottomPadding: CGFloat = 16
+    static let playbackSurfaceHeight: CGFloat = 58
     static let playbackContentClearance: CGFloat = 96
+    static let followLiveGapAbovePlayback: CGFloat = 8
 }
 
 enum BardoSpacing {
