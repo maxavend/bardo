@@ -13,5 +13,6 @@ Bardo is a macOS app built with Swift 6 / SwiftUI. The project targets macOS 15+
 
 ## UI refactor principle
 
+- Do not animate live transcription word-by-word with blur/opacity/stagger effects. Live ASR updates are frequent and must render as lightweight plain text to protect UI responsiveness. Karaoke highlighting, if used, is reserved for playback of completed transcripts.
 - For toolbar view switching such as Transcripción / Minuta, use the native SwiftUI `Picker` with `.pickerStyle(.segmented)`. Do not recreate the selection pill, Liquid Glass morph, hover, pressed state, or segment animation with custom `Capsule`, `matchedGeometryEffect`, `GlassEffectContainer`, or `glassEffectID`; let SwiftUI/macOS own those states and transitions.
 Prefer native SwiftUI/AppKit macOS controls and behavior over visual emulation. Preserve working behavior and avoid redesigning stable UI unless the change is a clear usability or platform-consistency improvement.
