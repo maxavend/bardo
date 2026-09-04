@@ -7,6 +7,7 @@ enum MeetingMinutesModel {
     static let architecture = "lfm2"
     static let modelDirectoryName = "LFM2.5-1.2B-Instruct-4bit"
     static let bundledSubdirectory = "Models/Minutes"
+    static let revisionMarkerFileName = ".bardo-model-revision"
 
     static func bundledURL(bundle: Bundle = .main) -> URL? {
         bundle.url(
@@ -137,9 +138,14 @@ enum MeetingMinutesModelResourceResolver {
         let config = directory.appendingPathComponent("config.json")
         let tokenizer = directory.appendingPathComponent("tokenizer.json")
         let tokenizerConfig = directory.appendingPathComponent("tokenizer_config.json")
+        let revisionMarker = directory.appendingPathComponent(MeetingMinutesModel.revisionMarkerFileName)
         guard isRegularFile(config, fileManager: fileManager),
               isRegularFile(tokenizer, fileManager: fileManager)
-                || isRegularFile(tokenizerConfig, fileManager: fileManager)
+                || isRegularFile(tokenizerConfig, fileManager: fileManager),
+              isRegularFile(revisionMarker, fileManager: fileManager),
+              let revision = try? String(contentsOf: revisionMarker, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              revision == MeetingMinutesModel.modelRevision
         else { return false }
 
         let entries = (try? fileManager.contentsOfDirectory(
@@ -240,6 +246,9 @@ enum MeetingMinutesModelDownloader {
             )
             progress(Double(index + 1) / Double(entries.count))
         }
+
+        let revisionMarker = staging.appendingPathComponent(MeetingMinutesModel.revisionMarkerFileName)
+        try Data(MeetingMinutesModel.modelRevision.utf8).write(to: revisionMarker, options: .atomic)
 
         guard MeetingMinutesModelResourceResolver.snapshotDirectory(
             in: staging,
