@@ -14,8 +14,6 @@ struct MeetingMinutesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: BardoSpacing.section) {
-                RecordingDocumentHeader(recording: recording)
-
                 if let error = model.meetingMinutesErrorMessage {
                     errorView(error)
                 }
@@ -39,10 +37,10 @@ struct MeetingMinutesView: View {
                     emptyStateView
                 }
             }
-            .frame(maxWidth: 800, alignment: .leading)
+            .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
             .padding(.horizontal, BardoSpacing.detailHorizontal)
-            .padding(.vertical, BardoSpacing.section)
-            .padding(.bottom, bottomContentInset)
+            .padding(.top, 8)
+            .padding(.bottom, BardoSpacing.section + bottomContentInset)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -162,27 +160,29 @@ struct MeetingMinutesView: View {
     }
 
     private var emptyStateView: some View {
-        ContentUnavailableView {
-            Label(String(localized: "Meeting Minutes"), systemImage: "list.bullet.clipboard")
-        } description: {
-            Text(
-                model.canGenerateMeetingMinutes
-                    ? String(localized: "Create a structured record of topics, decisions, pending work, and next steps from the transcript.")
-                    : String(localized: "Complete the transcript before generating meeting minutes.")
-            )
-        } actions: {
+        BardoEmptyState(
+            systemImage: "list.bullet.clipboard",
+            title: String(localized: "Meeting Minutes"),
+            detail: model.canGenerateMeetingMinutes
+                ? String(localized: "Create a structured record of topics, decisions, pending work, and next steps from the transcript.")
+                : String(localized: "Complete the transcript before generating meeting minutes."),
+            footnote: model.canGenerateMeetingMinutes
+                ? String(localized: "Generated locally on this Mac")
+                : nil
+        ) {
             if model.canGenerateMeetingMinutes {
                 Button(String(localized: "Generate Minutes")) {
                     model.beginMeetingMinutes()
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
             } else if let onSwitchToTranscript {
                 Button(String(localized: "Go to Transcript")) {
                     onSwitchToTranscript()
                 }
+                .controlSize(.regular)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 280)
     }
 
     private func errorView(_ message: String) -> some View {
