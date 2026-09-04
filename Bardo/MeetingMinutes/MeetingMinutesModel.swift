@@ -2,7 +2,8 @@ import Foundation
 
 enum MeetingMinutesModel {
     static let modelID = "mlx-community/LFM2.5-1.2B-Instruct-4bit"
-    static let modelRevision = "main"
+    // Immutable Hugging Face snapshot. Do not point production builds at "main".
+    static let modelRevision = "125e006d991147f3b432249d1bdf0821987f12b0"
     static let architecture = "lfm2"
     static let modelDirectoryName = "LFM2.5-1.2B-Instruct-4bit"
     static let bundledSubdirectory = "Models/Minutes"
@@ -13,6 +14,37 @@ enum MeetingMinutesModel {
             withExtension: nil,
             subdirectory: bundledSubdirectory
         )
+    }
+}
+
+
+enum MeetingMinutesRuntimeReadiness {
+    static let schemaVersion = 1
+
+    private static var defaultsKey: String {
+        "Bardo.MeetingMinutesRuntimeReady.v\(schemaVersion).\(MeetingMinutesModel.modelRevision)"
+    }
+
+    static func isReady(
+        bundle: Bundle = .main,
+        applicationSupportRoot: URL? = nil,
+        fileManager: FileManager = .default,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard defaults.bool(forKey: defaultsKey) else { return false }
+        return MeetingMinutesModelResourceResolver.isInstalled(
+            bundle: bundle,
+            applicationSupportRoot: applicationSupportRoot,
+            fileManager: fileManager
+        )
+    }
+
+    static func markReady(defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: defaultsKey)
+    }
+
+    static func invalidate(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: defaultsKey)
     }
 }
 
