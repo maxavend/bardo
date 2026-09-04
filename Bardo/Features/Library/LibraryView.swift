@@ -109,6 +109,10 @@ struct LibraryView: View {
             }
         }
         .task {
+            if let saved = UserDefaults.standard.string(forKey: "bardo.start-section"),
+               let section = BardoLibrarySection(rawValue: saved) {
+                selectedSection = section
+            }
             await model.reload()
         }
         .task(id: model.selection) {
@@ -136,6 +140,11 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.toggleInspector)) { _ in
             guard !navigationPath.isEmpty else { return }
             isInspectorPresented.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.libraryChanged)) { _ in
+            navigationPath = NavigationPath()
+            model.selection = nil
+            Task { await model.reload() }
         }
         .fileImporter(
             isPresented: $isFileImporterPresented,
