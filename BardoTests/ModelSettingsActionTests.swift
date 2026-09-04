@@ -46,6 +46,39 @@ final class ModelSettingsActionTests: XCTestCase {
         XCTAssertEqual(row.stateLabel, "")
     }
 
+
+    func testMeetingMinutesReadyStateMeansRuntimeVerified() {
+        let row = ModelSettingsRowState(
+            id: .meetingMinutes,
+            title: "Meeting Minutes · LFM2.5",
+            detail: "Verified locally",
+            supportsInstallation: true,
+            state: .installed
+        )
+
+        XCTAssertEqual(row.stateLabel, String(localized: "Ready"))
+        XCTAssertFalse(row.usesIndeterminateProgress)
+    }
+
+    func testMeetingMinutesActiveSetupAvoidsMisleadingCoarsePercentage() {
+        var row = ModelSettingsRowState(
+            id: .meetingMinutes,
+            title: "Meeting Minutes · LFM2.5",
+            detail: "Verified locally",
+            supportsInstallation: true,
+            state: .downloading(0.42)
+        )
+
+        XCTAssertTrue(row.usesIndeterminateProgress)
+        XCTAssertNil(row.progressFraction)
+        XCTAssertEqual(row.stateLabel, String(localized: "Downloading…"))
+
+        row.state = .preparing(0.9)
+        XCTAssertTrue(row.usesIndeterminateProgress)
+        XCTAssertNil(row.progressFraction)
+        XCTAssertEqual(row.stateLabel, String(localized: "Checking…"))
+    }
+
     func testRuntimeVoiceModelUsesDownloadAction() {
         let row = ModelSettingsRowState(
             id: .whisperTurbo,
