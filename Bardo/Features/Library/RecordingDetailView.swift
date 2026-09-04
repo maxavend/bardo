@@ -25,16 +25,14 @@ struct RecordingDetailView: View {
 
         var title: String {
             switch self {
-            case .transcript: String(localized: "Transcripción")
-            case .minutes: String(localized: "Minuta")
+            case .transcript: String(localized: "Transcript")
+            case .minutes: String(localized: "Minutes")
             }
         }
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            contextBar
-
             switch selectedTab {
             case .transcript:
                 TranscriptContentView(
@@ -56,24 +54,19 @@ struct RecordingDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .navigationTitle(recordingDisplayTitle)
-        .navigationSubtitle(toolbarSubtitle)
         .searchable(
             text: $transcriptSearch,
             placement: .toolbar,
             prompt: Text(String(localized: "Search Transcript"))
         )
+        .bardoMinimizedSearchToolbar()
         .toolbar {
             ToolbarItem(id: "bardo.detail.mode", placement: .principal) {
-                Picker(String(localized: "Recording View"), selection: $selectedTab) {
-                    ForEach(DetailTab.allCases) { tab in
-                        Text(tab.title).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.regular)
-                .frame(width: 220)
+                detailModePicker
+            }
+
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
             }
 
             ToolbarItem(id: "bardo.detail.info", placement: .primaryAction) {
@@ -239,6 +232,27 @@ struct RecordingDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private var detailModePicker: some View {
+        if #available(macOS 26.0, *) {
+            detailModePickerContent
+                .pickerStyle(.tabs)
+        } else {
+            detailModePickerContent
+                .pickerStyle(.segmented)
+        }
+    }
+
+    private var detailModePickerContent: some View {
+        Picker(String(localized: "Recording View"), selection: $selectedTab) {
+            ForEach(DetailTab.allCases) { tab in
+                Text(tab.title).tag(tab)
+            }
+        }
+        .labelsHidden()
+        .controlSize(.regular)
+    }
+
     private var recordingActionsMenu: some View {
         Menu {
             Button {
@@ -310,7 +324,7 @@ struct RecordingDetailView: View {
             .disabled(model.isTranscribing || model.isDiarizing || model.isGeneratingMeetingMinutes)
             .keyboardShortcut(.delete, modifiers: [.command])
         } label: {
-            Label(String(localized: "More"), systemImage: "ellipsis.circle")
+            Label(String(localized: "More"), systemImage: "ellipsis")
                 .labelStyle(.iconOnly)
         }
         .help(String(localized: "More recording and transcript actions"))
@@ -377,5 +391,30 @@ struct RecordingDetailView: View {
                 : location.deletingLastPathComponent()
             NSWorkspace.shared.activateFileViewerSelecting([target])
         }
+    }
+}
+
+struct RecordingDocumentHeader: View {
+    let recording: Recording
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(LibraryFormatting.recordingTitle(recording))
+                .font(.title2.weight(.semibold))
+                .lineLimit(2)
+
+            Text(metadata)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(LibraryFormatting.recordingTitle(recording)), \(metadata)")
+    }
+
+    private var metadata: String {
+        let date = recording.createdAt.formatted(.dateTime.day().month(.wide).year())
+        return "\(date) · \(LibraryFormatting.duration(recording.duration)) · \(LibraryFormatting.source(recording.sources))"
     }
 }
