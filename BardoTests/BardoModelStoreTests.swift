@@ -26,4 +26,27 @@ final class BardoModelStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("qwen").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("meeting-minutes").path))
     }
+    func testLegacyQwenCleanupIsExplicitAndLeavesCurrentModelsUntouched() throws {
+        let root = FileManager.default.temporaryDirectory
+            .resolvingSymlinksInPath()
+            .appendingPathComponent("BardoStore-Qwen-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = BardoModelStore(rootURL: root)
+        let qwen = root.appendingPathComponent("qwen", isDirectory: true)
+        let minutes = root.appendingPathComponent("meeting-minutes", isDirectory: true)
+        try FileManager.default.createDirectory(at: qwen, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: minutes, withIntermediateDirectories: true)
+        try Data("legacy".utf8).write(to: qwen.appendingPathComponent("weights.bin"))
+        try Data("current".utf8).write(to: minutes.appendingPathComponent("config.json"))
+
+        XCTAssertTrue(store.hasLegacyQwenData())
+
+        try store.removeLegacyQwenData()
+
+        XCTAssertFalse(store.hasLegacyQwenData())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: qwen.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: minutes.path))
+    }
+
 }
