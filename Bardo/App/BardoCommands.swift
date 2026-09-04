@@ -9,6 +9,7 @@ enum BardoCommandNotification {
     static let pauseRecording = Notification.Name("Bardo.Command.PauseRecording")
     static let resumeRecording = Notification.Name("Bardo.Command.ResumeRecording")
     static let stopRecording = Notification.Name("Bardo.Command.StopRecording")
+    static let libraryChanged = Notification.Name("Bardo.Library.Changed")
 }
 
 struct BardoCommands: Commands {
