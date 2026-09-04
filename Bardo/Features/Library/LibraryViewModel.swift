@@ -364,7 +364,7 @@ final class LibraryViewModel: ObservableObject {
         transcriptEditErrorMessage = nil
         diarizationErrorMessage = nil
         transcriptionProgress = .init(stage: .preparingModel, fractionCompleted: 0)
-        liveTranscription = .empty(recordingID: recordingID, audioDuration: recording.duration)
+        liveTranscription = .empty(recordingID: recordingID, audioDuration: recording.duration ?? 0)
         defer {
             isTranscribing = false
             transcriptionRecordingID = nil
