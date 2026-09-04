@@ -284,17 +284,17 @@ struct TranscriptContentView: View {
     private var emptyTranscriptView: some View {
         BardoEmptyState(
             systemImage: "waveform.and.mic",
-            title: String(localized: "No Transcript Yet"),
-            detail: String(localized: "Transcribe this recording to search the conversation, identify participants, and create meeting minutes."),
-            footnote: String(localized: "Processed locally on this Mac")
+            title: "Aún no hay transcripción",
+            detail: "Transcribe esta conversación para leerla, buscar dentro de ella, identificar a los hablantes y preparar una minuta.",
+            footnote: "Se procesa de forma privada en este Mac"
         ) {
             Button {
                 model.beginTranscription()
             } label: {
                 Label(
                     recording.processingState == .failed
-                        ? String(localized: "Retry Transcription")
-                        : String(localized: "Transcribe"),
+                        ? "Intentar de nuevo"
+                        : "Transcribir",
                     systemImage: "waveform"
                 )
             }
@@ -359,9 +359,9 @@ struct TranscriptContentView: View {
 
         if transcript.segments.isEmpty {
             ContentUnavailableView(
-                String(localized: "Empty Transcript"),
+                "No encontramos voz",
                 systemImage: "text.bubble",
-                description: Text(String(localized: "WhisperKit produced no readable transcript segments for this recording."))
+                description: Text("El audio terminó de procesarse, pero no encontramos una conversación que se pudiera transcribir.")
             )
             .frame(maxWidth: .infinity, minHeight: 240)
         } else if paragraphs.isEmpty {
@@ -385,7 +385,24 @@ struct TranscriptContentView: View {
                             paragraph: paragraph,
                             playback: playback,
                             canEdit: !model.isTranscribing && !model.isDiarizing,
-                            onEditSegment: { segment in editor = .segment(segment) }
+                            speakerChoices: transcript.speakers.enumerated().map { index, speaker in
+                                TranscriptSpeakerChoice(
+                                    id: speaker.id,
+                                    label: {
+                                        let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                                        return name.isEmpty ? "Hablante \(index + 1)" : name
+                                    }()
+                                )
+                            },
+                            onEditSegment: { segment in editor = .segment(segment) },
+                            onAssignSpeaker: { speakerID in
+                                Task {
+                                    await model.assignTranscriptSegments(
+                                        paragraph.segments.map(\.id),
+                                        to: speakerID
+                                    )
+                                }
+                            }
                         )
                     }
                 }
@@ -455,7 +472,7 @@ struct TranscriptContentView: View {
     private var minutesNavigationGroup: some View {
         GroupBox {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(String(localized: "Synthesize key points, decisions, and action items from this transcript."))
+                Text("Convierte esta conversación en un resumen claro de temas, decisiones, acuerdos y próximos pasos.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
@@ -466,14 +483,14 @@ struct TranscriptContentView: View {
                 } label: {
                     Label(
                         model.meetingMinutes?.recordingID == recording.id
-                            ? String(localized: "View Minutes")
-                            : String(localized: "Open Minutes"),
+                            ? "Ver minuta"
+                            : "Abrir minuta",
                         systemImage: "arrow.right"
                     )
                 }
             }
         } label: {
-            Label(String(localized: "Meeting Minutes"), systemImage: "list.bullet.clipboard")
+            Label("Minuta", systemImage: "list.bullet.clipboard")
         }
     }
 }
@@ -505,12 +522,19 @@ private struct TranscriptParagraph: Identifiable {
     }
 }
 
+private struct TranscriptSpeakerChoice: Identifiable {
+    let id: Speaker.ID
+    let label: String
+}
+
 private struct TranscriptParagraphRow: View {
     let paragraph: TranscriptParagraph
     @ObservedObject var playback: AudioPlaybackController
     let canEdit: Bool
     var usesKaraoke: Bool = true
+    var speakerChoices: [TranscriptSpeakerChoice] = []
     let onEditSegment: (TranscriptSegment) -> Void
+    var onAssignSpeaker: ((Speaker.ID) -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -579,9 +603,25 @@ private struct TranscriptParagraphRow: View {
                 .disabled(!canEdit)
             }
 
+            if canEdit, let onAssignSpeaker, !speakerChoices.isEmpty {
+                Menu("Asignar hablante") {
+                    ForEach(speakerChoices) { choice in
+                        Button {
+                            onAssignSpeaker(choice.id)
+                        } label: {
+                            if paragraph.speakerID == choice.id {
+                                Label(choice.label, systemImage: "checkmark")
+                            } else {
+                                Text(choice.label)
+                            }
+                        }
+                    }
+                }
+            }
+
             Divider()
 
-            Button(String(localized: "Copy Paragraph")) {
+            Button("Copiar bloque") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(paragraph.fullText, forType: .string)
             }
@@ -639,8 +679,16 @@ private struct KaraokeTranscriptText: View {
             BardoWordFlowLayout(horizontalSpacing: 4, verticalSpacing: 5) {
                 ForEach(words) { word in
                     Text(word.text.trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(.body.weight(isSpokenOrCurrent(word) ? .medium : .regular))
+                        .font(.body.weight(isCurrent(word) ? .medium : .regular))
                         .foregroundStyle(color(for: word))
+                        .padding(.horizontal, isCurrent(word) ? 2 : 0)
+                        .padding(.vertical, 1)
+                        .background {
+                            if isCurrent(word) {
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(Color.accentColor.opacity(0.14))
+                            }
+                        }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -657,16 +705,20 @@ private struct KaraokeTranscriptText: View {
             && (isPlaying || hasEnteredParagraph)
     }
 
-    private func isSpokenOrCurrent(_ word: TranscriptWord) -> Bool {
+    private func isCurrent(_ word: TranscriptWord) -> Bool {
         guard isActiveParagraph else { return false }
-        return playbackPosition >= word.startTime
+        return playbackPosition >= word.startTime && playbackPosition <= word.endTime
     }
 
     private func color(for word: TranscriptWord) -> Color {
-        if isSpokenOrCurrent(word) {
+        guard isActiveParagraph else { return .primary }
+        if isCurrent(word) {
+            return Color.accentColor
+        }
+        if playbackPosition > word.endTime {
             return .primary
         }
-        return .secondary.opacity(0.72)
+        return .secondary.opacity(0.78)
     }
 }
 
@@ -765,22 +817,22 @@ private struct SpeakerIdentificationProgressView: View {
     private var detail: String {
         switch progress?.stage {
         case .preparingModel:
-            String(localized: "Preparing SpeakerKit and checking the local speaker models.")
+            "Preparando la identificación de hablantes."
         case .loadingModel:
-            String(localized: "Loading the speaker models into local memory.")
+            "Dejando listo lo necesario para distinguir las voces."
         case .diarizing:
-            String(localized: "Analyzing the recording and grouping speech by voice.")
+            "Escuchando la conversación y agrupando los fragmentos por voz."
         case .saving:
-            String(localized: "Applying the detected speaker labels to the transcript.")
+            "Organizando la transcripción con los hablantes encontrados."
         case nil:
-            String(localized: "Starting local speaker analysis.")
+            "Comenzando a identificar a los hablantes."
         }
     }
 
     private var progressLabel: String {
         let percentage = Int((fractionCompleted * 100).rounded())
         return String.localizedStringWithFormat(
-            String(localized: "Step %lld of 4 · %lld%%"),
+            "Paso %lld de 4 · %lld%%",
             step,
             percentage
         )
@@ -818,7 +870,7 @@ private struct SpeakerIdentificationProgressView: View {
 
                     Spacer(minLength: 12)
 
-                    Button(String(localized: "Cancel"), role: .cancel, action: cancelAction)
+                    Button("Cancelar", role: .cancel, action: cancelAction)
                 }
             }
         }
@@ -842,20 +894,20 @@ private struct InlineIssueView: View {
 
 private func transcriptionStageText(_ stage: TranscriptionStage?) -> String {
     switch stage {
-    case .preparingModel: String(localized: "Preparing Speech Model…")
-    case .loadingModel: String(localized: "Loading Speech Model…")
-    case .transcribing: String(localized: "Transcribing…")
-    case .saving: String(localized: "Saving Transcript…")
-    case nil: String(localized: "Preparing Transcription…")
+    case .preparingModel: "Preparando la transcripción…"
+    case .loadingModel: "Dejando todo listo…"
+    case .transcribing: "Transcribiendo la conversación…"
+    case .saving: "Guardando la transcripción…"
+    case nil: "Preparando la transcripción…"
     }
 }
 
 private func diarizationStageText(_ stage: DiarizationStage?) -> String {
     switch stage {
-    case .preparingModel: String(localized: "Preparing Speaker Model…")
-    case .loadingModel: String(localized: "Loading Speaker Model…")
-    case .diarizing: String(localized: "Identifying Speakers…")
-    case .saving: String(localized: "Saving Speaker Labels…")
-    case nil: String(localized: "Preparing Speaker Identification…")
+    case .preparingModel: "Preparando la identificación…"
+    case .loadingModel: "Dejando todo listo…"
+    case .diarizing: "Identificando a los hablantes…"
+    case .saving: "Organizando la transcripción…"
+    case nil: "Preparando la identificación…"
     }
 }
