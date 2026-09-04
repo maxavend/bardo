@@ -22,3 +22,14 @@ enum BardoCornerRadius {
     /// Reserved for the one legitimate floating glass control: playback.
     static let floating: CGFloat = 12
 }
+
+struct BardoDetailBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Color(nsColor: .windowBackgroundColor)
+            .overlay {
+                (colorScheme == .dark ? Color.black.opacity(0.07) : Color.black.opacity(0.025))
+            }
+    }
+}
