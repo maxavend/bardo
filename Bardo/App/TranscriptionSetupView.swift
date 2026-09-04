@@ -319,7 +319,17 @@ struct TranscriptionSetupView: View {
     }
 
     private var stageLabel: String {
-        TranscriptionSetupCopy.stageLabel(for: copyStage)
+        if case .installingMinutes(let progress) = state {
+            switch progress.stage {
+            case .downloading:
+                return "Descargando lo necesario para las minutas…"
+            case .loading:
+                return "Cargando las minutas en este Mac…"
+            case .checkingRuntime:
+                return "Comprobando que las minutas funcionen…"
+            }
+        }
+        return TranscriptionSetupCopy.stageLabel(for: copyStage)
     }
 
     private var copyStage: TranscriptionSetupCopy.Stage {
@@ -352,6 +362,8 @@ struct TranscriptionSetupView: View {
     private var measuredProgressFraction: Double? {
         switch state {
         case .installing(let progress) where progress.stage == .downloading:
+            return min(1, max(0, progress.fractionCompleted))
+        case .installingMinutes(let progress) where progress.stage == .downloading:
             return min(1, max(0, progress.fractionCompleted))
         case .installingSpeakers(let progress) where progress.stage == .downloading:
             return min(1, max(0, progress.fractionCompleted))
