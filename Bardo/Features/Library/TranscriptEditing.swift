@@ -78,6 +78,7 @@ struct TranscriptEditorSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var value: String
+    @FocusState private var isEditorFocused: Bool
 
     init(
         state: TranscriptEditorState,
@@ -91,49 +92,63 @@ struct TranscriptEditorSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(state.title)
-                    .font(.title2.weight(.semibold))
+                    .font(.title3.weight(.semibold))
+
                 Text(state.prompt)
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            if state.isMultiline {
-                TextEditor(text: $value)
-                    .font(.body)
-                    .padding(8)
-                    .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .frame(minHeight: 170)
-            } else {
-                TextField("Speaker name", text: $value)
-                    .textFieldStyle(.roundedBorder)
-            }
+            editorControl
 
-            HStack {
+            Divider()
+
+            HStack(spacing: 10) {
                 if let onRestore {
-                    Button("Restore Original", role: .destructive) {
+                    Button {
                         onRestore()
+                    } label: {
+                        Label(String(localized: "Restore Original"), systemImage: "arrow.uturn.backward")
                     }
                 }
 
                 Spacer()
 
-                Button("Cancel") {
+                Button(String(localized: "Cancel")) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Save") {
+                Button(String(localized: "Save")) {
                     onSave(value)
                 }
+                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(state.isMultiline && value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(24)
         .frame(minWidth: 520, minHeight: state.isMultiline ? 340 : 190)
+        .task {
+            isEditorFocused = true
+        }
+    }
+
+    @ViewBuilder
+    private var editorControl: some View {
+        if state.isMultiline {
+            TextEditor(text: $value)
+                .font(.body)
+                .focused($isEditorFocused)
+                .frame(minHeight: 180)
+        } else {
+            TextField(String(localized: "Speaker name"), text: $value)
+                .focused($isEditorFocused)
+        }
     }
 }
 
@@ -153,28 +168,37 @@ struct SpeakerNamingSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Name Participants")
-                    .font(.title2.weight(.semibold))
-                Text("Listen to a short local audio sample for each detected speaker. Leave a name blank to keep the automatic label.")
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(localized: "Name Participants"))
+                    .font(.title3.weight(.semibold))
+
+                Text(String(localized: "Listen to a short local audio sample for each detected speaker. Leave a name blank to keep the automatic label."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+            Form {
+                Section(String(localized: "Participants")) {
                     ForEach(Array(transcript.speakers.enumerated()), id: \.element.id) { index, speaker in
                         speakerRow(speaker, index: index)
                     }
                 }
             }
+            .formStyle(.grouped)
+
+            Divider()
 
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save Names") {
+
+                Button(String(localized: "Cancel")) {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button(String(localized: "Save Names")) {
                     Task {
                         await model.renameSpeakers(names)
                         dismiss()
@@ -185,38 +209,38 @@ struct SpeakerNamingSheet: View {
             }
         }
         .padding(24)
-        .frame(minWidth: 560, minHeight: 360)
+        .frame(minWidth: 580, minHeight: 390)
     }
 
-    @ViewBuilder
     private func speakerRow(_ speaker: Speaker, index: Int) -> some View {
-        let fallback = "Speaker \(index + 1)"
+        let fallback = String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
         let preview = model.speakerPreviews.first { $0.speakerID == speaker.id }
 
-        HStack(spacing: 12) {
-            Button {
-                guard let preview else { return }
-                _ = model.playSpeakerPreview(preview)
-            } label: {
-                Image(systemName: "play.circle.fill")
-                    .font(.title2)
+        return LabeledContent(fallback) {
+            HStack(spacing: 10) {
+                Button {
+                    guard let preview else { return }
+                    _ = model.playSpeakerPreview(preview)
+                } label: {
+                    Label(String(localized: "Play Speaker Sample"), systemImage: "play.fill")
+                        .labelStyle(.iconOnly)
+                }
+                .disabled(preview == nil)
+                .help(
+                    preview == nil
+                        ? String(localized: "No representative audio sample")
+                        : String(localized: "Play speaker sample")
+                )
+
+                TextField(
+                    fallback,
+                    text: Binding(
+                        get: { names[speaker.id, default: ""] },
+                        set: { names[speaker.id] = $0 }
+                    )
+                )
+                .frame(minWidth: 220)
             }
-            .buttonStyle(.plain)
-            .disabled(preview == nil)
-            .help(preview == nil ? "No representative audio sample" : "Play speaker sample")
-
-            TextField(fallback, text: Binding(
-                get: { names[speaker.id, default: ""] },
-                set: { names[speaker.id] = $0 }
-            ))
-            .textFieldStyle(.roundedBorder)
-
-            Text(fallback)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .frame(width: 74, alignment: .trailing)
         }
-        .padding(10)
-        .background(.fill.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
