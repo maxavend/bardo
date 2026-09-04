@@ -907,7 +907,7 @@ final class LibraryViewModel: ObservableObject {
                 loadedMinutes = nil
             }
 
-            let names = loadedTranscript?.speakers.enumerated().map { index, speaker in
+            let names: [String] = loadedTranscript?.speakers.enumerated().map { index, speaker -> String in
                 let trimmed = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 return trimmed.isEmpty ? String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1) : trimmed
             } ?? []

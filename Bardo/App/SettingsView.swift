@@ -171,7 +171,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Recursos locales") {
+            Section {
                 if model.rows.isEmpty {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -199,6 +199,8 @@ struct SettingsView: View {
                             .controlSize(.small)
                     }
                 }
+            } header: {
+                Text("Recursos locales")
             } footer: {
                 Text("Estos recursos se guardan en este Mac y permiten transcribir, distinguir voces y preparar minutas sin enviar tus conversaciones a servicios externos.")
             }

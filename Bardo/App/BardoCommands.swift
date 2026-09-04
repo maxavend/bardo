@@ -16,47 +16,47 @@ struct BardoCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("Nueva grabación") {
-                post(.newRecording)
+                post(BardoCommandNotification.newRecording)
             }
             .keyboardShortcut("n", modifiers: [.command])
 
             Button("Importar audio…") {
-                post(.importAudio)
+                post(BardoCommandNotification.importAudio)
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
         }
 
         CommandMenu("Grabación") {
             Button("Nueva grabación…") {
-                post(.newRecording)
+                post(BardoCommandNotification.newRecording)
             }
             .keyboardShortcut("r", modifiers: [.command])
 
             Divider()
 
             Button("Pausar grabación") {
-                post(.pauseRecording)
+                post(BardoCommandNotification.pauseRecording)
             }
             .keyboardShortcut(.space, modifiers: [.command, .option])
 
             Button("Reanudar grabación") {
-                post(.resumeRecording)
+                post(BardoCommandNotification.resumeRecording)
             }
 
             Button("Finalizar grabación") {
-                post(.stopRecording)
+                post(BardoCommandNotification.stopRecording)
             }
             .keyboardShortcut(".", modifiers: [.command])
         }
 
         CommandGroup(after: .toolbar) {
             Button("Buscar en Bardo") {
-                post(.focusSearch)
+                post(BardoCommandNotification.focusSearch)
             }
             .keyboardShortcut("k", modifiers: [.command])
 
             Button("Mostrar u ocultar información") {
-                post(.toggleInspector)
+                post(BardoCommandNotification.toggleInspector)
             }
             .keyboardShortcut("i", modifiers: [.command, .option])
         }
