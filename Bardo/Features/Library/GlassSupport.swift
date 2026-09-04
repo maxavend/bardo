@@ -25,4 +25,16 @@ extension View {
                 }
         }
     }
+
+    /// Lets macOS 26 render transcript search as a compact toolbar control that
+    /// expands fluidly on interaction. Earlier systems keep their native
+    /// searchable presentation.
+    @ViewBuilder
+    func bardoMinimizedSearchToolbar() -> some View {
+        if #available(macOS 26.0, *) {
+            self.searchToolbarBehavior(.minimize)
+        } else {
+            self
+        }
+    }
 }
