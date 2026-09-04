@@ -159,6 +159,10 @@ struct RecordingSetupSheet: View {
         .frame(width: 560)
         .onAppear {
             microphone.refreshPermissionState()
+            if let raw = UserDefaults.standard.string(forKey: "bardo.default-recording-mode"),
+               let savedMode = BardoRecordingMode(rawValue: raw) {
+                mode = savedMode
+            }
         }
     }
 }
