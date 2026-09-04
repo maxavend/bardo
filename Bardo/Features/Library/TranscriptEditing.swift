@@ -9,27 +9,27 @@ enum TranscriptReplacementAction: String, Identifiable {
     var title: String {
         switch self {
         case .retranscribe:
-            "Replace Manual Transcript Changes?"
+            "¿Reemplazar los cambios de la transcripción?"
         case .rediarize:
-            "Replace Speaker Names?"
+            "¿Volver a identificar a los hablantes?"
         }
     }
 
     var message: String {
         switch self {
         case .retranscribe:
-            "Transcribing again creates a new transcript and removes manual text corrections and speaker names from the current transcript."
+            "La nueva transcripción reemplazará las correcciones de texto y los nombres de hablantes que hayas hecho manualmente."
         case .rediarize:
-            "Identifying speakers again creates new speaker clusters. Existing speaker names will be removed because the new clusters may represent different people. Manual text corrections are preserved."
+            "Bardo volverá a distinguir las voces desde cero. Se conservarán tus correcciones de texto, pero tendrás que revisar los nombres de los hablantes."
         }
     }
 
     var confirmLabel: String {
         switch self {
         case .retranscribe:
-            "Transcribe Again"
+            "Transcribir de nuevo"
         case .rediarize:
-            "Identify Speakers Again"
+            "Identificar de nuevo"
         }
     }
 }
@@ -51,9 +51,9 @@ struct TranscriptEditorState: Identifiable {
     static func speaker(_ speaker: Speaker, fallbackName: String) -> TranscriptEditorState {
         TranscriptEditorState(
             kind: .speaker(speaker.id),
-            title: "Name Speaker",
+            title: "Nombre del hablante",
             initialValue: speaker.name ?? "",
-            prompt: "Give \(fallbackName) a name. Leave it blank to restore the automatic label.",
+            prompt: "Ponle un nombre a \(fallbackName). Si lo dejas vacío, seguirá usando su nombre automático.",
             canRestore: false,
             isMultiline: false
         )
@@ -62,9 +62,9 @@ struct TranscriptEditorState: Identifiable {
     static func segment(_ segment: TranscriptSegment) -> TranscriptEditorState {
         TranscriptEditorState(
             kind: .segment(segment.id),
-            title: "Edit Transcript",
+            title: "Editar transcripción",
             initialValue: segment.displayText,
-            prompt: "Correct the readable transcript while Bardo preserves the original timing evidence.",
+            prompt: "Corrige el texto sin cambiar el momento del audio al que pertenece.",
             canRestore: segment.editedText != nil,
             isMultiline: true
         )
@@ -162,6 +162,7 @@ struct SpeakerNamingSheet: View {
     @State private var activePreviewSpeakerID: Speaker.ID?
     @State private var isPreparingPreviewAudio = true
     @State private var isSaving = false
+    @State private var pendingMerge: SpeakerMergeRequest?
 
     init(transcript: Transcript, model: LibraryViewModel) {
         self.transcript = transcript
@@ -241,6 +242,19 @@ struct SpeakerNamingSheet: View {
         .onDisappear {
             previewPlayback.unload()
         }
+        .alert(item: $pendingMerge) { request in
+            Alert(
+                title: Text("¿Fusionar hablantes?"),
+                message: Text("Todos los fragmentos de \(request.sourceLabel) pasarán a \(request.targetLabel). Esta corrección se aplicará a toda la transcripción."),
+                primaryButton: .destructive(Text("Fusionar")) {
+                    Task {
+                        await model.mergeSpeaker(request.sourceID, into: request.targetID)
+                        dismiss()
+                    }
+                },
+                secondaryButton: .cancel()
+            )
+        }
     }
 
     private var header: some View {
@@ -253,10 +267,10 @@ struct SpeakerNamingSheet: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(String(localized: "Name Participants"))
+                Text("Revisar hablantes")
                     .font(.title3.weight(.semibold))
 
-                Text(String(localized: "Listen to a short sample from each detected voice, then add names where useful. Empty fields keep Bardo's automatic speaker labels."))
+                Text("Escucha una muestra de cada voz, pon nombres cuando los conozcas y fusiona hablantes si una misma persona aparece separada por error.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -280,7 +294,7 @@ struct SpeakerNamingSheet: View {
             }
             .frame(maxHeight: 340)
         } label: {
-            Text(String(localized: "Participants"))
+            Text("Participantes")
                 .font(.headline)
         }
     }
@@ -349,8 +363,35 @@ struct SpeakerNamingSheet: View {
                     : String(localized: "Play a short local sample of this speaker")
             )
 
+            Menu {
+                let otherSpeakers = transcript.speakers.filter { $0.id != speaker.id }
+                if otherSpeakers.isEmpty {
+                    Text("No hay otros hablantes")
+                } else {
+                    ForEach(Array(otherSpeakers.enumerated()), id: \.element.id) { otherIndex, target in
+                        let targetFallback = transcript.speakers.firstIndex(where: { $0.id == target.id }).map { "Hablante \($0 + 1)" } ?? "Hablante"
+                        let targetName = target.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        Button(targetName.isEmpty ? targetFallback : targetName) {
+                            let sourceName = names[speaker.id, default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+                            pendingMerge = SpeakerMergeRequest(
+                                sourceID: speaker.id,
+                                targetID: target.id,
+                                sourceLabel: sourceName.isEmpty ? fallback : sourceName,
+                                targetLabel: targetName.isEmpty ? targetFallback : targetName
+                            )
+                        }
+                    }
+                }
+            } label: {
+                Label("Más acciones", systemImage: "ellipsis.circle")
+                    .labelStyle(.iconOnly)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Fusionar este hablante con otra persona")
+
             TextField(
-                String(localized: "Name (optional)"),
+                "Nombre (opcional)",
                 text: Binding(
                     get: { names[speaker.id, default: ""] },
                     set: { names[speaker.id] = $0 }
@@ -362,4 +403,13 @@ struct SpeakerNamingSheet: View {
         .padding(.vertical, 9)
         .padding(.horizontal, 2)
     }
+}
+
+
+private struct SpeakerMergeRequest: Identifiable {
+    let id = UUID()
+    let sourceID: Speaker.ID
+    let targetID: Speaker.ID
+    let sourceLabel: String
+    let targetLabel: String
 }
