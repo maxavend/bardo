@@ -27,6 +27,8 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var streamingMeetingMinutesText: String?
     @Published private(set) var isGeneratingMeetingMinutes = false
     @Published private(set) var shouldPresentSpeakerNamingSheet = false
+    @Published private(set) var searchDocuments: [LibrarySearchDocument] = []
+    @Published private(set) var recordingIDsWithMinutes: Set<Recording.ID> = []
     @Published private(set) var isLoading = false
     @Published private(set) var isImporting = false
     @Published private(set) var isTranscribing = false
@@ -81,6 +83,7 @@ final class LibraryViewModel: ObservableObject {
                 try await recoverInterruptedTranscriptions(using: activeStore)
             }
 
+            await rebuildSearchDocuments()
             reconcileSelection()
             await prepareSelection()
         } catch {
@@ -592,6 +595,54 @@ final class LibraryViewModel: ObservableObject {
         await persistEditedTranscript(updated)
     }
 
+    func mergeSpeaker(_ sourceID: Speaker.ID, into targetID: Speaker.ID) async {
+        guard sourceID != targetID,
+              !isTranscribing,
+              !isDiarizing,
+              var updated = transcript,
+              updated.recordingID == selection,
+              let sourceIndex = updated.speakers.firstIndex(where: { $0.id == sourceID }),
+              let targetIndex = updated.speakers.firstIndex(where: { $0.id == targetID })
+        else {
+            return
+        }
+
+        if (updated.speakers[targetIndex].name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let sourceName = updated.speakers[sourceIndex].name,
+           !sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            updated.speakers[targetIndex].name = sourceName
+        }
+
+        for index in updated.segments.indices where updated.segments[index].speakerID == sourceID {
+            updated.segments[index].speakerID = targetID
+        }
+        updated.speakers.removeAll { $0.id == sourceID }
+        await persistEditedTranscript(updated)
+    }
+
+    func assignTranscriptSegments(_ segmentIDs: [TranscriptSegment.ID], to speakerID: Speaker.ID) async {
+        guard !segmentIDs.isEmpty,
+              !isTranscribing,
+              !isDiarizing,
+              var updated = transcript,
+              updated.recordingID == selection,
+              updated.speakers.contains(where: { $0.id == speakerID })
+        else {
+            return
+        }
+
+        let ids = Set(segmentIDs)
+        var changed = false
+        for index in updated.segments.indices where ids.contains(updated.segments[index].id) {
+            if updated.segments[index].speakerID != speakerID {
+                updated.segments[index].speakerID = speakerID
+                changed = true
+            }
+        }
+        guard changed else { return }
+        await persistEditedTranscript(updated)
+    }
+
     func updateTranscriptSegment(_ segmentID: TranscriptSegment.ID, text proposedText: String) async {
         guard !isTranscribing,
               !isDiarizing,
@@ -695,6 +746,44 @@ final class LibraryViewModel: ObservableObject {
         meetingMinutesErrorMessage = nil
     }
 
+    func updateMeetingMinutesText(_ proposedText: String) async {
+        guard var current = meetingMinutes,
+              current.recordingID == selection,
+              !isGeneratingMeetingMinutes else {
+            return
+        }
+
+        let text = proposedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            meetingMinutesErrorMessage = String(localized: "La minuta no puede quedar vacía.")
+            return
+        }
+
+        let updated = MeetingMinutes(
+            recordingID: current.recordingID,
+            sourceTranscriptMetadata: current.sourceTranscriptMetadata,
+            modelID: current.modelID,
+            text: text,
+            createdAt: current.createdAt,
+            analysis: current.analysis,
+            sourceTranscriptHash: current.sourceTranscriptHash,
+            modelRevision: current.modelRevision,
+            promptVersion: current.promptVersion,
+            pipelineVersion: current.pipelineVersion,
+            processingDuration: current.processingDuration
+        )
+
+        do {
+            try await resolveMeetingMinutesStore().save(updated)
+            current = updated
+            meetingMinutes = current
+            meetingMinutesErrorMessage = nil
+            await rebuildSearchDocuments()
+        } catch {
+            meetingMinutesErrorMessage = error.localizedDescription
+        }
+    }
+
     func performMeetingMinutes(title: String? = nil, context: String? = nil) async {
         defer {
             isGeneratingMeetingMinutes = false
@@ -739,6 +828,7 @@ final class LibraryViewModel: ObservableObject {
                 meetingMinutes = generated
                 streamingMeetingMinutesText = nil
                 meetingMinutesProgress = 1
+                await rebuildSearchDocuments()
             } catch {
                 await generator.reset()
                 throw error
@@ -769,10 +859,79 @@ final class LibraryViewModel: ObservableObject {
             transcript = updated
             meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: updated) ?? false
             transcriptEditErrorMessage = nil
+            await rebuildSearchDocuments()
         } catch {
             guard selection == recordingID else { return }
             transcriptEditErrorMessage = error.localizedDescription
         }
+    }
+
+    private func rebuildSearchDocuments() async {
+        let transcriptStore: TranscriptStore
+        let minutesStore: MeetingMinutesStore
+        do {
+            transcriptStore = try resolveTranscriptStore()
+            minutesStore = try resolveMeetingMinutesStore()
+        } catch {
+            searchDocuments = recordings.map {
+                LibrarySearchDocument(
+                    id: $0.id,
+                    title: LibraryFormatting.recordingTitle($0),
+                    createdAt: $0.createdAt,
+                    duration: $0.duration,
+                    source: LibraryFormatting.source($0.sources),
+                    participantNames: [],
+                    transcriptText: "",
+                    minutesText: ""
+                )
+            }
+            recordingIDsWithMinutes = []
+            return
+        }
+
+        var documents: [LibrarySearchDocument] = []
+        var minuteIDs = Set<Recording.ID>()
+
+        for recording in recordings {
+            let loadedTranscript: Transcript?
+            do {
+                loadedTranscript = try await transcriptStore.read(recordingID: recording.id)
+            } catch {
+                loadedTranscript = nil
+            }
+
+            let loadedMinutes: MeetingMinutes?
+            do {
+                loadedMinutes = try await minutesStore.read(recordingID: recording.id)
+            } catch {
+                loadedMinutes = nil
+            }
+
+            let names = loadedTranscript?.speakers.enumerated().map { index, speaker in
+                let trimmed = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1) : trimmed
+            } ?? []
+
+            if loadedMinutes != nil {
+                minuteIDs.insert(recording.id)
+            }
+
+            documents.append(
+                LibrarySearchDocument(
+                    id: recording.id,
+                    title: LibraryFormatting.recordingTitle(recording),
+                    createdAt: recording.createdAt,
+                    duration: recording.duration,
+                    source: LibraryFormatting.source(recording.sources),
+                    participantNames: names,
+                    transcriptText: loadedTranscript?.text ?? "",
+                    minutesText: loadedMinutes?.text ?? ""
+                )
+            )
+        }
+
+        searchDocuments = documents
+        recordingIDsWithMinutes = minuteIDs
     }
 
     private func recoverInterruptedTranscriptions(using recordingStore: RecordingStore) async throws {
