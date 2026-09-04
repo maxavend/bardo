@@ -1,52 +1,182 @@
 import AppKit
 import SwiftUI
 
+private enum BardoAppearancePreference: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: "Sistema"
+        case .light: "Claro"
+        case .dark: "Oscuro"
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObserveInjection var redraw
     @StateObject private var model = ModelSettingsViewModel()
     @State private var pendingReset: PendingModelReset?
     @State private var isLegacyQwenRemovalPresented = false
+    @State private var isLibraryRemovalPresented = false
+    @State private var storageUsage = BardoStorageUsage.empty
+
+    @AppStorage("bardo.appearance") private var appearanceRaw = BardoAppearancePreference.system.rawValue
+    @AppStorage("bardo.start-section") private var startSectionRaw = BardoLibrarySection.home.rawValue
+    @AppStorage("bardo.default-recording-mode") private var recordingModeRaw = BardoRecordingMode.conversation.rawValue
+    @AppStorage("bardo.minutes-detail") private var minutesDetail = "balanced"
+    @AppStorage("bardo.minutes-language") private var minutesLanguage = "conversation"
+    @AppStorage("bardo.minutes-instructions") private var minutesInstructions = ""
 
     var body: some View {
+        TabView {
+            generalTab
+                .tabItem { Label("General", systemImage: "gearshape") }
+
+            recordingTab
+                .tabItem { Label("Grabación", systemImage: "mic") }
+
+            transcriptionTab
+                .tabItem { Label("Transcripción", systemImage: "waveform") }
+
+            minutesTab
+                .tabItem { Label("Minutas", systemImage: "list.bullet.clipboard") }
+
+            storageTab
+                .tabItem { Label("Almacenamiento", systemImage: "externaldrive") }
+
+            privacyTab
+                .tabItem { Label("Privacidad", systemImage: "hand.raised") }
+        }
+        .frame(width: 660, height: 520)
+        .task {
+            await model.refreshIfNeeded()
+            refreshStorageUsage()
+            applyAppearance()
+        }
+        .onChange(of: appearanceRaw) { _, _ in
+            applyAppearance()
+        }
+        .alert(item: $pendingReset) { request in
+            Alert(
+                title: Text("¿Eliminar este recurso local?"),
+                message: Text("Bardo puede volver a descargarlo cuando lo necesites."),
+                primaryButton: .destructive(Text(request.reinstall ? "Eliminar y descargar de nuevo" : "Eliminar")) {
+                    if request.reinstall {
+                        model.resetAndInstall(request.model)
+                    } else {
+                        model.reset(request.model)
+                    }
+                },
+                secondaryButton: .cancel(Text("Cancelar"))
+            )
+        }
+        .alert("¿Eliminar archivos antiguos?", isPresented: $isLegacyQwenRemovalPresented) {
+            Button("Cancelar", role: .cancel) {}
+            Button("Eliminar archivos", role: .destructive) {
+                model.removeLegacyQwenData()
+                refreshStorageUsage()
+            }
+        } message: {
+            Text("Se eliminarán solamente recursos antiguos que Bardo ya no utiliza. Tus grabaciones, transcripciones y minutas no se verán afectadas.")
+        }
+        .alert("¿Mover todas las conversaciones a la Papelera?", isPresented: $isLibraryRemovalPresented) {
+            Button("Cancelar", role: .cancel) {}
+            Button("Mover a la Papelera", role: .destructive) {
+                moveLibraryContentsToTrash()
+            }
+        } message: {
+            Text("Se moverán a la Papelera de macOS todas las grabaciones, transcripciones y minutas guardadas por Bardo. Podrás recuperarlas desde Finder mientras no vacíes la Papelera.")
+        }
+        .enableInjection()
+    }
+
+    private var generalTab: some View {
         Form {
-            Section {
-                Label {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Privacy")
-                            .fontWeight(.semibold)
-                        Text("Your recordings and transcripts stay on this Mac. Bardo does not upload audio to the internet.")
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+            Section("Al abrir Bardo") {
+                Picker("Mostrar", selection: $startSectionRaw) {
+                    Text("Inicio").tag(BardoLibrarySection.home.rawValue)
+                    Text("Grabaciones").tag(BardoLibrarySection.recordings.rawValue)
+                    Text("Minutas").tag(BardoLibrarySection.minutes.rawValue)
+                }
+            }
+
+            Section("Apariencia") {
+                Picker("Apariencia", selection: $appearanceRaw) {
+                    ForEach(BardoAppearancePreference.allCases) { preference in
+                        Text(preference.title).tag(preference.rawValue)
                     }
-                } icon: {
-                    Image(systemName: "hand.raised")
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section {
+                Text("Bardo sigue los comportamientos nativos de macOS para ventanas, menús, atajos de teclado y modo de pantalla completa.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .padding(.top, 8)
+    }
+
+    private var recordingTab: some View {
+        Form {
+            Section("Fuente predeterminada") {
+                Picker("Al crear una grabación", selection: $recordingModeRaw) {
+                    ForEach(BardoRecordingMode.allCases) { mode in
+                        Label(mode.title, systemImage: mode.symbol)
+                            .tag(mode.rawValue)
+                    }
+                }
+
+                Text("Siempre podrás cambiar la fuente antes de comenzar.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Micrófono") {
+                LabeledContent("Entrada") {
+                    Text("Micrófono seleccionado en macOS")
                         .foregroundStyle(.secondary)
+                }
+
+                Button("Abrir ajustes de sonido…") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension") {
+                        NSWorkspace.shared.open(url)
+                    }
                 }
             }
 
             Section {
-                Label {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(String(localized: "Whisper Large v3 Turbo"))
-                            .fontWeight(.semibold)
-                        Text(String(localized: "The only transcription engine. It keeps word timestamps and processes audio locally."))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } icon: {
-                    Image(systemName: "waveform")
-                        .foregroundStyle(.secondary)
-                }
-            } header: {
-                Label(String(localized: "Transcription"), systemImage: "waveform")
+                Text("Bardo conserva el audio original de cada fuente para que puedas volver a escucharlo o procesarlo más tarde.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .padding(.top, 8)
+    }
+
+    private var transcriptionTab: some View {
+        Form {
+            Section("Idioma") {
+                LabeledContent("Idioma de la conversación", value: "Detectar automáticamente")
+                Text("Bardo reconoce el idioma a partir del audio y mantiene la transcripción en ese idioma.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            Section {
+            Section("Recursos locales") {
                 if model.rows.isEmpty {
-                    HStack {
+                    HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Checking local models…")
+                        Text("Comprobando lo necesario…")
                             .foregroundStyle(.secondary)
                     }
                 } else {
@@ -56,94 +186,143 @@ struct SettingsView: View {
                         }
                     }
                 }
-            } header: {
+
                 HStack {
-                    Label("Local Models", systemImage: "cpu")
                     Spacer()
+                    Button("Comprobar recursos") {
+                        model.refresh()
+                    }
+                    .disabled(model.isRefreshing)
+
                     if model.isRefreshing {
                         ProgressView()
                             .controlSize(.small)
                     }
-                    Button("Check Models") {
-                        model.refresh()
-                    }
-                    .buttonStyle(.link)
-                    .disabled(model.isRefreshing)
                 }
             } footer: {
-                Text("Whisper Turbo, SpeakerKit, and meeting minutes run locally on this Mac.")
-            }
-
-            Section {
-                LabeledContent("Model folder") {
-                    Button("Show in Finder") {
-                        model.revealModelsFolder()
-                    }
-                }
-
-                if model.hasLegacyQwenData {
-                    HStack(alignment: .center, spacing: 12) {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(String(localized: "Older Qwen files"))
-                                    .fontWeight(.medium)
-                                Text(String(localized: "Bardo no longer uses Qwen. These files can be removed to recover storage."))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: "archivebox")
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer(minLength: 12)
-
-                        Button(String(localized: "Remove Qwen Files…"), role: .destructive) {
-                            isLegacyQwenRemovalPresented = true
-                        }
-                    }
-                }
-
-                if let error = model.legacyQwenCleanupErrorMessage {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            } header: {
-                Label("Storage", systemImage: "externaldrive")
-            } footer: {
-                Text("Models are stored privately on your Mac.")
+                Text("Estos recursos se guardan en este Mac y permiten transcribir, distinguir voces y preparar minutas sin enviar tus conversaciones a servicios externos.")
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 600, minHeight: 520)
-        .task {
-            await model.refreshIfNeeded()
-        }
-        .alert(item: $pendingReset) { request in
-            let message = String(localized: "This removes the selected model’s private files.")
-            return Alert(
-                title: Text("Remove local model?"),
-                message: Text(message),
-                primaryButton: .destructive(Text(request.reinstall ? "Remove and Download Again" : "Remove Model")) {
-                    if request.reinstall {
-                        model.resetAndInstall(request.model)
-                    } else {
-                        model.reset(request.model)
-                    }
-                },
-                secondaryButton: .cancel(Text("Cancel"))
-            )
-        }
-        .alert(String(localized: "Remove old Qwen files?"), isPresented: $isLegacyQwenRemovalPresented) {
-            Button(String(localized: "Cancel"), role: .cancel) {}
-            Button(String(localized: "Remove Files"), role: .destructive) {
-                model.removeLegacyQwenData()
+        .padding(.top, 8)
+    }
+
+    private var minutesTab: some View {
+        Form {
+            Section("Contenido") {
+                Picker("Nivel de detalle", selection: $minutesDetail) {
+                    Text("Breve").tag("brief")
+                    Text("Equilibrado").tag("balanced")
+                    Text("Detallado").tag("detailed")
+                }
+
+                Picker("Idioma", selection: $minutesLanguage) {
+                    Text("El de la conversación").tag("conversation")
+                    Text("Español").tag("es")
+                    Text("Inglés").tag("en")
+                }
             }
-        } message: {
-            Text(String(localized: "Qwen is no longer used by Bardo. This removes only the old private Qwen folder and does not affect LFM2.5, transcripts, recordings, or meeting minutes."))
+
+            Section("Instrucciones personalizadas") {
+                TextEditor(text: $minutesInstructions)
+                    .font(.body)
+                    .frame(minHeight: 110)
+                    .overlay(alignment: .topLeading) {
+                        if minutesInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Ejemplo: prioriza decisiones de producto y deja los pendientes al final.")
+                                .foregroundStyle(.tertiary)
+                                .allowsHitTesting(false)
+                                .padding(.top, 6)
+                                .padding(.leading, 5)
+                        }
+                    }
+
+                Text("Estas indicaciones se aplican a las próximas minutas que generes.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .enableInjection()
+        .formStyle(.grouped)
+        .padding(.top, 8)
+    }
+
+    private var storageTab: some View {
+        Form {
+            Section("Uso local") {
+                LabeledContent("Conversaciones", value: storageUsage.libraryText)
+                LabeledContent("Recursos locales", value: storageUsage.modelsText)
+                LabeledContent("Total", value: storageUsage.totalText)
+            }
+
+            Section("Ubicaciones") {
+                Button("Mostrar conversaciones en Finder") {
+                    guard let url = try? RecordingStore.defaultLibraryURL() else { return }
+                    NSWorkspace.shared.open(url)
+                }
+
+                Button("Mostrar recursos locales en Finder") {
+                    model.revealModelsFolder()
+                }
+            }
+
+            if model.hasLegacyQwenData {
+                Section("Limpieza") {
+                    Button("Eliminar archivos antiguos…", role: .destructive) {
+                        isLegacyQwenRemovalPresented = true
+                    }
+                }
+            }
+
+            Section("Datos de Bardo") {
+                Button("Mover todas las conversaciones a la Papelera…", role: .destructive) {
+                    isLibraryRemovalPresented = true
+                }
+
+                Text("Los recursos necesarios para transcribir y preparar minutas se conservan. Puedes eliminarlos individualmente desde Transcripción.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .padding(.top, 8)
+    }
+
+    private var privacyTab: some View {
+        Form {
+            Section {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Tus conversaciones se quedan en este Mac")
+                            .font(.headline)
+                        Text("Bardo procesa el audio, la transcripción, los hablantes y las minutas de forma local. El contenido de tus reuniones no necesita enviarse a un servicio externo.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } icon: {
+                    Image(systemName: "lock.shield")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Permisos") {
+                LabeledContent("Micrófono") {
+                    Text("Solo se solicita cuando quieres grabar tu voz.")
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Grabación del sistema") {
+                    Text("macOS muestra su selector antes de capturar audio de una app, ventana o pantalla.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Almacenamiento") {
+                Text("Las grabaciones, transcripciones y minutas se guardan dentro de la biblioteca privada de Bardo en tu carpeta de usuario.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .padding(.top, 8)
     }
 
     private func handle(_ action: ModelSettingsAction, for modelID: ManagedModel) {
@@ -163,6 +342,89 @@ struct SettingsView: View {
         case .unavailable:
             break
         }
+    }
+
+    private func applyAppearance() {
+        let preference = BardoAppearancePreference(rawValue: appearanceRaw) ?? .system
+        switch preference {
+        case .system:
+            NSApp.appearance = nil
+        case .light:
+            NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
+
+    private func refreshStorageUsage() {
+        storageUsage = BardoStorageUsage.current()
+    }
+
+    private func moveLibraryContentsToTrash() {
+        guard let libraryURL = try? RecordingStore.defaultLibraryURL(),
+              let entries = try? FileManager.default.contentsOfDirectory(
+                at: libraryURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+              ) else {
+            return
+        }
+
+        for entry in entries {
+            _ = try? FileManager.default.trashItem(at: entry, resultingItemURL: nil)
+        }
+
+        refreshStorageUsage()
+        NotificationCenter.default.post(name: BardoCommandNotification.libraryChanged, object: nil)
+    }
+}
+
+private struct BardoStorageUsage {
+    let libraryBytes: Int64
+    let modelsBytes: Int64
+
+    static let empty = BardoStorageUsage(libraryBytes: 0, modelsBytes: 0)
+
+    var libraryText: String { formatted(libraryBytes) }
+    var modelsText: String { formatted(modelsBytes) }
+    var totalText: String { formatted(libraryBytes + modelsBytes) }
+
+    static func current() -> BardoStorageUsage {
+        let library = (try? RecordingStore.defaultLibraryURL()).map(directorySize) ?? 0
+        let models: Int64
+        if let store = try? BardoModelStore.live() {
+            let roots = ManagedModel.allCases.map(store.root(for:))
+            let parentRoots = Set(roots.map { $0.standardizedFileURL })
+            models = parentRoots.reduce(0) { $0 + directorySize($1) }
+        } else {
+            models = 0
+        }
+        return BardoStorageUsage(libraryBytes: library, modelsBytes: models)
+    }
+
+    private static func directorySize(_ root: URL) -> Int64 {
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  let size = values.fileSize else {
+                continue
+            }
+            total += Int64(size)
+        }
+        return total
+    }
+
+    private func formatted(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
 
@@ -595,14 +857,14 @@ private final class ModelSettingsViewModel: ObservableObject {
     private func makeRow(for model: ManagedModel, state: ManagedModelState) -> ModelSettingsRowState {
         switch model {
         case .whisperTurbo:
-            return ModelSettingsRowState(id: model, title: String(localized: "WhisperKit large-v3 Turbo"), detail: String(localized: "Downloaded during first-run setup with word timestamps"), supportsInstallation: true, state: state)
+            return ModelSettingsRowState(id: model, title: "Transcripción", detail: "Convierte el audio en texto y conserva los tiempos necesarios para la reproducción.", supportsInstallation: true, state: state)
         case .speakerKit:
-            return ModelSettingsRowState(id: model, title: String(localized: "SpeakerKit / Pyannote"), detail: String(localized: "Downloaded during first-run setup for speaker identification"), supportsInstallation: true, state: state)
+            return ModelSettingsRowState(id: model, title: "Identificación de hablantes", detail: "Distingue las voces para organizar la conversación por participante.", supportsInstallation: true, state: state)
         case .meetingMinutes:
             return ModelSettingsRowState(
                 id: model,
-                title: String(localized: "Meeting Minutes · LFM2.5"),
-                detail: String(localized: "LFM2.5 1.2B 4-bit is verified with a local generation check before Bardo marks it ready."),
+                title: "Minutas",
+                detail: "Organiza la conversación en un documento con temas, decisiones, acuerdos y próximos pasos.",
                 supportsInstallation: true,
                 state: state
             )
