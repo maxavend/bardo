@@ -133,7 +133,6 @@ struct LibraryView: View {
                 playback: model.playback,
                 transcriptSearch: $transcriptSearchText
             )
-            .id(recording.id)
         } else {
             ContentUnavailableView {
                 Label(String(localized: "Select a Recording"), systemImage: "waveform")
