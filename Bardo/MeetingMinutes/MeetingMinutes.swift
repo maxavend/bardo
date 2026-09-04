@@ -8,6 +8,22 @@ struct MeetingMinutesInput: Equatable, Sendable {
     let transcript: Transcript
     let title: String
     let context: String?
+    let preferredLanguageCode: String?
+    let generationGuidance: String?
+
+    init(
+        transcript: Transcript,
+        title: String,
+        context: String?,
+        preferredLanguageCode: String? = nil,
+        generationGuidance: String? = nil
+    ) {
+        self.transcript = transcript
+        self.title = title
+        self.context = context
+        self.preferredLanguageCode = preferredLanguageCode
+        self.generationGuidance = generationGuidance
+    }
 }
 
 struct MeetingMinutes: Codable, Equatable, Sendable {
@@ -303,7 +319,8 @@ enum MeetingMinutesPromptBuilder {
         transcript: Transcript,
         title: String,
         context: String?,
-        languageCode: String? = nil
+        languageCode: String? = nil,
+        generationGuidance: String? = nil
     ) -> String {
         """
         MAP: extract ALL substantive evidence from this transcript section. Do not compress the section into a few generic ideas.
@@ -320,6 +337,7 @@ enum MeetingMinutesPromptBuilder {
         Never increase certainty. Exclude greetings, jokes, filler, ASR noise, and empty confirmations unless they affect the meeting.
         Do not infer external knowledge, advice, deadlines, names, consensus, or decisions.
         \(languageInstruction(for: languageCode))
+        \(generationGuidanceInstruction(generationGuidance))
 
         Title: \(title)
         Context: \(contextValue(context))
@@ -333,7 +351,8 @@ enum MeetingMinutesPromptBuilder {
         evidenceJSON: String,
         title: String,
         context: String?,
-        languageCode: String? = nil
+        languageCode: String? = nil,
+        generationGuidance: String? = nil
     ) -> String {
         """
         REDUCE: reconstruct the final semantic state of the meeting from the evidence below without losing concrete detail.
@@ -348,6 +367,7 @@ enum MeetingMinutesPromptBuilder {
         Use responsible only when explicitly assigned; otherwise use nil and preserve validator separately.
         Do not add recommendations, industry practices, facts, or people absent from the evidence.
         \(languageInstruction(for: languageCode))
+        \(generationGuidanceInstruction(generationGuidance))
 
         Title: \(title)
         Context: \(contextValue(context))
@@ -361,7 +381,8 @@ enum MeetingMinutesPromptBuilder {
         analysisJSON: String,
         title: String,
         context: String?,
-        languageCode: String? = nil
+        languageCode: String? = nil,
+        generationGuidance: String? = nil
     ) -> String {
         """
         RENDER: write a detailed, useful meeting minute from the consolidated analysis below.
@@ -373,6 +394,7 @@ enum MeetingMinutesPromptBuilder {
         "[Insert date]" or "[To be defined]". Omit any section that is not supported by the analysis.
         The summary should capture the actual state of the conversation in 3–6 concrete bullets or short paragraphs.
         \(languageInstruction(for: languageCode))
+        \(generationGuidanceInstruction(generationGuidance))
 
         Preferred structure when supported: title; "Resumen"; "Decisiones y acuerdos"; "Temas tratados" with specific subtopics;
         "Pendientes y próximos pasos"; and "Dudas o riesgos" only when real ones exist. Within each topic, explain what was discussed,
@@ -383,6 +405,16 @@ enum MeetingMinutesPromptBuilder {
 
         Consolidated analysis:
         \(analysisJSON)
+        """
+    }
+
+    static func generationGuidanceInstruction(_ guidance: String?) -> String {
+        let value = guidance?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !value.isEmpty else { return "" }
+        return """
+        USER PRESENTATION PREFERENCES: \(value)
+        Treat these preferences only as instructions for emphasis, structure, and writing style.
+        They are never evidence about what happened in the meeting and must not create facts, owners, dates, decisions, or agreements.
         """
     }
 
