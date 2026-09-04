@@ -7,7 +7,7 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
         let recordingID = UUID(uuidString: "00000000-0000-0000-0000-000000000602")!
         let recording = Recording(
             id: recordingID,
-            title: "Audio source that must never reach Qwen",
+            title: "Audio source that must never reach the minutes model",
             sources: [.importedFile],
             audioAssets: [
                 AudioAsset(
@@ -38,7 +38,7 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
     func testGeneratorUsesDeterministicConservativeTextOnlyPrompt() async throws {
         let spy = TextGeneratorSpy(responses: ["## Summary\n- Launch was discussed."])
         let createdAt = Date(timeIntervalSince1970: 1_700_000_602)
-        let generator = QwenMeetingMinutesGenerator(
+        let generator = MeetingMinutesGenerator(
             textGenerator: spy,
             dateProvider: { createdAt }
         )
@@ -51,14 +51,14 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
         let result = try await generator.generate(from: input, progress: { _ in })
         let prompts = await spy.prompts
 
-        XCTAssertEqual(result.modelID, QwenMeetingMinutesModel.modelID)
+        XCTAssertEqual(result.modelID, MeetingMinutesModel.modelID)
         XCTAssertEqual(result.text, "## Summary\n- Launch was discussed.")
         XCTAssertEqual(result.createdAt, createdAt)
-        XCTAssertEqual(prompts.count, 1)
+        XCTAssertEqual(prompts.count, 3)
         XCTAssertTrue(prompts[0].contains("Product planning"))
         XCTAssertTrue(prompts[0].contains("Weekly meeting"))
         XCTAssertTrue(prompts[0].contains("Maxi asked whether we should launch."))
-        XCTAssertTrue(prompts[0].contains("Do not invent names, deadlines, decisions, or agreements."))
+        XCTAssertTrue(prompts[0].contains("Do not infer external knowledge, advice, deadlines, names, or decisions."))
         XCTAssertTrue(prompts[0].contains("A question is not an agreement."))
         XCTAssertFalse(prompts[0].contains("private-audio.wav"))
         XCTAssertFalse(prompts[0].contains("samples"))
@@ -68,9 +68,9 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
 
     func testLongTranscriptUsesSegmentBoundedExtractionThenFinalSynthesis() async throws {
         let spy = TextGeneratorSpy(responses: ["Extract one", "Extract two", "Final minutes"])
-        let generator = QwenMeetingMinutesGenerator(
+        let generator = MeetingMinutesGenerator(
             textGenerator: spy,
-            chunkCharacterLimit: 80,
+            chunkingConfiguration: .init(targetTokens: 20, overlapSegmentCount: 0),
             dateProvider: { Date(timeIntervalSince1970: 1_700_000_603) }
         )
         let transcript = Transcript(
@@ -90,16 +90,18 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
         let prompts = await spy.prompts
 
         XCTAssertEqual(result.text, "Final minutes")
-        XCTAssertEqual(prompts.count, 3)
-        XCTAssertTrue(prompts[0].contains("Extract only supported facts"))
-        XCTAssertTrue(prompts[1].contains("Extract only supported facts"))
+        XCTAssertEqual(prompts.count, 4)
+        XCTAssertTrue(prompts[0].contains("MAP: extract conservative"))
+        XCTAssertTrue(prompts[1].contains("MAP: extract conservative"))
+        XCTAssertTrue(prompts[2].contains("REDUCE: reconstruct"))
         XCTAssertTrue(prompts[2].contains("Extract one"))
         XCTAssertTrue(prompts[2].contains("Extract two"))
+        XCTAssertTrue(prompts[3].contains("RENDER: write"))
     }
 
     func testGeneratorIncludesLanguageInstructionInPrompt() async throws {
         let spy = TextGeneratorSpy(responses: ["## Resumen\n- Acuerdo alcanzado."])
-        let generator = QwenMeetingMinutesGenerator(textGenerator: spy)
+        let generator = MeetingMinutesGenerator(textGenerator: spy)
         var transcript = makeTranscript(recordingID: UUID(), text: "Discutimos el lanzamiento del producto.")
         transcript.languageCode = "es"
 
@@ -112,19 +114,18 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
         _ = try await generator.generate(from: input, progress: { (_: MeetingMinutesProgressSnapshot) in }, onStreamChunk: nil)
         let prompts = await spy.prompts
 
-        XCTAssertEqual(prompts.count, 1)
+        XCTAssertEqual(prompts.count, 3)
         XCTAssertTrue(prompts[0].contains("Spanish"))
         XCTAssertTrue(prompts[0].contains("es"))
         XCTAssertTrue(prompts[0].contains("LANGUAGE REQUIREMENT"))
-        XCTAssertTrue(prompts[0].contains("Executive Summary / Resumen Ejecutivo"))
-        XCTAssertTrue(prompts[0].contains("Key Discussion Points / Temas Tratados y Discusión"))
-        XCTAssertTrue(prompts[0].contains("Decisions and Agreements / Acuerdos y Decisiones"))
-        XCTAssertTrue(prompts[0].contains("Action Items & Next Steps / Tareas y Compromisos"))
+        XCTAssertTrue(prompts[0].contains("Return JSON only"))
+        XCTAssertTrue(prompts[1].contains("REDUCE: reconstruct"))
+        XCTAssertTrue(prompts[2].contains("RENDER: write"))
     }
 
     func testGeneratorStreamsTokensDuringSynthesis() async throws {
         let spy = TextGeneratorSpy(responses: ["Streaming chunk"])
-        let generator = QwenMeetingMinutesGenerator(textGenerator: spy)
+        let generator = MeetingMinutesGenerator(textGenerator: spy)
         let input = MeetingMinutesInput(
             transcript: makeTranscript(recordingID: UUID(), text: "Test conversation."),
             title: "Testing Stream",
@@ -146,7 +147,7 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
 
     func testGeneratorReportsProgressSnapshotsWithStages() async throws {
         let spy = TextGeneratorSpy(responses: ["Completed minutes"])
-        let generator = QwenMeetingMinutesGenerator(textGenerator: spy)
+        let generator = MeetingMinutesGenerator(textGenerator: spy)
         let input = MeetingMinutesInput(
             transcript: makeTranscript(recordingID: UUID(), text: "Quick check."),
             title: "Progress Check",

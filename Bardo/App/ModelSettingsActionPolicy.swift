@@ -21,7 +21,7 @@ enum ModelSettingsActionPolicy {
         case .downloading, .preparing:
             return .cancel
         case .installed:
-            return .reset
+            return supportsInstallation ? .reset : .unavailable
         case .failed:
             return supportsInstallation ? .retry : .unavailable
         }

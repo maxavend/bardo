@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct FloatingPlaybackBar: View {
+    @ObserveInjection var redraw
     let recording: Recording
     @ObservedObject var playback: AudioPlaybackController
 
@@ -14,12 +15,13 @@ struct FloatingPlaybackBar: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .bardoGlassCapsule(interactive: true)
-                .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
-                .frame(maxWidth: 720)
+                .shadow(color: .black.opacity(0.28), radius: 16, x: 0, y: 6)
+                .frame(maxWidth: 620)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity)
+        .enableInjection()
     }
 
     private var playerContent: some View {
@@ -73,7 +75,7 @@ struct FloatingPlaybackBar: View {
                 .frame(width: 32, height: 28)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.bardoPressable)
         .foregroundStyle(.primary)
         .disabled(!playback.isLoaded)
         .help(playback.isPlaying ? String(localized: "Pause") : String(localized: "Play"))
@@ -107,7 +109,7 @@ struct FloatingPlaybackBar: View {
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.bardoPressable)
         .foregroundStyle(.secondary)
         .disabled(!playback.isLoaded)
         .accessibilityLabel(accessibilityLabel)

@@ -23,9 +23,6 @@ packages:
   ArgmaxOSS:
     url: https://github.com/argmaxinc/argmax-oss-swift
     exactVersion: 1.1.0
-  FluidAudio:
-    url: https://github.com/FluidInference/FluidAudio
-    exactVersion: 0.15.6
   MLXSwiftLM:
     url: https://github.com/ml-explore/mlx-swift-lm
     exactVersion: 3.31.3
@@ -45,6 +42,10 @@ targets:
       - path: Bardo
         excludes:
           - Models
+          - Resources
+      - path: Bardo/Resources/Models
+        type: folder
+        buildPhase: resources
       - path: Bardo/Models
     resources:
       - path: Bardo/Localization
@@ -53,8 +54,6 @@ targets:
         product: WhisperKit
       - package: ArgmaxOSS
         product: SpeakerKit
-      - package: FluidAudio
-        product: FluidAudio
       - package: MLXSwiftLM
         product: MLXLLM
       - package: MLXSwiftLM
@@ -78,6 +77,12 @@ targets:
         PRODUCT_NAME: Bardo
         CODE_SIGN_ENTITLEMENTS: Bardo/Bardo.entitlements
         ENABLE_HARDENED_RUNTIME: YES
+      configs:
+        Debug:
+          OTHER_LDFLAGS:
+            - $(inherited)
+            - -Xlinker
+            - -interposable
 
   BardoTests:
     type: bundle.unit-test

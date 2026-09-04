@@ -27,18 +27,18 @@ final class ModelSettingsActionTests: XCTestCase {
         )
     }
 
-    func testQwenCanBeInstalledLikeOtherLocalModels() {
+    func testMeetingMinutesModelCanBeInstalledDuringSetupOrRetry() {
         XCTAssertEqual(
             ModelSettingsActionPolicy.action(for: .notInstalled, supportsInstallation: true),
             .install
         )
     }
 
-    func testQwenNotInstalledDoesNotUseOnDemandState() {
+    func testMeetingMinutesModelUsesDownloadState() {
         let row = ModelSettingsRowState(
-            id: .qwen,
-            title: "Qwen",
-            detail: "Installed during setup for instant minutes",
+            id: .meetingMinutes,
+            title: "Meeting Minutes",
+            detail: "Downloaded during first-run setup for on-device generation.",
             supportsInstallation: true,
             state: .notInstalled
         )
@@ -46,27 +46,16 @@ final class ModelSettingsActionTests: XCTestCase {
         XCTAssertEqual(row.stateLabel, "")
     }
 
-    func testNotInstalledModelUsesDownloadSymbolInsteadOfSelectionCircle() {
+    func testRuntimeVoiceModelUsesDownloadAction() {
         let row = ModelSettingsRowState(
-            id: .parakeet,
-            title: "Parakeet",
-            detail: "Fast transcription",
+            id: .whisperTurbo,
+            title: "Whisper Turbo",
+            detail: "Private transcription download",
             supportsInstallation: true,
             state: .notInstalled
         )
 
-        XCTAssertEqual(row.symbol, "arrow.down.circle")
-    }
-
-    func testInstallableNotInstalledRowDoesNotRepeatStatusBesideInstallAction() {
-        let row = ModelSettingsRowState(
-            id: .parakeet,
-            title: "Parakeet",
-            detail: "Fast transcription",
-            supportsInstallation: true,
-            state: .notInstalled
-        )
-
-        XCTAssertTrue(row.stateLabel.isEmpty)
+        XCTAssertEqual(row.primaryAction, .install)
+        XCTAssertNotEqual(row.stateLabel, String(localized: "On demand"))
     }
 }

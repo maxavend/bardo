@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 
 struct RootView: View {
+    @ObserveInjection var redraw
     private let warmTranscriptionForRecording: @MainActor () -> Void
 
     @StateObject private var library = LibraryViewModel()
@@ -82,6 +83,7 @@ struct RootView: View {
                     await library.reload()
                 }
             }
+            .enableInjection()
     }
 
     private var activeCaptureBanner: AnyView? {
@@ -89,7 +91,7 @@ struct RootView: View {
             return AnyView(microphoneStatusBar)
         } else if systemAudio.phase != .idle && systemAudio.phase != .failed {
             return AnyView(systemAudioStatusBar)
-        } else if recoveryBanner != nil {
+        } else if !microphone.recoveryIssues.isEmpty || !systemAudio.recoveryIssues.isEmpty {
             return AnyView(recoveryBanner)
         } else {
             return nil
@@ -118,18 +120,22 @@ struct RootView: View {
                 Label(String(localized: "Internal Audio Only"), systemImage: "macbook.and.iphone")
             }
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "record.circle.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.red)
-                Text(String(localized: "Record"))
-                    .font(.subheadline.weight(.medium))
+            HStack(spacing: 7) {
+                Image(systemName: "record.circle")
+                    .font(.system(size: 14, weight: .semibold))
+                Text(String(localized: "Grabar"))
+                    .font(.system(size: 13, weight: .semibold))
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 14)
+            .frame(height: 34)
+            .bardoGlassCapsule(interactive: true)
+            .contentShape(Capsule())
         }
         .menuIndicator(.hidden)
+        .buttonStyle(.plain)
         .help(String(localized: "Record: Microphone or Microphone + Internal Audio (⌘R)"))
         .keyboardShortcut("r", modifiers: [.command])
         .disabled(microphone.isBusy || systemAudio.isBusy)
@@ -500,6 +506,10 @@ private struct RecoveryReviewView: View {
     @State private var pendingDiscard: PendingDiscard?
     @State private var isBulkDiscardConfirmationPresented = false
 
+    #if DEBUG
+    @ObserveInjection var forceRedraw
+    #endif
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(RecoveryCopy.title)
@@ -576,6 +586,7 @@ private struct RecoveryReviewView: View {
         } message: {
             Text(RecoveryCopy.moveAllToTrashMessage(actionableIssueCount))
         }
+        .enableInjection()
     }
 
     private var actionableIssueCount: Int {

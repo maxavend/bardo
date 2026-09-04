@@ -33,12 +33,11 @@ Bardo provides:
 - independent source originals plus a regenerable `conversationMix`;
 - playback preference for the mix with fallback to preserved originals;
 - persistent on-device local transcription;
-- selectable local transcription backends: Parakeet TDT 0.6B v3 for Instant, WhisperKit large-v3 Turbo for Balanced/default, and WhisperKit large-v3 for Maximum Accuracy;
-- bounded long-recording transcription with VAD and word timestamps;
+- one local transcription backend: WhisperKit Whisper Large v3 Turbo with incremental loading, VAD, concurrency and word timestamps;
 - persistent `transcript.json` with atomic publication and restart recovery;
 - local speaker diarization through SpeakerKit;
-- Pyannote v3 segmenter/embedder + v4 PLDA clustering resources downloaded at runtime;
-- speaker assignment aligned onto existing transcript timestamps without re-transcribing or rewriting source audio;
+- private Pyannote v3 segmenter/embedder + v4 PLDA clustering resources prepared through SpeakerKit during first-run setup;
+- word-level speaker assignment and conversational turn reconstruction without re-transcribing or rewriting source audio;
 - durable speakers, per-segment `speakerID` and diarization metadata;
 - conversational transcript turns with speaker labels and timestamp seek controls;
 - transcript search and copy-all;
@@ -47,20 +46,18 @@ Bardo provides:
 - restore-original behavior for corrected transcript segments;
 - protective confirmation before re-transcription would replace manual edits/names;
 - protective confirmation before re-diarization would replace named speaker clusters.
-- optional local Meeting Minutes generated from completed transcript text with Qwen 3.5 0.8B MLX 4-bit;
+- optional local Meeting Minutes generated from completed transcript text with LFM2.5 1.2B MLX 4-bit;
 - representative speaker voice previews, with only one preview playing at a time;
-- explicit model states, cancellation, retry and Bardo-owned reset/recovery actions.
+- explicit local model states, cancellation and recovery; Meeting Minutes downloads its model during first-run setup when it is not bundled.
 
 ## Transcription architecture
 
 ```text
 managed recording audio
-→ choose Instant (Parakeet) or Balanced/Maximum Accuracy (WhisperKit)
-→ prepare the selected private model + tokenizer when applicable
-→ load <= 300 s interval
+→ WhisperKit Whisper Large v3 Turbo
+→ incremental long-form loading with bounded buffers
 → 16 kHz mono Float samples
-→ WhisperKit VAD + word timestamps
-→ merge interval results
+→ WhisperKit VAD + concurrent workers + word timestamps
 → transcript.json
 ```
 
@@ -72,16 +69,17 @@ For a System + Microphone recording, transcription requires the derived `convers
 existing transcript.json
 +
 managed conversation audio
-→ resolve/download SpeakerKit models
+→ use private SpeakerKit models prepared during first-run setup
 → load Pyannote v3 + PLDA v4 pipeline
 → local SpeakerKit diarization
 → timestamped speaker intervals
-→ word/segment overlap alignment
+→ word overlap alignment
+→ conversational turn builder
 → Speaker objects + TranscriptSegment.speakerID
 → atomic transcript.json update
 ```
 
-Diarization does not run Whisper again or modify managed audio. If diarization fails or is cancelled, the previously persisted transcript remains authoritative. Manual text corrections survive re-diarization because speaker alignment mutates the existing transcript rather than rebuilding its text; manually assigned speaker names are intentionally not carried to newly clustered speakers because new cluster identities may represent different people.
+Diarization does not run Whisper again or modify managed audio. If diarization fails or is cancelled, the previously persisted transcript remains authoritative. Manual text corrections survive re-diarization because speaker alignment mutates the existing transcript rather than rebuilding its text; existing speaker IDs and names are retained by first appearance where possible.
 
 For System + Microphone recordings, diarization uses the same strict `conversationMix` requirement as transcription.
 
@@ -126,31 +124,37 @@ plus model/tensor memory. Bardo scopes that full-session buffer to inference and
 
 - `WhisperKit`
 - `SpeakerKit`
-- `FluidAudio` 0.15.6
-- MLX/Hugging Face products for Qwen Meeting Minutes
+- MLX/Hugging Face products for local LFM2.5 Meeting Minutes
 
 Bardo does not link the `ArgmaxOSS` umbrella product or `TTSKit`. The model manager owns these private roots:
 
 ```text
-~/Library/Application Support/Bardo/Models/
-├── whisper-balanced/
-├── whisper-maximum-accuracy/
-├── parakeet/
-├── speaker-kit/
-└── qwen/
+Bardo.app/Contents/Resources/Models/
+├── manifest.json
+├── WhisperKit/large-v3-v20240930_turbo_632MB/
+└── SpeakerKit/
+
+Bardo.app/Contents/Resources/Models/Minutes/
+└── LFM2.5-1.2B-Instruct-4bit/       # optional
+
+Application Support/Bardo/Models/meeting-minutes/
+└── LFM2.5-1.2B-Instruct-4bit/       # downloaded during first-run setup
 ```
 
-The global FluidAudio cache and the global Hugging Face cache are never readiness sources and are never deleted by Reset. Parakeet downloads, validates and loads through FluidAudio's custom-directory APIs. SpeakerKit is likewise considered installed only after its engine can load the private resources.
+Voice models are downloaded during first-run setup into Bardo’s private Application Support model root and validated before loading. Bardo owns only the Whisper Turbo and SpeakerKit roots; it does not use or count a global Hugging Face cache. Legacy Whisper/Parakeet directories are removed only during the one-time migration; Qwen and meeting-minutes data remain private and untouched.
 
-Model recovery is deliberately bounded:
+Voice models are not required in the DMG. The first setup downloads the pinned models, reports progress, and reuses them locally on subsequent runs. Settings retains an explicit retry/install action for recovery. See `THIRD_PARTY_NOTICES.md` for upstream license and model-artifact notices.
 
-1. download into the Bardo-owned directory;
-2. load and validate the resulting model;
-3. only when an already-present cache fails to load, delete that one private model directory, recreate the engine and download once more.
+LFM2.5 is not an ASR backend. It receives only the completed transcript, available speaker names and minimal context, then generates Meeting Minutes through conservative MAP/REDUCE/RENDER stages. The model is resolved from a Bardo-managed local directory first, with a bundled Resources/Models/Minutes snapshot accepted when present. If neither exists, Bardo downloads the pinned public snapshot during first-run setup into `Application Support/Bardo/Models/meeting-minutes`, validates the required files, and reuses it locally; it never uses the global Hugging Face cache.
 
-Network errors during a first download and user cancellation never trigger destructive repair or an automatic full retry. Failed operations surface as Failed with Retry or Reset & Download Again actions. Both WhisperKit/SpeakerKit/FluidAudio resources are downloaded at runtime rather than bundled with the app. See `THIRD_PARTY_NOTICES.md` for license and model-artifact notices.
+For local development, an offline snapshot can still be staged explicitly before building:
 
-Qwen is not an ASR backend. It receives only the completed transcript, available speaker names and minimal context, then generates Meeting Minutes using deterministic, conservative prompts and chunking for long transcripts. In production, MLX is given an explicit `HubCache(location: .fixed(...))` rooted under Bardo's Qwen directory; if those packages are unavailable at build time, the adapter reports model unavailability rather than falling back to a global cache.
+```text
+bash .github/scripts/fetch-minutes-model.sh --replace
+xcodegen generate
+```
+
+The fetch script stages the snapshot under `Bardo/Resources/Models/Minutes/` for the local build and those large files are ignored by Git. A distributed app does not require that resource: the first-run setup path stores the model under Application Support instead.
 
 ## Persistence
 
@@ -179,7 +183,7 @@ The generated application configuration includes:
 - `NSScreenCaptureUsageDescription`;
 - Hardened Runtime configuration;
 - `com.apple.security.device.audio-input`;
-- `com.apple.security.network.client` for runtime model downloads.
+- `com.apple.security.network.client` for local model/minutes integrations that may need network access elsewhere in the product.
 
 Transcription and diarization run locally after their model resources are present. Bardo does not send recording audio to an application-owned transcription or diarization backend.
 
@@ -189,7 +193,7 @@ CI builds the Release app unsigned and then applies an ad-hoc signature for DMG 
 
 The current CI workflow covers the inherited regression suite plus local-AI model ownership, recovery, Meeting Minutes, speaker naming/preview and task-lifecycle tests. A fresh run is required for each final HEAD; this documentation does not claim a pass from an earlier commit.
 
-CI compiles the real WhisperKit, FluidAudio, SpeakerKit and MLX production boundaries but intentionally does not download production models or claim real transcription/diarization/minutes quality. Visual interaction quality, real model downloads, long-session resource behavior and inherited TCC/system-audio physical smoke remain physical evidence in `PROJECT_STATE.md`.
+CI compiles the real WhisperKit, SpeakerKit and MLX production boundaries but intentionally does not claim real transcription/diarization/minutes quality. Visual interaction quality, first-run model download/load, long-session resource behavior and inherited TCC/system-audio physical smoke remain physical evidence in `PROJECT_STATE.md`.
 
 ## Project configuration
 
@@ -197,15 +201,15 @@ CI compiles the real WhisperKit, FluidAudio, SpeakerKit and MLX production bound
 - Language mode: Swift 6
 - UI: SwiftUI / AppKit lifecycle bridge
 - Capture/audio: AVFoundation / AVFAudio / ScreenCaptureKit
-- Transcription: WhisperKit, FluidAudio 0.15.6
+- Transcription: WhisperKit Whisper Large v3 Turbo
 - Diarization: SpeakerKit / Pyannote resources
-- Meeting Minutes: Qwen3.5-0.8B-MLX-4bit via MLXSwiftLM
+- Meeting Minutes: LFM2.5-1.2B-Instruct-4bit via MLXSwiftLM
 - Project generator: XcodeGen
 - Recording manifest write schema: 3
 - Transcript write schema: 1
 
 ## Evidence boundaries
 
-CI can prove project generation, compilation, unit tests, bundle checks, ad-hoc signing and mounted DMG contents. It does not download production models or prove transcription/diarization quality. Real model downloads, Qwen generation, long-session memory/thermal behavior, audio previews, visual UX and microphone/system-audio TCC permissions require a physical Apple Silicon Mac smoke test. The DMG workflows must be rerun for every new HEAD; an artifact from an earlier commit is not evidence for a later one.
+CI can prove project generation, compilation, unit tests, bundle checks, ad-hoc signing and mounted DMG contents. It does not download production models or prove transcription/diarization quality. Real model generation, long-session memory/thermal behavior, audio previews, visual UX and microphone/system-audio TCC permissions require a physical Apple Silicon Mac smoke test. The DMG workflows must be rerun for every new HEAD; an artifact from an earlier commit is not evidence for a later one.
 
 See `PROJECT_STATE.md` for exact certification evidence, reviewer repairs, recovery invariants, physical evidence debt and phase boundaries.

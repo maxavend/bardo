@@ -5,6 +5,12 @@ import Foundation
 final class BardoAppDelegate: NSObject, NSApplicationDelegate {
     private var terminationInProgress = false
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        InjectionObserver.shared.loadInjectionBundleIfNeeded()
+        #endif
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if let microphone = MicrophoneRecordingController.activeForApplicationTermination,
            microphone.requiresTerminationFinalization {

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct MeetingMinutesView: View {
+    @ObserveInjection var redraw
     let recording: Recording
     @ObservedObject var model: LibraryViewModel
     var onSwitchToTranscript: (() -> Void)? = nil
@@ -11,18 +12,11 @@ struct MeetingMinutesView: View {
     @State private var cursorBlink = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            minutesToolbar
-                .padding(.horizontal, BardoSpacing.detailHorizontal)
-                .padding(.vertical, 10)
-
-            Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: BardoSpacing.group) {
-                    if let error = model.meetingMinutesErrorMessage {
-                        errorBanner(error)
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: BardoSpacing.group) {
+                if let error = model.meetingMinutesErrorMessage {
+                    errorBanner(error)
+                }
 
                     if model.isGeneratingMeetingMinutes {
                         generationProgressBanner
@@ -34,6 +28,9 @@ struct MeetingMinutesView: View {
                         }
                     } else if let minutes = model.meetingMinutes,
                               minutes.recordingID == recording.id {
+                        if model.meetingMinutesIsStale {
+                            staleMinutesBanner
+                        }
                         minutesContentCard(text: minutes.text, isStreaming: false)
                     } else {
                         emptyStateView
@@ -46,7 +43,6 @@ struct MeetingMinutesView: View {
             }
             .scrollClipDisabled(false)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
         .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
             if model.isGeneratingMeetingMinutes {
                 cursorBlink.toggle()
@@ -64,55 +60,7 @@ struct MeetingMinutesView: View {
         } message: {
             Text(String(localized: "This replaces the current minutes with a new local generation from the edited transcript."))
         }
-    }
-
-    private var minutesToolbar: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Label(String(localized: "Meeting Minutes"), systemImage: "list.bullet.clipboard")
-                .font(BardoTypography.sectionTitle)
-
-            Text("Qwen 3.5 (Local)")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(.quaternary, in: Capsule())
-
-            Spacer()
-
-            if let minutes = model.meetingMinutes, minutes.recordingID == recording.id, !model.isGeneratingMeetingMinutes {
-                if let copyFeedback {
-                    Label(copyFeedback, systemImage: "checkmark")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Button {
-                    copyMinutes(minutes.text)
-                } label: {
-                    Label(String(localized: "Copy"), systemImage: "doc.on.doc")
-                }
-                .controlSize(.small)
-                .help(String(localized: "Copy meeting minutes to clipboard"))
-
-                Button {
-                    DetachedMinutesWindowManager.shared.show(
-                        minutesText: minutes.text,
-                        title: LibraryFormatting.recordingTitle(recording)
-                    )
-                } label: {
-                    Label(String(localized: "Open in Window"), systemImage: "macwindow")
-                }
-                .controlSize(.small)
-                .help(String(localized: "Open minutes in a separate floating window"))
-
-                Button(String(localized: "Regenerate…")) {
-                    isRegenerateConfirmationPresented = true
-                }
-                .controlSize(.small)
-                .disabled(!model.canGenerateMeetingMinutes)
-            }
-        }
+        .enableInjection()
     }
 
     private var generationProgressBanner: some View {
@@ -141,7 +89,7 @@ struct MeetingMinutesView: View {
             ProgressView(value: fraction)
 
             HStack {
-                Text(String(localized: "Processing locally on your Mac with Qwen."))
+                Text(String(localized: "Processing locally on your Mac."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -158,7 +106,7 @@ struct MeetingMinutesView: View {
         VStack(spacing: 12) {
             ProgressView()
                 .controlSize(.regular)
-            Text(String(localized: "Preparing Qwen model and analyzing conversation…"))
+            Text(String(localized: "Preparing the conversation analysis…"))
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -197,19 +145,19 @@ struct MeetingMinutesView: View {
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 16) {
             Image(systemName: "list.bullet.clipboard")
-                .font(.system(size: 40))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 36, weight: .light))
+                .foregroundStyle(.secondary.opacity(0.8))
 
-            VStack(spacing: 6) {
+            VStack(spacing: 5) {
                 Text(String(localized: "Meeting Minutes"))
-                    .font(BardoTypography.sectionTitle)
-                Text(String(localized: "Create detailed, structured executive minutes from the conversation. Qwen summarizes discussion points, decisions, and action items in the conversation's language."))
-                    .font(.callout)
+                    .font(.system(size: 15, weight: .semibold))
+                Text(String(localized: "Create a detailed, structured record of the conversation's topics, decisions, pending work, and next steps."))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 520)
+                    .frame(maxWidth: 480)
             }
 
             if model.canGenerateMeetingMinutes {
@@ -221,7 +169,7 @@ struct MeetingMinutesView: View {
             } else {
                 VStack(spacing: 6) {
                     Text(String(localized: "A completed transcript is required before generating meeting minutes."))
-                        .font(.caption)
+                        .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(.tertiary)
 
                     if let onSwitchToTranscript {
@@ -229,14 +177,14 @@ struct MeetingMinutesView: View {
                             onSwitchToTranscript()
                         }
                         .buttonStyle(.link)
-                        .controlSize(.small)
+                        .font(.system(size: 12, weight: .medium))
                     }
                 }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 280)
-        .padding(24)
-        .background(.fill.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: 240)
+        .padding(.vertical, 32)
+        .padding(.horizontal, 24)
     }
 
     private func errorBanner(_ message: String) -> some View {
@@ -251,6 +199,18 @@ struct MeetingMinutesView: View {
                 .buttonStyle(.link)
         }
         .padding(12)
+        .background(.fill.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var staleMinutesBanner: some View {
+        Label(
+            String(localized: "The transcript changed after these minutes were generated. Regenerate to update them."),
+            systemImage: "arrow.triangle.2.circlepath"
+        )
+        .font(.callout)
+        .foregroundStyle(.orange)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(.fill.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -405,4 +365,3 @@ private struct DetachedMinutesContentView: View {
         .frame(minWidth: 520, minHeight: 440)
     }
 }
-

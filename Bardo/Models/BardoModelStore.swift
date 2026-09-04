@@ -59,6 +59,21 @@ struct BardoModelStore {
         try fileManager.removeItem(at: modelRoot)
     }
 
+    /// Removes only legacy voice model directories from older Bardo releases.
+    /// Qwen and meeting-minutes data are deliberately outside this migration.
+    func removeLegacyVoiceModelDirectories() throws {
+        _ = try validatePrivateRoot()
+        for name in ["whisper-balanced", "whisper-maximum-accuracy", "parakeet"] {
+            let legacyRoot = rootURL.appendingPathComponent(name, isDirectory: true)
+            guard legacyRoot.deletingLastPathComponent().standardizedFileURL.path == rootURL.path,
+                  legacyRoot.standardizedFileURL.pathComponents.starts(with: rootURL.pathComponents)
+            else { throw BardoModelStoreError.invalidModelRoot(.whisperTurbo) }
+            if fileManager.fileExists(atPath: legacyRoot.path) {
+                try fileManager.removeItem(at: legacyRoot)
+            }
+        }
+    }
+
     private func validatedRoot(for model: ManagedModel) throws -> URL {
         let expectedRoot = root(for: model).standardizedFileURL
         let standardizedRoot = try validatePrivateRoot()
@@ -85,16 +100,12 @@ struct BardoModelStore {
 
     private func directoryName(for model: ManagedModel) -> String {
         switch model {
-        case .whisperBalanced:
-            return "whisper-balanced"
-        case .whisperMaximumAccuracy:
-            return "whisper-maximum-accuracy"
-        case .parakeet:
-            return "parakeet"
+        case .whisperTurbo:
+            return "whisper-turbo"
         case .speakerKit:
             return "speaker-kit"
-        case .qwen:
-            return "qwen"
+        case .meetingMinutes:
+            return "meeting-minutes"
         }
     }
 }

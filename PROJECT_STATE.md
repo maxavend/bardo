@@ -2,7 +2,7 @@
 
 ## Current stabilization scope
 
-Bardo is a native macOS 15+ SwiftUI app with Swift 6 concurrency. The current stabilization work covers local transcription, Bardo-owned model storage, bounded model repair, SpeakerKit diarization and naming, text-only Qwen Meeting Minutes, observable XCTest diagnostics and mounted Test/Latest DMG workflows.
+Bardo is a native macOS 15+ SwiftUI app with Swift 6 concurrency. The current stabilization work covers private on-demand Whisper Turbo transcription, SpeakerKit diarization and naming, text-only Qwen Meeting Minutes, observable XCTest diagnostics and mounted Test/Latest DMG workflows.
 
 The stabilization branch is intentionally not merged automatically. A fresh CI run for the final HEAD is required before calling the branch ready or promoting an artifact.
 
@@ -10,10 +10,9 @@ The stabilization branch is intentionally not merged automatically. A fresh CI r
 
 ```text
 audio
- ├─ Instant → Parakeet TDT 0.6B v3 / FluidAudio 0.15.6
- └─ Balanced (default) or Maximum Accuracy → WhisperKit large-v3 Turbo / large-v3
+ └─ Whisper Large v3 Turbo / WhisperKit 1.1.0
        ↓
-    Transcript
+    Transcript with word timestamps
        ↓ optional
     SpeakerKit / Pyannote diarization + speaker names/previews
        ↓
@@ -26,30 +25,22 @@ Qwen is never part of ASR and never receives audio. Long transcript generation u
 
 ## Storage ownership
 
-All runtime model ownership is below:
+Qwen remains the only user-managed model; Bardo-managed voice models live in private Application Support storage:
 
 ```text
 ~/Library/Application Support/Bardo/Models/
-├── whisper-balanced/
-├── whisper-maximum-accuracy/
-├── parakeet/
+├── whisper-turbo/large-v3-v20240930_turbo_632MB/
 ├── speaker-kit/
-└── qwen/
+└── meeting-minutes/
 ```
 
-Parakeet does not use `~/Library/Application Support/FluidAudio` as a readiness source. Qwen production loading supplies an explicit fixed `HubCache` rooted in Bardo's Qwen directory. A global Hugging Face cache does not make Qwen Installed. Reset only removes the selected child of Bardo's model root.
+Voice models download on demand into their private roots and are verified by the SDK/file checks before loading. Qwen production loading supplies an explicit fixed `HubCache` rooted in Bardo's Qwen directory. A global Hugging Face cache does not make any managed model Installed. The one-time migration removes only the exact legacy Whisper/Parakeet directories and never touches Qwen or meeting-minutes data.
 
 ## Recovery contract
 
-Every model operation follows download → load → bounded repair:
+Voice setup follows validate private cache → download when absent → load → keep the private cache authoritative. An invalid existing voice cache is removed and downloaded once again; cancellation or a first download failure does not trigger destructive retries. Qwen keeps its existing private lifecycle and bounded recovery.
 
-- a complete private cache is loaded first;
-- a load failure for an already-present cache marks it corrupt, removes only that private model directory, recreates the engine and retries one download/load;
-- a first-download network failure is surfaced without destructive retry;
-- cancellation preserves valid data and performs no repair;
-- no operation has an unbounded retry loop.
-
-SpeakerKit discards a cached in-memory engine after repair. Warm-up is not allowed to publish Ready unless the private models load successfully. Transcript edits and speaker names continue to use the existing atomic TranscriptStore boundary.
+Warm-up is not allowed to publish Ready unless the downloaded models load successfully. Transcript edits and speaker names continue to use the existing atomic TranscriptStore boundary.
 
 ## CI and DMG evidence
 
@@ -65,6 +56,6 @@ The local fixture at `.github/scripts/test-verify-dmg.sh` proves that an image w
 
 ## Physical validation still required
 
-CI does not download production model artifacts or prove inference quality. A real Apple Silicon Mac still needs to validate first-use Parakeet/WhisperKit/SpeakerKit/Qwen downloads, speaker preview playback, visual naming/edit flows, long-session memory/thermal behavior, microphone/system-audio TCC permissions and first-launch behavior of the ad-hoc, non-notarized DMG. These are evidence limitations, not substitutes for the automated bundle and mounted-image checks.
+CI does not claim production model quality. A real Apple Silicon Mac still needs to validate first-run WhisperKit/SpeakerKit downloads and loading, speaker preview playback, visual naming/edit flows, long-session memory/thermal behavior, microphone/system-audio TCC permissions and first-launch behavior of the ad-hoc, non-notarized DMG. These are evidence limitations, not substitutes for the automated mounted-image checks.
 
 The detailed manual procedure is in `TESTING.md`.

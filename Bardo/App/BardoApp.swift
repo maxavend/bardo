@@ -21,6 +21,7 @@ struct BardoApp: App {
         }
         .defaultSize(width: 1180, height: 760)
         .windowResizability(.contentMinSize)
+        .windowToolbarStyle(.unifiedCompact)
 
         Settings {
             SettingsView()

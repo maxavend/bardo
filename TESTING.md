@@ -6,20 +6,21 @@ The Test and Latest DMGs are ad-hoc signed for development testing. They are not
 
 ## Model ownership and recovery
 
-Bardo owns model data only below:
+Bardo bundles voice models and owns user-managed Qwen data below:
 
 ```text
+Bardo.app/Contents/Resources/Models/
+├── manifest.json
+├── WhisperKit/large-v3-v20240930_turbo_632MB/
+└── SpeakerKit/
+
 ~/Library/Application Support/Bardo/Models/
-├── whisper-balanced/
-├── whisper-maximum-accuracy/
-├── parakeet/
-├── speaker-kit/
 └── qwen/
 ```
 
-The global FluidAudio and Hugging Face caches do not make a model Installed and are never removed by Reset. A model operation reports Downloading, Preparing/Optimizing, Installed or Failed. Recovery is limited to one load-triggered repair of the affected Bardo directory; first-download network errors and cancellation do not delete or retry a cache automatically.
+The voice bundle is validated with its SHA-256 manifest before loading. The global Hugging Face cache does not make Qwen Installed and is never removed by Reset. Voice setup has no runtime downloader; Qwen retains its private lifecycle.
 
-Instant uses Parakeet TDT 0.6B v3 through FluidAudio 0.15.6. Balanced uses WhisperKit large-v3 Turbo by default, Maximum Accuracy uses WhisperKit large-v3, SpeakerKit runs after transcription, and Qwen Meeting Minutes receives transcript text only. Qwen never receives the source audio.
+Whisper Large v3 Turbo is the only transcription engine. SpeakerKit runs after transcription, and Qwen Meeting Minutes receives transcript text only. Qwen never receives the source audio.
 
 ## Install
 
@@ -69,7 +70,7 @@ Instant uses Parakeet TDT 0.6B v3 through FluidAudio 0.15.6. Balanced uses Whisp
 Use a short recording first.
 
 - Choose **Transcribe**.
-- Select Instant, Balanced or Maximum Accuracy and confirm the selected private model download/preparation can complete on the network.
+- Confirm Whisper Large v3 Turbo downloads into Bardo’s private model root, validates, and prepares locally.
 - Confirm transcription finishes without losing the source recording.
 - Confirm timestamped transcript turns appear.
 - Click several transcript timestamps and confirm playback seeks to the expected part of the recording.
@@ -79,7 +80,7 @@ Use a short recording first.
 Use audio with at least two distinct speakers if possible.
 
 - Choose **Identify Speakers**.
-- Confirm SpeakerKit model preparation/download completes.
+- Confirm SpeakerKit downloads into Bardo’s private model root, validates, and prepares locally.
 - Confirm the transcript receives speaker labels.
 - Check several turns against the audio; report obvious speaker swaps or long unassigned regions.
 - With exactly one detected speaker, confirm the UI shows a non-actionable `1 Speaker` state and does not open naming.
@@ -125,7 +126,7 @@ Do not delete a failing Library item before collecting the above evidence unless
 ## Known development-build limitations
 
 - This DMG is ad-hoc signed and not notarized for public distribution.
-- First real Parakeet/WhisperKit/SpeakerKit downloads and inference, plus Qwen generation, are intentionally manual evidence, not CI evidence.
+- First real WhisperKit/SpeakerKit download and inference, plus Qwen generation, are intentionally manual evidence, not CI evidence.
 - The Qwen production adapter uses an explicit private MLX/Hugging Face cache under Bardo. It does not claim ownership from a pre-existing global Hugging Face cache.
 - TCC permission behavior is macOS-controlled and may require relaunching the app after granting access.
 - Long-recording memory/thermal behavior remains a separate physical test; start with short recordings for this smoke pass.

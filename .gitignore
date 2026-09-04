@@ -24,8 +24,21 @@ build/
 Bardo.xcodeproj/
 Bardo/Info.plist
 
+# Large local model snapshots (staged from an external reviewed source)
+Bardo/Resources/Models/Minutes/LFM2.5-1.2B-Instruct-4bit/*
+!Bardo/Resources/Models/Minutes/LFM2.5-1.2B-Instruct-4bit/.gitkeep
+
+# Local build artifacts and test DMGs
+.derived-data*/
+.source-packages*/
+*.dmg
+*.dmg.sha256
+
 # Local editor/tooling
 .vscode/
 .idea/
+.agents/
+.codex/
 *.swp
 *~
+

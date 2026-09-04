@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct TranscriptContentView: View {
+    @ObserveInjection var redraw
     let recording: Recording
     @ObservedObject var model: LibraryViewModel
     @ObservedObject var playback: AudioPlaybackController
@@ -11,10 +12,9 @@ struct TranscriptContentView: View {
     @Binding var isSpeakerNamingPresented: Bool
 
     var onSelectMinutes: (() -> Void)? = nil
-    @Namespace private var modelSelectorNamespace
-
     var body: some View {
         transcriptViewport
+            .enableInjection()
     }
 
     @ViewBuilder
@@ -120,92 +120,90 @@ struct TranscriptContentView: View {
     }
 
     private var emptyTranscriptView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Image(systemName: "waveform.and.mic")
-                .font(.system(size: 38))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 36, weight: .light))
+                .foregroundStyle(.secondary.opacity(0.8))
 
-            VStack(spacing: 6) {
-                Text(String(localized: "No Transcript Yet"))
-                    .font(BardoTypography.sectionTitle)
-                Text(String(localized: "Create a private, on-device transcript. Choose the model that fits your speed and precision needs."))
-                    .font(.callout)
+            VStack(spacing: 5) {
+                Text(String(localized: "Aún no hay transcripción"))
+                    .font(.headline)
+                Text(String(localized: "Crea una transcripción privada y local con Whisper Large v3 Turbo."))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 480)
+                    .frame(maxWidth: 460)
             }
-
-            modelPresetSelector
-                .padding(.vertical, 4)
 
             Button {
                 model.beginTranscription()
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "waveform.badge.magnifyingglass")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text(recording.processingState == .failed ? String(localized: "Retry Transcription") : String(localized: "Transcribe"))
-                        .font(.body.weight(.medium))
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
+                Label(
+                    recording.processingState == .failed ? String(localized: "Retry Transcription") : String(localized: "Transcribir"),
+                    systemImage: "waveform.badge.magnifyingglass"
+                )
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
             .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
         }
-        .frame(maxWidth: .infinity, minHeight: 280)
-        .padding(28)
-        .background(.fill.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: 240)
+        .padding(.vertical, 32)
+        .padding(.horizontal, 24)
     }
 
-    private var modelPresetSelector: some View {
-        HStack(spacing: 3) {
-            ForEach(TranscriptionOption.catalog) { option in
-                let isSelected = model.selectedTranscriptionPreset == option.preset
-                Button {
-                    withAnimation(.spring(response: 0.26, dampingFraction: 0.82)) {
-                        model.selectedTranscriptionPreset = option.preset
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: iconForPreset(option.preset))
-                            .font(.system(size: 11, weight: .medium))
+    private func buildParagraphs(from segments: [TranscriptSegment]) -> [TranscriptParagraph] {
+        guard !segments.isEmpty else { return [] }
+        var paragraphs: [TranscriptParagraph] = []
+        var currentBatch: [TranscriptSegment] = []
+        var currentSpeakerID: Speaker.ID? = segments.first?.speakerID
+        var batchStartTime: TimeInterval = segments.first?.startTime ?? 0
 
-                        Text(option.label)
-                            .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .contentShape(Capsule())
-                    .foregroundStyle(isSelected ? .primary : .secondary)
-                    .background {
-                        if isSelected {
-                            Capsule()
-                                .fill(Color(nsColor: .controlBackgroundColor))
-                                .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
-                                .matchedGeometryEffect(id: "selectedPresetCapsule", in: modelSelectorNamespace)
-                        }
-                    }
+        for segment in segments {
+            let speakerChanged = segment.speakerID != currentSpeakerID
+            let pauseDuration = currentBatch.last.map { segment.startTime - $0.endTime } ?? 0
+            // Una pausa natural en el habla suele ser > 1.5 segundos
+            let significantPause = pauseDuration > 1.5
+
+            if !currentBatch.isEmpty && (speakerChanged || significantPause) {
+                paragraphs.append(
+                    TranscriptParagraph(
+                        id: currentBatch.first?.id ?? UUID(),
+                        speakerID: currentSpeakerID,
+                        startTime: batchStartTime,
+                        segments: currentBatch
+                    )
+                )
+                currentBatch = [segment]
+                currentSpeakerID = segment.speakerID
+                batchStartTime = segment.startTime
+            } else {
+                if currentBatch.isEmpty {
+                    batchStartTime = segment.startTime
+                    currentSpeakerID = segment.speakerID
                 }
-                .buttonStyle(.plain)
+                currentBatch.append(segment)
             }
         }
-        .padding(3)
-        .background(.fill.quaternary.opacity(0.7), in: Capsule())
-    }
 
-    private func iconForPreset(_ preset: TranscriptionPreset) -> String {
-        switch preset {
-        case .instant: "bolt.fill"
-        case .balanced: "waveform"
-        case .maximumAccuracy: "sparkles"
+        if !currentBatch.isEmpty {
+            paragraphs.append(
+                TranscriptParagraph(
+                    id: currentBatch.first?.id ?? UUID(),
+                    speakerID: currentSpeakerID,
+                    startTime: batchStartTime,
+                    segments: currentBatch
+                )
+            )
         }
+
+        return paragraphs
     }
 
     @ViewBuilder
     private func transcriptConversation(_ transcript: Transcript) -> some View {
         let segments = filteredSegments(in: transcript)
+        let paragraphs = buildParagraphs(from: segments)
 
         if transcript.segments.isEmpty {
             ContentUnavailableView(
@@ -214,65 +212,61 @@ struct TranscriptContentView: View {
                 description: Text(String(localized: "WhisperKit produced no readable transcript segments for this recording."))
             )
             .frame(maxWidth: .infinity, minHeight: 220)
-        } else if segments.isEmpty {
+        } else if paragraphs.isEmpty {
             ContentUnavailableView.search(text: searchText)
                 .frame(maxWidth: .infinity, minHeight: 220)
         } else {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
-                    let currentSpeaker = speakerLabel(for: segment, in: transcript)
+            LazyVStack(alignment: .leading, spacing: 18) {
+                ForEach(Array(paragraphs.enumerated()), id: \.element.id) { index, paragraph in
+                    let currentSpeaker = speakerLabel(for: paragraph.speakerID, in: transcript)
                     let previousSpeaker = index > 0
-                        ? speakerLabel(for: segments[index - 1], in: transcript)
+                        ? speakerLabel(for: paragraphs[index - 1].speakerID, in: transcript)
                         : nil
                     let startsSpeakerTurn = currentSpeaker != previousSpeaker
 
-                    if !transcript.speakers.isEmpty, startsSpeakerTurn {
-                        if index > 0 {
-                            Divider()
-                                .padding(.vertical, 14)
+                    VStack(alignment: .leading, spacing: 6) {
+                        if !transcript.speakers.isEmpty && (startsSpeakerTurn || index == 0) {
+                            speakerHeader(speakerID: paragraph.speakerID, in: transcript)
+                                .padding(.bottom, 2)
                         }
-                        speakerHeader(for: segment, in: transcript)
-                            .padding(.bottom, 5)
-                    }
 
-                    TranscriptSegmentRow(
-                        segment: segment,
-                        playback: playback,
-                        canEdit: !model.isTranscribing && !model.isDiarizing,
-                        onEdit: { editor = .segment(segment) }
-                    )
-                    .padding(.bottom, 6)
+                        TranscriptParagraphRow(
+                            paragraph: paragraph,
+                            playback: playback,
+                            canEdit: !model.isTranscribing && !model.isDiarizing,
+                            onEditSegment: { segment in editor = .segment(segment) }
+                        )
+                    }
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func speakerHeader(for segment: TranscriptSegment, in transcript: Transcript) -> some View {
+    private func speakerHeader(speakerID: Speaker.ID?, in transcript: Transcript) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "person.crop.circle")
                 .font(.subheadline)
                 .foregroundStyle(.tint)
 
-            if let speakerID = segment.speakerID,
+            if let speakerID,
                transcript.speakers.contains(where: { $0.id == speakerID }) {
                 Button {
                     editor = speakerEditorState(speakerID: speakerID, transcript: transcript)
                 } label: {
-                    Text(speakerLabel(for: segment, in: transcript))
+                    Text(speakerLabel(for: speakerID, in: transcript))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                 }
                 .buttonStyle(.plain)
                 .help(String(localized: "Rename this speaker"))
             } else {
-                Text(speakerLabel(for: segment, in: transcript))
+                Text(speakerLabel(for: speakerID, in: transcript))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(transcript.speakers.isEmpty ? .primary : .secondary)
             }
         }
-        .padding(.top, 6)
-        .padding(.bottom, 2)
+        .padding(.top, 4)
     }
 
     private func filteredSegments(in transcript: Transcript) -> [TranscriptSegment] {
@@ -281,7 +275,7 @@ struct TranscriptContentView: View {
 
         return transcript.segments.filter { segment in
             segment.displayText.localizedCaseInsensitiveContains(query)
-                || speakerLabel(for: segment, in: transcript).localizedCaseInsensitiveContains(query)
+                || speakerLabel(for: segment.speakerID, in: transcript).localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -291,8 +285,8 @@ struct TranscriptContentView: View {
         return .speaker(speaker, fallbackName: String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1))
     }
 
-    private func speakerLabel(for segment: TranscriptSegment, in transcript: Transcript) -> String {
-        guard let speakerID = segment.speakerID,
+    private func speakerLabel(for speakerID: Speaker.ID?, in transcript: Transcript) -> String {
+        guard let speakerID,
               let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) else {
             return transcript.speakers.isEmpty ? String(localized: "Transcript") : String(localized: "Unassigned Speaker")
         }
@@ -312,7 +306,7 @@ struct TranscriptContentView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: "Meeting Minutes"))
                     .font(.headline)
-                Text(String(localized: "Synthesize key points, decisions, and action items with Qwen in its dedicated tab."))
+                Text(String(localized: "Synthesize key points, decisions, and action items in the dedicated minutes tab."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -335,56 +329,48 @@ struct TranscriptContentView: View {
     }
 }
 
-private struct TranscriptSegmentRow: View {
-    let segment: TranscriptSegment
+private struct TranscriptParagraph: Identifiable {
+    let id: UUID
+    let speakerID: Speaker.ID?
+    let startTime: TimeInterval
+    let segments: [TranscriptSegment]
+
+    var fullText: String {
+        segments.map(\.displayText).joined(separator: " ")
+    }
+}
+
+private struct TranscriptParagraphRow: View {
+    let paragraph: TranscriptParagraph
     @ObservedObject var playback: AudioPlaybackController
     let canEdit: Bool
-    let onEdit: () -> Void
+    let onEditSegment: (TranscriptSegment) -> Void
 
     @State private var isHovering = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
             Button {
-                playback.seek(to: segment.startTime)
+                playback.seek(to: paragraph.startTime)
+                _ = playback.play()
             } label: {
-                Text(LibraryFormatting.duration(segment.startTime))
+                Text(LibraryFormatting.duration(paragraph.startTime))
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(isHovering ? .primary : .secondary)
-                    .frame(width: 42, alignment: .trailing)
+                    .foregroundStyle(isHovering ? Color.primary : Color.secondary)
+                    .frame(width: 44, alignment: .trailing)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!playback.isLoaded)
-            .help(String.localizedStringWithFormat(String(localized: "Play from %@"), LibraryFormatting.duration(segment.startTime)))
+            .help(String.localizedStringWithFormat(String(localized: "Play from %@"), LibraryFormatting.duration(paragraph.startTime)))
 
-            Text(segment.displayText)
+            Text(paragraph.fullText)
                 .font(.body)
-                .lineSpacing(2)
+                .lineSpacing(4)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            if segment.editedText != nil {
-                Image(systemName: "pencil.line")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .help(String(localized: "Edited"))
-                    .accessibilityLabel(String(localized: "Edited"))
-            }
-
-            Button(action: onEdit) {
-                Image(systemName: "pencil")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .opacity(isHovering || segment.editedText != nil ? 1 : 0)
-            .disabled(!canEdit)
-            .help(String(localized: "Edit transcript text"))
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.12)) {
@@ -393,19 +379,23 @@ private struct TranscriptSegmentRow: View {
         }
         .contextMenu {
             Button(String(localized: "Play From Here")) {
-                playback.seek(to: segment.startTime)
+                playback.seek(to: paragraph.startTime)
                 _ = playback.play()
             }
             .disabled(!playback.isLoaded)
 
-            Button(String(localized: "Edit Transcript…"), action: onEdit)
+            if let first = paragraph.segments.first {
+                Button(String(localized: "Edit Segment…")) {
+                    onEditSegment(first)
+                }
                 .disabled(!canEdit)
+            }
 
             Divider()
 
-            Button(String(localized: "Copy Segment")) {
+            Button(String(localized: "Copy Paragraph")) {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(segment.displayText, forType: .string)
+                NSPasteboard.general.setString(paragraph.fullText, forType: .string)
             }
         }
     }

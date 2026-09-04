@@ -22,45 +22,41 @@ struct TranscriptionModelResources: Equatable, Sendable {
     let tokenizerFolder: URL
 }
 
-struct TranscriptionModelDefinition: Equatable, Sendable {
-    let id: String
-    let displayName: String
-    let requiredFreeBytes: Int64
-    let isDefault: Bool
+struct WhisperPerformanceProfile: Equatable, Sendable {
+    static let sixteenGigabyteThreshold: UInt64 = 16 * 1_024 * 1_024 * 1_024
+
+    let physicalMemory: UInt64
+    let incrementalChunkDurationSeconds: Double
+    let maxBufferedChunks: Int
+    let concurrentWorkerCount: Int
+    let usesVAD: Bool
+    let temperatureFallbackCount: Int
+
+    init(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
+        self.physicalMemory = physicalMemory
+        if physicalMemory >= Self.sixteenGigabyteThreshold {
+            incrementalChunkDurationSeconds = 120
+            maxBufferedChunks = 2
+            concurrentWorkerCount = 8
+        } else {
+            incrementalChunkDurationSeconds = 90
+            maxBufferedChunks = 1
+            concurrentWorkerCount = 4
+        }
+        usesVAD = true
+        temperatureFallbackCount = 5
+    }
 }
 
 actor TranscriptionModelManager {
-    // Turbo keeps Whisper large-v3 multilingual quality while reducing the decoder from
-    // 32 layers to 4. The compressed variant is a better default for a 16 GB Mac because
-    // it substantially reduces model storage and memory pressure without falling back to
-    // a small/medium accuracy tier.
-    static let balancedModelID = "large-v3-v20240930_turbo_632MB"
-    static let maximumAccuracyModelID = "large-v3-v20240930_626MB"
-    static let fastModelID = balancedModelID
-    static let defaultModelID = balancedModelID
+    /// Whisper large-v3 Turbo is the only ASR model exposed by Bardo.
+    static let modelID = "large-v3-v20240930_turbo_632MB"
+    static let defaultModelID = modelID
     static let minimumFreeBytesForDownload: Int64 = 1_500_000_000
-
-    static let catalog: [TranscriptionModelDefinition] = [
-        TranscriptionModelDefinition(
-            id: balancedModelID,
-            displayName: "WhisperKit large-v3 Turbo",
-            requiredFreeBytes: minimumFreeBytesForDownload,
-            isDefault: true
-        ),
-        TranscriptionModelDefinition(
-            id: maximumAccuracyModelID,
-            displayName: "WhisperKit large-v3",
-            requiredFreeBytes: minimumFreeBytesForDownload,
-            isDefault: false
-        )
-    ]
-
-    static let defaultDefinition = catalog.first(where: \.isDefault)!
 
     typealias CapacityProvider = @Sendable (URL) throws -> Int64?
     typealias TokenizerPreparer = @Sendable (URL) async throws -> Void
 
-    private let definition: TranscriptionModelDefinition
     private let downloadRoot: URL
     private let fileManager: FileManager
     private let availableCapacity: CapacityProvider
@@ -69,7 +65,6 @@ actor TranscriptionModelManager {
     private var modelState: ManagedModelState = .notInstalled
 
     init(
-        definition: TranscriptionModelDefinition = TranscriptionModelManager.defaultDefinition,
         downloadRoot: URL,
         fileManager: FileManager = .default,
         availableCapacity: @escaping CapacityProvider = { url in
@@ -79,46 +74,19 @@ actor TranscriptionModelManager {
             try await TranscriptionModelManager.prepareLargeV3Tokenizer(in: root)
         }
     ) {
-        self.definition = definition
-        self.downloadRoot = downloadRoot
+        self.downloadRoot = downloadRoot.standardizedFileURL
         self.fileManager = fileManager
         self.availableCapacity = availableCapacity
         self.prepareTokenizer = prepareTokenizer
     }
 
     static func live() throws -> TranscriptionModelManager {
-        try live(definition: defaultDefinition)
-    }
-
-    static func live(
-        definition: TranscriptionModelDefinition
-    ) throws -> TranscriptionModelManager {
         let store = try BardoModelStore.live()
-        return TranscriptionModelManager(
-            definition: definition,
-            downloadRoot: store.root(for: managedModel(for: definition))
-        )
-    }
-
-    private static func managedModel(
-        for definition: TranscriptionModelDefinition
-    ) -> ManagedModel {
-        if definition.id == maximumAccuracyModelID {
-            return .whisperMaximumAccuracy
-        }
-        return .whisperBalanced
-    }
-
-    static func preset(
-        for definition: TranscriptionModelDefinition
-    ) -> TranscriptionPreset {
-        definition.id == maximumAccuracyModelID ? .maximumAccuracy : .balanced
+        return TranscriptionModelManager(downloadRoot: store.root(for: .whisperTurbo))
     }
 
     nonisolated static func systemAvailableCapacity(at url: URL) throws -> Int64? {
-        let values = try url.resourceValues(
-            forKeys: [.volumeAvailableCapacityForImportantUsageKey]
-        )
+        let values = try url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         guard let available = values.volumeAvailableCapacityForImportantUsage else { return nil }
         return Int64(available)
     }
@@ -130,6 +98,9 @@ actor TranscriptionModelManager {
             useBackgroundSession: false
         )
     }
+
+    /// Exposed only for static tests and diagnostics; the root is always Bardo-owned.
+    func modelRootURL() -> URL { downloadRoot }
 
     func installedModelURL() throws -> URL? {
         try ensureDirectoryExists(downloadRoot)
@@ -146,13 +117,25 @@ actor TranscriptionModelManager {
         try installedModelURL() != nil
     }
 
+    func reset() throws {
+        cachedResources = nil
+        guard downloadRoot.resolvingSymlinksInPath() == downloadRoot else {
+            throw TranscriptionModelError.downloadedModelInvalid(Self.modelID)
+        }
+        if fileManager.fileExists(atPath: downloadRoot.path) {
+            try fileManager.removeItem(at: downloadRoot)
+        }
+        modelState = .notInstalled
+    }
+
     func ensureResourcesAvailable(
         progress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> TranscriptionModelResources {
         do {
+            try Task.checkCancellation()
             try ensureDirectoryExists(downloadRoot)
 
-            if let cachedResources, verifyModelFolder(cachedResources.modelFolder) {
+            if let cachedResources, verifyModelFolder(cachedResources.modelFolder), tokenizerIsAvailable {
                 modelState = .installed
                 progress(1)
                 return cachedResources
@@ -167,30 +150,28 @@ actor TranscriptionModelManager {
                 try verifyFreeSpace()
                 modelState = .downloading(0)
                 progress(0)
-
                 let downloaded = try await WhisperKit.download(
-                    variant: definition.id,
+                    variant: Self.modelID,
                     downloadBase: downloadRoot,
+                    useBackgroundSession: false,
                     progressCallback: { downloadProgress in
-                        let modelProgress = min(1, max(0, downloadProgress.fractionCompleted))
-                        let overallProgress = modelProgress * 0.9
-                        progress(overallProgress)
+                        let fraction = min(1, max(0, downloadProgress.fractionCompleted))
+                        progress(fraction * 0.9)
                     }
                 )
-
                 guard verifyModelFolder(downloaded) else {
-                    throw TranscriptionModelError.downloadedModelInvalid(definition.id)
+                    throw TranscriptionModelError.downloadedModelInvalid(Self.modelID)
                 }
                 modelFolder = downloaded
                 modelState = .preparing(0.9)
                 progress(0.9)
             }
 
-            // Tokenizer preparation is intentionally cached for the lifetime of this manager.
-            // The previous implementation repeated this Hub/cache resolution for every 8-second
-            // transcription even when nothing had changed.
+            try Task.checkCancellation()
             try await prepareTokenizer(downloadRoot)
-            modelState = .preparing(1)
+            guard verifyModelFolder(modelFolder), tokenizerIsAvailable else {
+                throw TranscriptionModelError.downloadedModelInvalid(Self.modelID)
+            }
             let resources = TranscriptionModelResources(
                 modelFolder: modelFolder,
                 tokenizerFolder: downloadRoot
@@ -205,31 +186,38 @@ actor TranscriptionModelManager {
         }
     }
 
-    func selectedModelID() -> String {
-        definition.id
-    }
+    func selectedModelID() -> String { Self.modelID }
 
     func selectedDefinition() -> TranscriptionModelDefinition {
-        definition
+        TranscriptionModelDefinition(id: Self.modelID, displayName: "WhisperKit large-v3 Turbo")
     }
 
     func selectedSelection() -> TranscriptionSelection {
-        TranscriptionSelection(
-            preset: Self.preset(for: definition),
-            backend: .whisperKit,
-            modelID: definition.id
-        )
+        TranscriptionSelection(modelID: Self.modelID)
     }
 
-    func state() -> ManagedModelState {
-        modelState
+    func state() -> ManagedModelState { modelState }
+
+    private var tokenizerIsAvailable: Bool {
+        guard let enumerator = fileManager.enumerator(
+            at: downloadRoot,
+            includingPropertiesForKeys: [.isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ) else { return false }
+        for case let url as URL in enumerator {
+            guard url.lastPathComponent == "tokenizer.json",
+                  let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey]),
+                  values.isSymbolicLink != true else { continue }
+            return true
+        }
+        return false
     }
 
     private func verifyFreeSpace() throws {
         guard let availableBytes = try availableCapacity(downloadRoot) else { return }
-        guard availableBytes >= definition.requiredFreeBytes else {
+        guard availableBytes >= Self.minimumFreeBytesForDownload else {
             throw TranscriptionModelError.insufficientDiskSpace(
-                requiredBytes: definition.requiredFreeBytes,
+                requiredBytes: Self.minimumFreeBytesForDownload,
                 availableBytes: availableBytes
             )
         }
@@ -240,15 +228,11 @@ actor TranscriptionModelManager {
             at: downloadRoot,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            return nil
-        }
+        ) else { return nil }
 
         for case let url as URL in enumerator {
-            guard url.lastPathComponent.contains(definition.id) else { continue }
-            if verifyModelFolder(url) {
-                return url
-            }
+            guard url.lastPathComponent.contains(Self.modelID), verifyModelFolder(url) else { continue }
+            return url
         }
         return nil
     }
@@ -259,18 +243,13 @@ actor TranscriptionModelManager {
             at: folder,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
-        ) else {
-            return false
-        }
+        ) else { return false }
 
         var found = Set<String>()
         for case let url as URL in enumerator {
             let baseName = url.deletingPathExtension().lastPathComponent
-            let supportedModelExtension = url.pathExtension == "mlmodelc"
-                || url.pathExtension == "mlpackage"
-            if requiredNames.contains(baseName), supportedModelExtension {
-                found.insert(baseName)
-            }
+            let supportedModelExtension = url.pathExtension == "mlmodelc" || url.pathExtension == "mlpackage"
+            if requiredNames.contains(baseName), supportedModelExtension { found.insert(baseName) }
             if found.count == requiredNames.count { return true }
         }
         return false
@@ -279,4 +258,9 @@ actor TranscriptionModelManager {
     private func ensureDirectoryExists(_ url: URL) throws {
         try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
     }
+}
+
+struct TranscriptionModelDefinition: Equatable, Sendable {
+    let id: String
+    let displayName: String
 }

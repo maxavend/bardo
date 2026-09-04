@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct SettingsView: View {
+    @ObserveInjection var redraw
     @StateObject private var model = ModelSettingsViewModel()
     @State private var pendingReset: PendingModelReset?
 
@@ -23,15 +24,20 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker(String(localized: "Default Model"), selection: $model.selectedPreset) {
-                    ForEach(TranscriptionOption.catalog) { option in
-                        Text(option.label).tag(option.preset)
+                Label {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(String(localized: "Whisper Large v3 Turbo"))
+                            .fontWeight(.semibold)
+                        Text(String(localized: "The only transcription engine. It keeps word timestamps and processes audio locally."))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                } icon: {
+                    Image(systemName: "waveform")
+                        .foregroundStyle(.secondary)
                 }
             } header: {
-                Label(String(localized: "Transcription Model"), systemImage: "waveform")
-            } footer: {
-                Text(String(localized: "Instant uses Parakeet for fastest transcription. Default uses Whisper Turbo. Más precisión uses Whisper Large."))
+                Label(String(localized: "Transcription"), systemImage: "waveform")
             }
 
             Section {
@@ -64,7 +70,7 @@ struct SettingsView: View {
                     .disabled(model.isRefreshing)
                 }
             } footer: {
-                Text("Bardo uses only models stored in its private folder.")
+                Text("Whisper Turbo, SpeakerKit, and meeting minutes run locally on this Mac.")
             }
 
             Section {
@@ -87,9 +93,7 @@ struct SettingsView: View {
             await model.refreshIfNeeded()
         }
         .alert(item: $pendingReset) { request in
-            let message = request.reinstall
-                ? String(localized: "Bardo will remove this model’s private files and start a fresh download.")
-                : String(localized: "This frees space on your Mac. You can download the model again whenever you need it.")
+            let message = String(localized: "This removes the selected model’s private files.")
             return Alert(
                 title: Text("Remove local model?"),
                 message: Text(message),
@@ -103,6 +107,7 @@ struct SettingsView: View {
                 secondaryButton: .cancel(Text("Cancel"))
             )
         }
+        .enableInjection()
     }
 
     private func handle(_ action: ModelSettingsAction, for modelID: ManagedModel) {
@@ -294,20 +299,11 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
 private final class ModelSettingsViewModel: ObservableObject {
     @Published private(set) var rows: [ModelSettingsRowState] = []
     @Published private(set) var isRefreshing = false
-    @Published var selectedPreset: TranscriptionPreset {
-        didSet {
-            transcriptionPreferences.setSelectedPreset(selectedPreset)
-        }
-    }
-
-    private let transcriptionPreferences: TranscriptionPreferenceStore
     private var didRefresh = false
     private var refreshTask: Task<Void, Never>?
     private var operationTasks: [ManagedModel: Task<Void, Never>] = [:]
 
-    init(transcriptionPreferences: TranscriptionPreferenceStore = TranscriptionPreferenceStore()) {
-        self.transcriptionPreferences = transcriptionPreferences
-        self.selectedPreset = transcriptionPreferences.selectedPreset()
+    init() {
         rows = ManagedModel.allCases.map { makeRow(for: $0, state: .notInstalled) }
     }
 
@@ -344,49 +340,46 @@ private final class ModelSettingsViewModel: ObservableObject {
     }
 
     func reset(_ model: ManagedModel) {
-        do {
-            if model == .qwen {
-                Task {
-                    let generator = try? QwenMeetingMinutesGenerator.live()
-                    await generator?.reset()
-                }
-            } else if model == .parakeet {
-                Task {
-                    let service = try? ParakeetTranscriptionService.live()
-                    try? await service?.reset()
-                }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await resetRuntimeModel(model)
+                setState(.notInstalled, for: model)
+            } catch {
+                setState(.failed(error.localizedDescription), for: model)
             }
-            try BardoModelStore.live().reset(model)
-            setState(.notInstalled, for: model)
-        } catch {
-            setState(.failed(error.localizedDescription), for: model)
         }
     }
 
     func resetAndInstall(_ model: ManagedModel) {
-        do {
-            if model == .qwen {
-                Task {
-                    let generator = try? QwenMeetingMinutesGenerator.live()
-                    await generator?.reset()
-                }
-            } else if model == .parakeet {
-                Task {
-                    let service = try? ParakeetTranscriptionService.live()
-                    try? await service?.reset()
-                }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await resetRuntimeModel(model)
+                setState(.notInstalled, for: model)
+                install(model)
+            } catch {
+                setState(.failed(error.localizedDescription), for: model)
             }
-            try BardoModelStore.live().reset(model)
-            setState(.notInstalled, for: model)
-            install(model)
-        } catch {
-            setState(.failed(error.localizedDescription), for: model)
         }
+    }
+
+    private func resetRuntimeModel(_ model: ManagedModel) async throws {
+        switch model {
+        case .whisperTurbo:
+            try await WhisperTranscriptionService.live().reset()
+        case .speakerKit:
+            try await SpeakerDiarizationService.live().reset()
+        case .meetingMinutes:
+            let generator = try? MeetingMinutesGenerator.live()
+            await generator?.reset()
+        }
+        try BardoModelStore.live().reset(model)
     }
 
     func revealModelsFolder() {
         guard let store = try? BardoModelStore.live() else { return }
-        let root = store.root(for: .qwen).deletingLastPathComponent()
+        let root = store.root(for: .whisperTurbo).deletingLastPathComponent()
         NSWorkspace.shared.activateFileViewerSelecting([root])
     }
 
@@ -399,26 +392,12 @@ private final class ModelSettingsViewModel: ObservableObject {
         defer { operationTasks[model] = nil }
 
         do {
-            let store = try BardoModelStore.live()
+            _ = try BardoModelStore.live()
             switch model {
-            case .whisperBalanced, .whisperMaximumAccuracy:
-                guard let definition = TranscriptionModelManager.catalog.first(where: {
-                    managedModel(for: $0) == model
-                }) else { return }
-                let manager = TranscriptionModelManager(
-                    definition: definition,
-                    downloadRoot: store.root(for: model)
-                )
+            case .whisperTurbo:
+                let manager = try TranscriptionModelManager.live()
                 _ = try await manager.ensureResourcesAvailable { fraction in
-                    let state = Self.whisperState(for: fraction)
-                    Task { @MainActor [weak self] in
-                        self?.setState(state, for: model)
-                    }
-                }
-            case .parakeet:
-                let service = try ParakeetTranscriptionService.live()
-                _ = try await service.prepareForUse { snapshot in
-                    let state = Self.transcriptionState(for: snapshot)
+                    let state = Self.runtimeDownloadState(for: fraction)
                     Task { @MainActor [weak self] in
                         self?.setState(state, for: model)
                     }
@@ -431,10 +410,10 @@ private final class ModelSettingsViewModel: ObservableObject {
                         self?.setState(state, for: model)
                     }
                 }
-            case .qwen:
-                let generator = try QwenMeetingMinutesGenerator.live()
-                try await generator.prepareForUse { fraction in
-                    let state = Self.qwenState(for: fraction)
+            case .meetingMinutes:
+                let manager = try MeetingMinutesModelManager.live()
+                try await manager.prepareForUse { fraction in
+                    let state = Self.meetingMinutesState(for: fraction)
                     Task { @MainActor [weak self] in
                         self?.setState(state, for: model)
                     }
@@ -461,38 +440,20 @@ private final class ModelSettingsViewModel: ObservableObject {
             refreshTask = nil
         }
 
-        let store: BardoModelStore
         do {
-            store = try BardoModelStore.live()
+            _ = try BardoModelStore.live()
         } catch {
             rows = ManagedModel.allCases.map {
                 makeRow(for: $0, state: .failed(error.localizedDescription))
             }
             return
         }
-        for definition in TranscriptionModelManager.catalog {
-            let model = managedModel(for: definition)
-            guard operationTasks[model] == nil else { continue }
-            let manager = TranscriptionModelManager(
-                definition: definition,
-                downloadRoot: store.root(for: model)
-            )
+        if operationTasks[.whisperTurbo] == nil {
             do {
-                let installed = try await manager.hasInstalledModel()
-                setState(installed ? .installed : .notInstalled, for: model)
-            } catch {
-                setState(.failed(error.localizedDescription), for: model)
-            }
-        }
-
-        if operationTasks[.parakeet] == nil {
-            do {
-                let parakeet = try ParakeetTranscriptionService.live()
-                let installed = await parakeet.hasInstalledModel()
-                setState(installed ? .installed : .notInstalled, for: .parakeet)
-            } catch {
-                setState(.failed(error.localizedDescription), for: .parakeet)
-            }
+                let whisper = try WhisperTranscriptionService.live()
+                let installed = await whisper.hasInstalledModel()
+                setState(installed ? .installed : .notInstalled, for: .whisperTurbo)
+            } catch { setState(.failed(error.localizedDescription), for: .whisperTurbo) }
         }
 
         if operationTasks[.speakerKit] == nil {
@@ -510,30 +471,21 @@ private final class ModelSettingsViewModel: ObservableObject {
             }
         }
 
-        let qwenInstalled = QwenMeetingMinutesModel.isInstalled(at: store.root(for: .qwen))
-        setState(qwenInstalled ? .installed : .notInstalled, for: .qwen)
+        let minutesInstalled = MeetingMinutesModelResourceResolver.isInstalled()
+        setState(minutesInstalled ? .installed : .notInstalled, for: .meetingMinutes)
     }
 
     private func refreshModel(_ model: ManagedModel) async {
-        guard let store = try? BardoModelStore.live() else { return }
+        guard (try? BardoModelStore.live()) != nil else { return }
         switch model {
-        case .whisperBalanced, .whisperMaximumAccuracy:
-            guard let definition = TranscriptionModelManager.catalog.first(where: {
-                managedModel(for: $0) == model
-            }) else { return }
-            let manager = TranscriptionModelManager(
-                definition: definition,
-                downloadRoot: store.root(for: model)
-            )
-            setState((try? await manager.hasInstalledModel()) == true ? .installed : .notInstalled, for: model)
-        case .parakeet:
-            let service = try? ParakeetTranscriptionService.live()
+        case .whisperTurbo:
+            let service = try? WhisperTranscriptionService.live()
             setState(await service?.hasInstalledModel() == true ? .installed : .notInstalled, for: model)
         case .speakerKit:
             let service = try? SpeakerDiarizationService.live()
             setState(await service?.hasInstalledModels() == true ? .installed : .notInstalled, for: model)
-        case .qwen:
-            setState(QwenMeetingMinutesModel.isInstalled(at: store.root(for: .qwen)) ? .installed : .notInstalled, for: model)
+        case .meetingMinutes:
+            setState(MeetingMinutesModelResourceResolver.isInstalled() ? .installed : .notInstalled, for: model)
         }
     }
 
@@ -547,39 +499,30 @@ private final class ModelSettingsViewModel: ObservableObject {
 
     private func makeRow(for model: ManagedModel, state: ManagedModelState) -> ModelSettingsRowState {
         switch model {
-        case .whisperBalanced:
-            return ModelSettingsRowState(id: model, title: String(localized: "WhisperKit large-v3 Turbo"), detail: String(localized: "Recommended for most transcriptions"), supportsInstallation: true, state: state)
-        case .whisperMaximumAccuracy:
-            return ModelSettingsRowState(id: model, title: String(localized: "WhisperKit large-v3"), detail: String(localized: "Higher accuracy, with higher resource usage"), supportsInstallation: true, state: state)
-        case .parakeet:
-            return ModelSettingsRowState(id: model, title: String(localized: "Parakeet TDT 0.6B v3"), detail: String(localized: "Fast and efficient on-device transcription"), supportsInstallation: true, state: state)
+        case .whisperTurbo:
+            return ModelSettingsRowState(id: model, title: String(localized: "WhisperKit large-v3 Turbo"), detail: String(localized: "Downloaded during first-run setup with word timestamps"), supportsInstallation: true, state: state)
         case .speakerKit:
-            return ModelSettingsRowState(id: model, title: String(localized: "SpeakerKit / Pyannote"), detail: String(localized: "Identifies speakers and creates voice samples"), supportsInstallation: true, state: state)
-        case .qwen:
-            return ModelSettingsRowState(id: model, title: String(localized: "Qwen 3.5 0.8B MLX 4-bit"), detail: String(localized: "Installed during setup so meeting minutes start immediately."), supportsInstallation: true, state: state)
+            return ModelSettingsRowState(id: model, title: String(localized: "SpeakerKit / Pyannote"), detail: String(localized: "Downloaded during first-run setup for speaker identification"), supportsInstallation: true, state: state)
+        case .meetingMinutes:
+            return ModelSettingsRowState(id: model, title: String(localized: "Meeting Minutes"), detail: String(localized: "Downloaded during first-run setup for on-device generation."), supportsInstallation: true, state: state)
         }
     }
 
-    private func managedModel(for definition: TranscriptionModelDefinition) -> ManagedModel {
-        definition.id == TranscriptionModelManager.maximumAccuracyModelID ? .whisperMaximumAccuracy : .whisperBalanced
-    }
-
-    private nonisolated static func whisperState(for fraction: Double) -> ManagedModelState {
-        let value = min(1, max(0, fraction))
-        return value < 0.9 ? .downloading(value / 0.9) : .preparing((value - 0.9) / 0.1)
+    private nonisolated static func runtimeDownloadState(for fraction: Double) -> ManagedModelState {
+        .downloading(min(1, max(0, fraction)))
     }
 
     private nonisolated static func transcriptionState(for snapshot: TranscriptionSetupProgressSnapshot) -> ManagedModelState {
         let value = min(1, max(0, snapshot.fractionCompleted))
         switch snapshot.stage {
-        case .checking, .preparingLanguageSupport, .optimizingForMac:
+        case .checking, .optimizingForMac:
             return .preparing(value)
         case .downloading:
             return .downloading(value)
         }
     }
 
-    private nonisolated static func qwenState(for fraction: Double) -> ManagedModelState {
+    private nonisolated static func meetingMinutesState(for fraction: Double) -> ManagedModelState {
         let value = min(1, max(0, fraction))
         return value < 1 ? .downloading(value) : .preparing(1)
     }
@@ -587,10 +530,10 @@ private final class ModelSettingsViewModel: ObservableObject {
     private nonisolated static func diarizationState(for snapshot: DiarizationSetupProgressSnapshot) -> ManagedModelState {
         let value = min(1, max(0, snapshot.fractionCompleted))
         switch snapshot.stage {
+        case .checking, .optimizingForMac:
+            return .preparing(value)
         case .downloading:
             return .downloading(value)
-        case .optimizingForMac:
-            return .preparing(value)
         }
     }
 }

@@ -20,7 +20,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     private var preparationTask: Task<Void, Never>?
 
     private static var completionKey: String {
-        "Bardo.FullAISetup.v4.\(TranscriptionModelManager.balancedModelID).\(TranscriptionModelManager.maximumAccuracyModelID).\(TranscriptionBackend.parakeetModelID).\(SpeakerDiarizationService.modelID).\(QwenMeetingMinutesModel.modelID)"
+        "Bardo.FullAISetup.v6.\(TranscriptionModelManager.modelID).\(SpeakerDiarizationService.modelID).\(MeetingMinutesModel.modelID)"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -43,30 +43,19 @@ final class TranscriptionSetupCoordinator: ObservableObject {
 
         do {
             let store = try BardoModelStore.live()
-            let balanced = try WhisperTranscriptionService.live(for: .balanced)
-            let maximumAccuracy = try WhisperTranscriptionService.live(for: .maximumAccuracy)
-            let parakeet = try ParakeetTranscriptionService.live()
+            try store.removeLegacyVoiceModelDirectories()
+            let whisper = try WhisperTranscriptionService.live()
             let speakers = try SpeakerDiarizationService.live()
-            let minutes = try QwenMeetingMinutesGenerator.live()
+            let minutes = try MeetingMinutesModelManager.live()
             let markedComplete = defaults.bool(forKey: Self.completionKey)
 
-            let balancedInstalled = await balanced.hasInstalledModel()
-            let maximumAccuracyInstalled = await maximumAccuracy.hasInstalledModel()
-            let parakeetInstalled = await parakeet.hasInstalledModel()
+            let whisperInstalled = await whisper.hasInstalledModel()
             let speakersInstalled = await speakers.hasInstalledModels()
-            let minutesInstalled = QwenMeetingMinutesModel.isInstalled(at: store.root(for: .qwen))
-            let allModelsInstalled = balancedInstalled
-                && maximumAccuracyInstalled
-                && parakeetInstalled
-                && speakersInstalled
-                && minutesInstalled
+            let minutesInstalled = MeetingMinutesModelResourceResolver.isInstalled()
+            let allModelsInstalled = whisperInstalled && speakersInstalled && minutesInstalled
 
             if !force, markedComplete, allModelsInstalled {
-                try await prepareTranscriptionModels(
-                    balanced: balanced,
-                    maximumAccuracy: maximumAccuracy,
-                    parakeet: parakeet
-                )
+                try await prepareTranscriptionModels(whisper: whisper)
                 try await prepareMinutes(minutes)
                 try await prepareSpeakers(speakers)
                 state = .ready
@@ -77,11 +66,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             defaults.set(false, forKey: Self.completionKey)
             state = .checking
 
-            try await prepareTranscriptionModels(
-                balanced: balanced,
-                maximumAccuracy: maximumAccuracy,
-                parakeet: parakeet
-            )
+            try await prepareTranscriptionModels(whisper: whisper)
             try await prepareMinutes(minutes)
             try await prepareSpeakers(speakers)
 
@@ -99,22 +84,14 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     }
 
     private func prepareTranscriptionModels(
-        balanced: WhisperTranscriptionService,
-        maximumAccuracy: WhisperTranscriptionService,
-        parakeet: ParakeetTranscriptionService
+        whisper: WhisperTranscriptionService
     ) async throws {
-        try await balanced.prepareForUse { [weak self] snapshot in
-            Task { @MainActor in self?.state = .installing(snapshot) }
-        }
-        try await maximumAccuracy.prepareForUse { [weak self] snapshot in
-            Task { @MainActor in self?.state = .installing(snapshot) }
-        }
-        try await parakeet.prepareForUse { [weak self] snapshot in
+        try await whisper.prepareForUse { [weak self] snapshot in
             Task { @MainActor in self?.state = .installing(snapshot) }
         }
     }
 
-    private func prepareMinutes(_ minutes: QwenMeetingMinutesGenerator) async throws {
+    private func prepareMinutes(_ minutes: MeetingMinutesModelManager) async throws {
         try await minutes.prepareForUse { [weak self] fraction in
             Task { @MainActor in
                 self?.state = .installing(.init(stage: .optimizingForMac, fractionCompleted: fraction))
@@ -148,11 +125,9 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             guard let self else { return }
             do {
                 let store = try BardoModelStore.live()
-                for model in ManagedModel.allCases where model != .speakerKit {
-                    try store.reset(model)
-                }
-                let speakers = try SpeakerDiarizationService.live()
-                try await speakers.reset()
+                try store.removeLegacyVoiceModelDirectories()
+                try await WhisperTranscriptionService.live().reset()
+                try await SpeakerDiarizationService.live().reset()
                 defaults.set(false, forKey: Self.completionKey)
                 await prepareIfNeeded(force: true)
             } catch is CancellationError {
@@ -176,15 +151,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     }
 
     private func warmSelectedTranscriptionModel() async {
-        let preset = TranscriptionPreferenceStore().selectedPreset()
-        let option = TranscriptionOption.option(for: preset)
-        switch option.selection.backend {
-        case .parakeet:
-            guard let service = try? ParakeetTranscriptionService.live() else { return }
-            await service.warmUpIfInstalled()
-        case .whisperKit:
-            guard let service = try? WhisperTranscriptionService.live(for: option.preset) else { return }
-            await service.warmUpIfInstalled()
-        }
+        guard let service = try? WhisperTranscriptionService.live() else { return }
+        await service.warmUpIfInstalled()
     }
 }

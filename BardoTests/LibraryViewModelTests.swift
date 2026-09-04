@@ -172,29 +172,6 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(persistedSecond.id, second.id)
     }
 
-    @MainActor
-    func testTranscriptionPresetInitializesFromAndPersistsToPreferences() async throws {
-        let rootURL = makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        let suiteName = "Bardo.LibraryViewModelPresetTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let preferences = TranscriptionPreferenceStore(defaults: defaults)
-        preferences.setSelectedPreset(.instant)
-
-        let model = LibraryViewModel(
-            store: RecordingStore(rootURL: rootURL),
-            transcriptionPreferences: preferences
-        )
-
-        XCTAssertEqual(model.selectedTranscriptionPreset, .instant)
-
-        model.selectedTranscriptionPreset = .maximumAccuracy
-        XCTAssertEqual(preferences.selectedPreset(), .maximumAccuracy)
-    }
-
     private func makeTemporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("BardoLibraryModelTests-\(UUID().uuidString)", isDirectory: true)

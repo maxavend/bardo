@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct LibraryView: View {
+    @ObserveInjection var redraw
     @ObservedObject var model: LibraryViewModel
     private let captureMenu: AnyView?
     private let activeCaptureBanner: AnyView?
@@ -38,14 +39,9 @@ struct LibraryView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
-                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: activeCaptureBanner != nil)
-            .toolbar {
-                if let captureMenu {
-                    ToolbarItem(placement: .primaryAction) {
-                        captureMenu
-                    }
-                }
-            }
+                .animation(.spring(response: 0.35, dampingFraction: 1.0), value: activeCaptureBanner != nil)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .ignoresSafeArea(.container, edges: .top)
         }
         .navigationSplitViewStyle(.balanced)
         .task {
@@ -106,7 +102,8 @@ struct LibraryView: View {
             model.cancelDiarization()
             model.stopPlayback()
         }
-        .frame(minWidth: 900, minHeight: 560)
+        .frame(minWidth: 900, minHeight: BardoLayout.libraryToolbarHeight + 508)
+        .enableInjection()
     }
 
     @ViewBuilder
@@ -116,7 +113,8 @@ struct LibraryView: View {
                 recording: recording,
                 model: model,
                 playback: model.playback,
-                transcriptSearch: $transcriptSearchText
+                transcriptSearch: $transcriptSearchText,
+                captureMenu: captureMenu
             )
             .id(recording.id)
         } else {

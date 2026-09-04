@@ -1,0 +1,376 @@
+import Foundation
+
+struct MeetingMinutesGenerator: MeetingMinutesGenerating {
+    static let defaultModelID = MeetingMinutesModel.modelID
+
+    private static let sharedGeneratorResult: Result<MeetingMinutesGenerator, Error> = Result {
+        let modelRootURL = try MeetingMinutesModelResourceResolver.managedRoot()
+        return MeetingMinutesGenerator(
+            textGenerator: MLXTextGenerator(modelRootURL: modelRootURL),
+            modelID: MeetingMinutesModel.modelID
+        )
+    }
+
+    private let textGenerator: any MeetingMinutesTextGenerating
+    private let modelID: String
+    private let chunkingConfiguration: MeetingMinutesChunkingConfiguration
+    private let dateProvider: @Sendable () -> Date
+
+    init(
+        textGenerator: any MeetingMinutesTextGenerating,
+        modelID: String = MeetingMinutesModel.modelID,
+        chunkingConfiguration: MeetingMinutesChunkingConfiguration = .init(),
+        dateProvider: @escaping @Sendable () -> Date = Date.init
+    ) {
+        self.textGenerator = textGenerator
+        self.modelID = modelID
+        self.chunkingConfiguration = chunkingConfiguration
+        self.dateProvider = dateProvider
+    }
+
+    static func live() throws -> MeetingMinutesGenerator {
+        try sharedGeneratorResult.get()
+    }
+
+    func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws {
+        try await textGenerator.prepareForUse(progress: progress)
+    }
+
+    func reset() async {
+        await textGenerator.reset()
+    }
+
+    func generate(
+        from input: MeetingMinutesInput,
+        progress: @escaping @Sendable (MeetingMinutesProgressSnapshot) -> Void,
+        onStreamChunk: (@Sendable (String) -> Void)? = nil
+    ) async throws -> MeetingMinutes {
+        try Task.checkCancellation()
+        let chunks = MeetingMinutesPromptBuilder.chunks(
+            for: input.transcript,
+            configuration: chunkingConfiguration
+        )
+        guard !chunks.isEmpty else { throw MeetingMinutesError.emptyTranscript }
+
+        let mapOptions = MeetingMinutesGenerationOptions(maxTokens: 768, temperature: 0, topP: 0.9)
+        let reduceOptions = MeetingMinutesGenerationOptions(maxTokens: 1_536, temperature: 0, topP: 0.9)
+        let renderOptions = MeetingMinutesGenerationOptions(maxTokens: 2_048, temperature: 0, topP: 0.9)
+        var evidence = [MeetingEvidence]()
+
+        progress(.init(
+            stage: .preparingModel,
+            fractionCompleted: 0,
+            message: String(localized: "Preparing meeting-minutes model in local memory…")
+        ))
+
+        for (index, chunk) in chunks.enumerated() {
+            try Task.checkCancellation()
+            let start = Double(index) / Double(chunks.count + 2)
+            progress(.init(
+                stage: .extracting(current: index + 1, total: chunks.count),
+                fractionCompleted: start,
+                message: String.localizedStringWithFormat(
+                    String(localized: "Identifying agreements in section %lld of %lld…"),
+                    index + 1,
+                    chunks.count
+                )
+            ))
+
+            let raw = try await textGenerator.generate(
+                prompt: MeetingMinutesPromptBuilder.extractionPrompt(
+                    chunk: chunk,
+                    transcript: input.transcript,
+                    title: input.title,
+                    context: input.context,
+                    languageCode: input.transcript.languageCode
+                ),
+                options: mapOptions,
+                progress: { value in
+                    let fraction = (Double(index) + value) / Double(chunks.count + 2)
+                    progress(.init(
+                        stage: .extracting(current: index + 1, total: chunks.count),
+                        fractionCompleted: fraction,
+                        message: String.localizedStringWithFormat(
+                            String(localized: "Identifying agreements in section %lld of %lld…"),
+                            index + 1,
+                            chunks.count
+                        )
+                    ))
+                },
+                onStreamChunk: nil
+            )
+            let parsed = Self.decodeEvidence(raw) ?? [MeetingEvidence(
+                type: .context,
+                topic: input.title,
+                statement: Self.nonEmptyText(raw),
+                certainty: .qualified,
+                sourceSegmentIDs: chunk.sourceSegmentIDs,
+                startTime: chunk.segments.first?.startTime,
+                endTime: chunk.segments.last?.endTime
+            )]
+            evidence.append(contentsOf: parsed.map { Self.restrictToChunk($0, chunk: chunk) })
+        }
+
+        try Task.checkCancellation()
+        let reducedEvidence = MeetingMinutesEvidenceReducer.reduce(evidence)
+        let encodedEvidence = try Self.encode(reducedEvidence)
+        let reduceStart = Double(chunks.count) / Double(chunks.count + 2)
+        progress(.init(
+            stage: .synthesizing,
+            fractionCompleted: reduceStart,
+            message: String(localized: "Organizing the final meeting state…")
+        ))
+
+        let rawAnalysis = try await textGenerator.generate(
+            prompt: MeetingMinutesPromptBuilder.consolidationPrompt(
+                evidenceJSON: encodedEvidence,
+                title: input.title,
+                context: input.context,
+                languageCode: input.transcript.languageCode
+            ),
+            options: reduceOptions,
+            progress: { value in
+                progress(.init(
+                    stage: .synthesizing,
+                    fractionCompleted: reduceStart + (value / Double(chunks.count + 2)),
+                    message: String(localized: "Organizing the final meeting state…")
+                ))
+            },
+            onStreamChunk: nil
+        )
+        let analysis = Self.decodeAnalysis(rawAnalysis)
+            ?? MeetingMinutesEvidenceReducer.fallbackAnalysis(from: reducedEvidence)
+        let analysisJSON = try Self.encode(analysis)
+
+        progress(.init(
+            stage: .synthesizing,
+            fractionCompleted: (Double(chunks.count) + 1) / Double(chunks.count + 2),
+            message: String(localized: "Preparing meeting minutes…")
+        ))
+        let rendered = try await textGenerator.generate(
+            prompt: MeetingMinutesPromptBuilder.renderPrompt(
+                analysisJSON: analysisJSON,
+                title: input.title,
+                context: input.context,
+                languageCode: input.transcript.languageCode
+            ),
+            options: renderOptions,
+            progress: { value in
+                progress(.init(
+                    stage: .synthesizing,
+                    fractionCompleted: min(1, max(0, (Double(chunks.count) + 1 + value) / Double(chunks.count + 2))),
+                    message: String(localized: "Preparing meeting minutes…")
+                ))
+            },
+            onStreamChunk: onStreamChunk
+        )
+        let renderedText = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !renderedText.isEmpty else { throw MeetingMinutesError.emptyGeneratedText }
+
+        progress(.init(
+            stage: .synthesizing,
+            fractionCompleted: 1,
+            message: String(localized: "Meeting minutes complete.")
+        ))
+        return MeetingMinutes(
+            recordingID: input.transcript.recordingID,
+            sourceTranscriptMetadata: input.transcript.metadata,
+            modelID: modelID,
+            text: renderedText,
+            createdAt: dateProvider(),
+            analysis: analysis,
+            sourceTranscriptHash: TranscriptFingerprint.hash(input.transcript),
+            modelRevision: MeetingMinutesModel.modelRevision,
+            promptVersion: MeetingMinutesPromptBuilder.promptVersion,
+            pipelineVersion: MeetingMinutesPromptBuilder.pipelineVersion
+        )
+    }
+
+    func generate(
+        from input: MeetingMinutesInput,
+        progress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async throws -> MeetingMinutes {
+        try await generate(
+            from: input,
+            progress: { snapshot in progress(snapshot.fractionCompleted) },
+            onStreamChunk: nil
+        )
+    }
+
+    private static func restrictToChunk(_ evidence: MeetingEvidence, chunk: MeetingMinutesChunk) -> MeetingEvidence {
+        let allowed = Set(chunk.sourceSegmentIDs)
+        let sourceIDs = evidence.sourceSegmentIDs.filter { allowed.contains($0) }
+        return MeetingEvidence(
+            type: evidence.type,
+            topic: evidence.topic,
+            statement: evidence.statement,
+            rationale: evidence.rationale,
+            responsible: evidence.responsible,
+            validator: evidence.validator,
+            certainty: evidence.certainty,
+            sourceSegmentIDs: sourceIDs.isEmpty ? chunk.sourceSegmentIDs : sourceIDs,
+            startTime: evidence.startTime ?? chunk.segments.first?.startTime,
+            endTime: evidence.endTime ?? chunk.segments.last?.endTime
+        )
+    }
+
+    private static func decodeEvidence(_ text: String) -> [MeetingEvidence]? {
+        guard let data = jsonData(in: text) else { return nil }
+        if let values = try? JSONDecoder().decode([MeetingEvidence].self, from: data) {
+            return values
+        }
+        struct Envelope: Decodable { let evidence: [MeetingEvidence] }
+        return (try? JSONDecoder().decode(Envelope.self, from: data))?.evidence
+    }
+
+    private static func decodeAnalysis(_ text: String) -> MeetingAnalysis? {
+        guard let data = jsonData(in: text) else { return nil }
+        return try? JSONDecoder().decode(MeetingAnalysis.self, from: data)
+    }
+
+    private static func encode<T: Encodable>(_ value: T) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return String(decoding: try encoder.encode(value), as: UTF8.self)
+    }
+
+    private static func jsonData(in text: String) -> Data? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unwrapped = trimmed
+            .replacingOccurrences(of: "```json", with: "")
+            .replacingOccurrences(of: "```", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let data = unwrapped.data(using: .utf8), (try? JSONSerialization.jsonObject(with: data)) != nil {
+            return data
+        }
+        guard let start = unwrapped.firstIndex(where: { $0 == "[" || $0 == "{" }),
+              let end = unwrapped.lastIndex(where: { $0 == "]" || $0 == "}" }),
+              start <= end else { return nil }
+        return String(unwrapped[start...end]).data(using: .utf8)
+    }
+
+    private static func nonEmptyText(_ value: String) -> String {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "The transcript contained no additional supported evidence." : text
+    }
+}
+
+#if canImport(MLXLLM) && canImport(MLXLMCommon) && canImport(MLXHuggingFace) && canImport(HuggingFace) && canImport(Tokenizers)
+import MLXLLM
+import MLXLMCommon
+import MLXHuggingFace
+import HuggingFace
+import Tokenizers
+
+/// The only model/runtime-specific implementation used by the minutes pipeline.
+actor MLXTextGenerator: MeetingMinutesTextGenerating {
+    private let modelRootURL: URL
+    private var container: ModelContainer?
+
+    init(modelRootURL: URL) {
+        self.modelRootURL = modelRootURL.standardizedFileURL
+    }
+
+    func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws {
+        _ = try await MeetingMinutesModelDownloader.ensureAvailable(
+            managedRoot: modelRootURL,
+            progress: progress
+        )
+    }
+
+    func reset() async {
+        container = nil
+    }
+
+    func generate(
+        prompt: String,
+        options: MeetingMinutesGenerationOptions,
+        progress: @escaping @Sendable (Double) -> Void,
+        onStreamChunk: (@Sendable (String) -> Void)? = nil
+    ) async throws -> String {
+        try Task.checkCancellation()
+        let container = try await loadContainer(progress: progress)
+        let input = try await container.prepare(input: UserInput(chat: [
+            .system("You are Bardo's conservative meeting-minutes writer. Use only the user's transcript evidence."),
+            .user(prompt)
+        ]))
+        let stream = try await container.generate(
+            input: input,
+            parameters: GenerateParameters(
+                maxTokens: options.maxTokens,
+                temperature: options.temperature,
+                topP: options.topP,
+                topK: 40,
+                repetitionPenalty: options.repetitionPenalty ?? 1.1,
+                repetitionContextSize: options.repetitionContextSize
+            )
+        )
+
+        var output = ""
+        let stopTokens = ["<|im_end|>", "<|endoftext|>", "<|end_of_text|>", "<|assistant|>"]
+        for await generation in stream {
+            try Task.checkCancellation()
+            guard case .chunk(let chunk) = generation else { continue }
+            var cleanChunk = chunk
+            var shouldStop = false
+            for stop in stopTokens {
+                if let range = cleanChunk.range(of: stop) {
+                    cleanChunk = String(cleanChunk[..<range.lowerBound])
+                    shouldStop = true
+                    break
+                }
+            }
+            if !cleanChunk.isEmpty {
+                output.append(cleanChunk)
+                onStreamChunk?(cleanChunk)
+            }
+            if shouldStop || RepetitionDetector.detectRepetition(in: output) != nil { break }
+        }
+        progress(1)
+        let cleaned = RepetitionDetector.cleanRepetition(from: output)
+        return cleaned.isEmpty ? output : cleaned
+    }
+
+    private func loadContainer(progress: @escaping @Sendable (Double) -> Void) async throws -> ModelContainer {
+        if let container { return container }
+        let modelDirectory = try MeetingMinutesModelResourceResolver.resolve(
+            applicationSupportRoot: modelRootURL
+        )
+        let loaded = try await LLMModelFactory.shared.loadContainer(
+            from: modelDirectory,
+            using: #huggingFaceTokenizerLoader()
+        )
+        progress(1)
+        container = loaded
+        return loaded
+    }
+}
+#else
+struct MLXTextGenerator: MeetingMinutesTextGenerating {
+    init(modelRootURL: URL) { _ = modelRootURL }
+
+    func prepareForUse(progress: @escaping @Sendable (Double) -> Void) async throws {
+        progress(0)
+        throw MeetingMinutesError.modelNotAvailable(
+            "MLXSwiftLM, Hugging Face, and Tokenizers are not linked in this build."
+        )
+    }
+
+    func reset() async {}
+
+    func generate(
+        prompt: String,
+        options: MeetingMinutesGenerationOptions,
+        progress: @escaping @Sendable (Double) -> Void,
+        onStreamChunk: (@Sendable (String) -> Void)? = nil
+    ) async throws -> String {
+        _ = prompt
+        _ = options
+        _ = progress
+        _ = onStreamChunk
+        throw MeetingMinutesError.modelNotAvailable(
+            "MLXSwiftLM, Hugging Face, and Tokenizers are not linked in this build."
+        )
+    }
+}
+#endif

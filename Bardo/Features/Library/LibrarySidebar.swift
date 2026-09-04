@@ -2,30 +2,65 @@ import AppKit
 import SwiftUI
 
 struct LibrarySidebar: View {
+    @ObserveInjection var redraw
     @ObservedObject var model: LibraryViewModel
     @Binding var searchText: String
     let onImport: () -> Void
 
     var body: some View {
-        content
-            .navigationTitle("Bardo")
-            .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
-            .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "Search Recordings")))
-            .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button(action: onImport) {
-                        Label(String(localized: "Import Audio"), systemImage: "plus")
-                    }
-                    .disabled(model.isImporting || model.isTranscribing || model.isDiarizing)
-                    .help(String(localized: "Import audio (⌘⇧O)"))
-                    .keyboardShortcut("o", modifiers: [.command, .shift])
+        VStack(alignment: .leading, spacing: 0) {
+            sidebarControls
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                .padding(.bottom, 10)
 
-                    SettingsLink {
-                        Label(String(localized: "Settings"), systemImage: "gearshape")
-                    }
-                    .help(String(localized: "Open Bardo Settings"))
-                }
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.85))
+        .navigationTitle("")
+        .navigationSplitViewColumnWidth(
+            min: BardoLayout.librarySidebarMinWidth,
+            ideal: BardoLayout.librarySidebarIdealWidth,
+            max: BardoLayout.librarySidebarMaxWidth
+        )
+        .enableInjection()
+    }
+
+    private var sidebarControls: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+
+                TextField(String(localized: "Buscar"), text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .medium))
             }
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .bardoGlassCapsule(interactive: true)
+
+            sidebarActionButton(systemImage: "square.and.arrow.up", label: String(localized: "Import Audio"))
+            sidebarActionButton(systemImage: "plus", label: String(localized: "Import Audio"))
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+        }
+        .controlSize(.regular)
+    }
+
+    private func sidebarActionButton(systemImage: String, label: String) -> some View {
+        Button(action: onImport) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 34, height: 34)
+                .bardoGlassCircle(interactive: true)
+        }
+        .buttonStyle(.bardoPressable)
+        .disabled(model.isImporting || model.isTranscribing || model.isDiarizing)
+        .help(label)
     }
 
     @ViewBuilder
@@ -81,6 +116,7 @@ struct LibrarySidebar: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
         }
     }
 
@@ -235,42 +271,30 @@ private struct RecordingRowView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
+        HStack(spacing: 8) {
             sourceIcon
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(LibraryFormatting.recordingTitle(recording))
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
-
-                    Spacer(minLength: 4)
-
-                    stateIcon
-                }
-
-                Text(recording.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(LibraryFormatting.recordingTitle(recording))
+                    .font(.subheadline.weight(isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.88))
                     .lineLimit(1)
 
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
+                    Text(recording.createdAt.formatted(.dateTime.day().month(.abbreviated)))
+                    Text("·")
                     Text(LibraryFormatting.duration(recording.duration))
-                        .monospacedDigit()
-                    Text(LibraryFormatting.source(recording.sources))
-                        .lineLimit(1)
-                    if isPlaying {
-                        Label(String(localized: "Playing"), systemImage: "speaker.wave.2.fill")
-                            .labelStyle(.iconOnly)
-                            .foregroundStyle(.secondary)
-                            .accessibilityLabel(String(localized: "Playing"))
-                    }
                 }
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(isSelected ? Color.secondary : Color.secondary.opacity(0.8))
+                .lineLimit(1)
             }
+
+            Spacer(minLength: 4)
+
+            stateIcon
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             guard RecordingActionPolicy.allows(.playPause, for: recording) else { return }
@@ -341,15 +365,16 @@ private struct RecordingRowView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "\(LibraryFormatting.recordingTitle(recording)), \(LibraryFormatting.source(recording.sources)), \(LibraryFormatting.duration(recording.duration)), \(LibraryFormatting.state(recording.processingState))"
+            "\(LibraryFormatting.recordingTitle(recording)), \(recording.createdAt.formatted(.dateTime.month(.abbreviated).day().hour().minute())), \(LibraryFormatting.source(recording.sources)), \(LibraryFormatting.duration(recording.duration)), \(LibraryFormatting.state(recording.processingState))"
         )
+        .help("\(recording.createdAt.formatted(.dateTime.month(.abbreviated).day().hour().minute())) · \(LibraryFormatting.duration(recording.duration))")
     }
 
     private var sourceIcon: some View {
-        Image(systemName: isPlaying ? "speaker.wave.2.fill" : LibraryFormatting.sourceSymbol(recording.sources))
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(isPlaying ? .primary : .secondary)
-            .frame(width: 22, height: 22)
+        Image(systemName: isPlaying ? "speaker.wave.2.fill" : "waveform")
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(isSelected ? Color.cyan : Color.cyan.opacity(0.75))
+            .frame(width: 20, height: 20)
             .accessibilityHidden(true)
     }
 

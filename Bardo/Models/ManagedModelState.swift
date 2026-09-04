@@ -1,11 +1,9 @@
 import Foundation
 
 enum ManagedModel: String, CaseIterable, Sendable {
-    case whisperBalanced
-    case whisperMaximumAccuracy
-    case parakeet
+    case whisperTurbo
     case speakerKit
-    case qwen
+    case meetingMinutes
 }
 
 enum ManagedModelState: Equatable, Sendable {

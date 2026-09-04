@@ -5,7 +5,7 @@ final class ManagedModelStateTests: XCTestCase {
     func testManagedModelListsTheSupportedModels() {
         XCTAssertEqual(
             ManagedModel.allCases,
-            [.whisperBalanced, .whisperMaximumAccuracy, .parakeet, .speakerKit, .qwen]
+            [.whisperTurbo, .speakerKit, .meetingMinutes]
         )
     }
 

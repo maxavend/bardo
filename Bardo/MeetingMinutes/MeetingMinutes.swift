@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
+
 struct MeetingMinutesInput: Equatable, Sendable {
     let transcript: Transcript
     let title: String
@@ -12,6 +16,40 @@ struct MeetingMinutes: Codable, Equatable, Sendable {
     let modelID: String
     let text: String
     let createdAt: Date
+    let analysis: MeetingAnalysis?
+    let sourceTranscriptHash: String?
+    let modelRevision: String?
+    let promptVersion: String?
+    let pipelineVersion: String?
+
+    init(
+        recordingID: Recording.ID,
+        sourceTranscriptMetadata: TranscriptMetadata,
+        modelID: String,
+        text: String,
+        createdAt: Date,
+        analysis: MeetingAnalysis? = nil,
+        sourceTranscriptHash: String? = nil,
+        modelRevision: String? = nil,
+        promptVersion: String? = nil,
+        pipelineVersion: String? = nil
+    ) {
+        self.recordingID = recordingID
+        self.sourceTranscriptMetadata = sourceTranscriptMetadata
+        self.modelID = modelID
+        self.text = text
+        self.createdAt = createdAt
+        self.analysis = analysis
+        self.sourceTranscriptHash = sourceTranscriptHash
+        self.modelRevision = modelRevision
+        self.promptVersion = promptVersion
+        self.pipelineVersion = pipelineVersion
+    }
+
+    func isStale(comparedTo transcript: Transcript) -> Bool {
+        guard let sourceTranscriptHash else { return false }
+        return sourceTranscriptHash != TranscriptFingerprint.hash(transcript)
+    }
 }
 
 struct MeetingMinutesGenerationOptions: Equatable, Sendable {
@@ -153,210 +191,168 @@ enum MeetingMinutesError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
-enum QwenMeetingMinutesModel {
-    static let modelID = "mlx-community/Qwen3.5-0.8B-MLX-4bit"
+enum TranscriptFingerprint {
+    static func hash(_ transcript: Transcript) -> String {
+        let canonical = transcript.segments.map { segment in
+            "\(segment.id.uuidString)|\(segment.startTime)|\(segment.endTime)|\(segment.speakerID?.uuidString ?? "")|\(segment.displayText)"
+        }.joined(separator: "\n")
+        + "\n"
+        + transcript.speakers.map { "\($0.id.uuidString)|\($0.name ?? "")" }.joined(separator: "\n")
+        + "\n\(transcript.languageCode ?? "")"
+        return SHA256Hex.digest(Data(canonical.utf8))
+    }
+}
 
-    static func root(using store: BardoModelStore) -> URL {
-        store.root(for: .qwen)
+private enum SHA256Hex {
+    static func digest(_ data: Data) -> String {
+        #if canImport(CryptoKit)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        #else
+        return data.base64EncodedString()
+        #endif
+    }
+}
+
+struct MeetingMinutesChunk: Equatable, Sendable {
+    let segments: [TranscriptSegment]
+
+    var sourceSegmentIDs: [UUID] { segments.map(\.id) }
+}
+
+struct MeetingMinutesChunkingConfiguration: Equatable, Sendable {
+    let targetTokens: Int
+    let overlapSegmentCount: Int
+
+    init(targetTokens: Int? = nil, overlapSegmentCount: Int = 1) {
+        self.targetTokens = max(1, targetTokens ?? Self.adaptiveTargetTokens)
+        self.overlapSegmentCount = max(0, overlapSegmentCount)
     }
 
-    /// Returns a local model snapshot only when all files needed by MLXSwiftLM are present.
-    /// This searches exclusively below Bardo's private Qwen root; the global Hugging Face
-    /// cache is deliberately never consulted for readiness.
-    static func snapshotDirectory(
-        in rootURL: URL,
-        fileManager: FileManager = .default
-    ) -> URL? {
-        let root = rootURL.standardizedFileURL
-        guard root.resolvingSymlinksInPath().standardizedFileURL == root else { return nil }
-
-        if isCompleteSnapshot(root, inside: root, fileManager: fileManager) {
-            return root
-        }
-
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return nil
-        }
-
-        for case let fileURL as URL in enumerator {
-            guard fileURL.lastPathComponent == "config.json" else { continue }
-            let candidate = fileURL.deletingLastPathComponent().standardizedFileURL
-            guard isContained(candidate, in: root),
-                  isCompleteSnapshot(candidate, inside: root, fileManager: fileManager)
-            else { continue }
-            return candidate
-        }
-
-        return nil
-    }
-
-    static func isInstalled(
-        at rootURL: URL,
-        fileManager: FileManager = .default
-    ) -> Bool {
-        snapshotDirectory(in: rootURL, fileManager: fileManager) != nil
-    }
-
-    private static func isCompleteSnapshot(
-        _ directory: URL,
-        inside root: URL,
-        fileManager: FileManager
-    ) -> Bool {
-        guard isContained(directory, in: root),
-              directory.resolvingSymlinksInPath().standardizedFileURL == directory
-        else { return false }
-
-        let config = directory.appendingPathComponent("config.json")
-        let tokenizer = directory.appendingPathComponent("tokenizer.json")
-        let tokenizerConfig = directory.appendingPathComponent("tokenizer_config.json")
-        guard isRegularFile(config, fileManager: fileManager),
-              isRegularFile(tokenizer, fileManager: fileManager)
-                || isRegularFile(tokenizerConfig, fileManager: fileManager)
-        else { return false }
-
-        let entries = (try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )) ?? []
-        return entries.contains { entry in
-            let name = entry.lastPathComponent
-            return isRegularFile(entry, fileManager: fileManager)
-                && (name.hasSuffix(".safetensors") || name.hasSuffix(".safetensors.index.json"))
-        }
-    }
-
-    private static func isRegularFile(_ url: URL, fileManager: FileManager) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey]),
-              values.isRegularFile == true
-        else { return false }
-        return fileManager.fileExists(atPath: url.path)
-    }
-
-    private static func isContained(_ candidate: URL, in root: URL) -> Bool {
-        let resolvedRoot = root.resolvingSymlinksInPath().standardizedFileURL
-        let resolvedCandidate = candidate.resolvingSymlinksInPath().standardizedFileURL
-        return resolvedCandidate.pathComponents.starts(with: resolvedRoot.pathComponents)
+    static var adaptiveTargetTokens: Int {
+        let sixteenGB = 16 * 1_024 * 1_024 * 1_024
+        return ProcessInfo.processInfo.physicalMemory >= UInt64(sixteenGB) ? 7_000 : 3_500
     }
 }
 
 enum MeetingMinutesPromptBuilder {
-    static let defaultChunkCharacterLimit = 12_000
+    static let pipelineVersion = "2"
+    static let promptVersion = "1"
 
     static func chunks(
         for transcript: Transcript,
-        characterLimit: Int = defaultChunkCharacterLimit
-    ) -> [[String]] {
-        let limit = max(1, characterLimit)
-        var chunks = [[String]]()
-        var current = [String]()
-        var currentLength = 0
-
-        for segment in transcript.segments {
-            let text = segment.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { continue }
-            let speaker = transcript.speakers.first(where: { $0.id == segment.speakerID })
-            let label = speakerLabel(speaker, in: transcript)
-            let line = "[\(format(segment.startTime))–\(format(segment.endTime))] \(label): \(text)"
-
-            if !current.isEmpty, currentLength + line.count + 1 > limit {
-                chunks.append(current)
-                current = []
-                currentLength = 0
-            }
-
-            // A single oversized segment remains intact. Splitting it would destroy the
-            // segment boundary that supplies the transcript's timing evidence.
-            current.append(line)
-            currentLength += line.count + 1
+        configuration: MeetingMinutesChunkingConfiguration = .init()
+    ) -> [MeetingMinutesChunk] {
+        let segments = transcript.segments.filter {
+            !$0.displayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
+        guard !segments.isEmpty else { return [] }
 
-        if !current.isEmpty {
-            chunks.append(current)
+        var chunks = [MeetingMinutesChunk]()
+        var start = 0
+        while start < segments.count {
+            var end = start
+            var tokens = 0
+            while end < segments.count {
+                let segmentTokens = max(1, segments[end].displayText.count / 4)
+                if end > start, tokens + segmentTokens > configuration.targetTokens { break }
+                tokens += segmentTokens
+                end += 1
+            }
+            chunks.append(MeetingMinutesChunk(segments: Array(segments[start..<end])))
+            guard end < segments.count else { break }
+            start = max(start + 1, end - configuration.overlapSegmentCount)
         }
         return chunks
     }
 
+    static func lines(for chunk: MeetingMinutesChunk, transcript: Transcript) -> [String] {
+        chunk.segments.map { segment in
+            let speaker = transcript.speakers.first(where: { $0.id == segment.speakerID })
+            let label = speakerLabel(speaker, in: transcript)
+            return "[segment_id=\(segment.id.uuidString)][\(format(segment.startTime))–\(format(segment.endTime))] \(label): \(segment.displayText)"
+        }
+    }
+
     static func extractionPrompt(
-        lines: [String],
+        chunk: MeetingMinutesChunk,
+        transcript: Transcript,
         title: String,
         context: String?,
         languageCode: String? = nil
     ) -> String {
-        let languageGuide = languageInstruction(for: languageCode)
-        return """
-        Extract only supported facts from this transcript section for meeting minutes.
-        Preserve speaker labels exactly as provided. Do not invent names, deadlines,
-        decisions, or agreements. Do not turn an unsupported commitment into a fact. A question is not an agreement.
-        Keep uncertainty explicit and omit information that is not present.
-        \(languageGuide)
+        """
+        MAP: extract conservative, local evidence from this transcript section.
+        Return JSON only as an array of objects with exactly these fields:
+        type (fact, context, proposal, preference, hypothesis, decision, agreement, pending, openQuestion, risk, nextStep),
+        topic, statement, rationale, responsible, validator, certainty (explicit, qualified, unresolved),
+        sourceSegmentIDs, startTime, endTime.
+        Use the segment_id values from the transcript. Keep responsible nil unless the transcript explicitly assigns the task.
+        A nearby person may be a validator or mentionedPerson, not a responsible owner. A question is not an agreement.
+        Preserve proposals, preferences, hypotheses, unresolved items, and the reasons behind decisions. Never increase certainty.
+        Exclude greetings, jokes, personal conversation, filler, ASR noise, and empty confirmations unless they affect the meeting.
+        Do not infer external knowledge, advice, deadlines, names, or decisions.
+        \(languageInstruction(for: languageCode))
 
         Title: \(title)
         Context: \(contextValue(context))
 
         Transcript section:
-        \(lines.joined(separator: "\n"))
+        \(lines(for: chunk, transcript: transcript).joined(separator: "\n"))
         """
     }
 
-    static func extractionPrompt(
-        lines: [String],
-        title: String,
-        context: String?
-    ) -> String {
-        extractionPrompt(lines: lines, title: title, context: context, languageCode: nil)
-    }
-
-    static func synthesisPrompt(
-        extractions: [String],
+    static func consolidationPrompt(
+        evidenceJSON: String,
         title: String,
         context: String?,
-        languageCode: String? = nil,
-        isSingleTranscript: Bool = false
+        languageCode: String? = nil
     ) -> String {
-        let languageGuide = languageInstruction(for: languageCode)
-        let evidenceBlock = isSingleTranscript && extractions.count == 1
-            ? extractions[0]
-            : extractions.enumerated().map { "Section \($0.offset + 1):\n\($0.element)" }.joined(separator: "\n\n")
-
-        return """
-        Write comprehensive, well-structured, and highly relevant meeting minutes from the supported transcript evidence below.
-        \(languageGuide)
-
-        Structure the meeting minutes clearly using clean Markdown with the following sections (translate section headers to the conversation language):
-        - # [Title of Meeting / Minuta de Reunión]
-        - ## Executive Summary / Resumen Ejecutivo: Clear and comprehensive overview of the meeting's purpose, background, and core themes.
-        - ## Key Discussion Points / Temas Tratados y Discusión: In-depth breakdown of the main discussions, arguments, nuances, and participant contributions. Attribute statements to speakers accurately.
-        - ## Decisions and Agreements / Acuerdos y Decisiones: Explicit resolutions and consensus reached.
-        - ## Action Items & Next Steps / Tareas y Compromisos: Concrete actionable items, specifying the responsible owner and deadlines whenever mentioned.
-        - ## Pending Items & Open Questions / Asuntos Pendientes y Preguntas Abiertas: Unresolved topics or points requiring follow-up.
-
-        Strict Grounding Rules:
-        - Do not invent names, deadlines, decisions, or agreements. Do not turn an unsupported commitment into a fact.
-        - A question is not an agreement. If a detail is absent or uncertain, omit it.
-        - Use only speaker names that appear in the evidence.
-        - Concision and Non-Repetition: Do not repeat sentences, bullet points, or sections. Once all facts from the evidence are summarized, conclude the document immediately.
-        - No repitas ideas, frases ni secciones. Una vez cubiertos los puntos de la conversación, finaliza la redacción sin repetir información.
-        - Do not mention this prompt or the extraction process. Begin directly with the meeting minutes.
+        """
+        REDUCE: reconstruct the final semantic state of the meeting from the evidence below.
+        Return JSON only with fields summary, topics, agreements, pending, risks, nextSteps, conclusion.
+        Each topic has title, context, criteria, evidence, decisions, pending. Each pending/nextSteps item has statement,
+        responsible, validator, sourceSegmentIDs. Preserve sourceSegmentIDs and rationale from evidence.
+        Group evidence across sections, order it temporally, deduplicate it, and reconcile proposals with later decisions.
+        A later decision supersedes an earlier proposal on the same issue; retain the proposal only as context.
+        Keep unresolved alternatives, open questions, risks, and validation work. Do not force consensus.
+        Never promote proposal to decision, preference to agreement, hypothesis to fact, or mentioned person to responsible.
+        Use responsible only when explicitly assigned; otherwise use nil and preserve validator separately.
+        Do not add recommendations, industry practices, facts, or people absent from the evidence.
+        \(languageInstruction(for: languageCode))
 
         Title: \(title)
         Context: \(contextValue(context))
 
-        Supported transcript evidence:
-        \(evidenceBlock)
+        Evidence:
+        \(evidenceJSON)
         """
     }
 
-    static func synthesisPrompt(
-        extractions: [String],
+    static func renderPrompt(
+        analysisJSON: String,
         title: String,
-        context: String?
+        context: String?,
+        languageCode: String? = nil
     ) -> String {
-        synthesisPrompt(extractions: extractions, title: title, context: context, languageCode: nil, isSingleTranscript: false)
+        """
+        RENDER: write a professional meeting minute from the consolidated analysis below.
+        Use clean Markdown and only the information in the analysis. Do not mention MAP, REDUCE, JSON, prompts, or the model.
+        Use a dynamic structure: omit empty sections and never write artificial "None" or generic risks.
+        Include date and identifiable participants only when present in the analysis/evidence.
+        Preserve uncertainty, rationale, decision evolution, open questions, validators, and provenance where useful.
+        The executive summary must stand alone. Do not repeat the index as the summary.
+        \(languageInstruction(for: languageCode))
+
+        Suggested structure when supported: title, date, objective, participants, executive summary, numbered topics with
+        context/criteria/decisions/pending, consolidated agreements, pending and validation, risks, immediate next steps,
+        conclusion. Do not force headings that have no content.
+
+        Title: \(title)
+        Context: \(contextValue(context))
+
+        Consolidated analysis:
+        \(analysisJSON)
+        """
     }
 
     static func languageInstruction(for languageCode: String?) -> String {

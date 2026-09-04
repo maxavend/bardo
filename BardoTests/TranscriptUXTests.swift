@@ -3,6 +3,58 @@ import XCTest
 @testable import Bardo
 
 final class TranscriptUXTests: XCTestCase {
+    func testSetupCopyStaysSingleLineAndNonTechnical() {
+        let forbiddenTerms = [
+            "whisper", "speakerkit", "core ml", "model", "transcription",
+            "diarization", "pyannote", "tokenizer"
+        ]
+
+        for copy in TranscriptionSetupCopy.allVisibleCopy {
+            XCTAssertFalse(copy.contains("\n"), "Unexpected line break in: \(copy)")
+            XCTAssertFalse(copy.contains("\r"), "Unexpected carriage return in: \(copy)")
+            XCTAssertFalse(copy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            let normalized = copy.lowercased()
+            for term in forbiddenTerms {
+                XCTAssertFalse(normalized.contains(term), "Technical term '\(term)' in: \(copy)")
+            }
+        }
+    }
+
+    func testSetupCopyUsesPlainSpanishForTheFirstRun() {
+        XCTAssertEqual(TranscriptionSetupCopy.title(for: .listening), "Preparando Bardo")
+        XCTAssertEqual(
+            TranscriptionSetupCopy.detail(for: .listening),
+            "Estamos preparando todo para que puedas empezar."
+        )
+        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .listening), "Preparando el reconocimiento de voz…")
+        XCTAssertEqual(TranscriptionSetupCopy.cancelButton, "Pausar")
+        XCTAssertEqual(TranscriptionSetupCopy.footer, "Esto solo ocurre una vez. Después, Bardo estará listo para ti.")
+    }
+
+    func testEachSetupStageHasRotatingMessages() {
+        for stage in TranscriptionSetupCopy.Stage.allCases {
+            XCTAssertGreaterThanOrEqual(
+                TranscriptionSetupCopy.messages(for: stage).count,
+                3,
+                "Stage \(stage) should have enough messages to feel alive"
+            )
+        }
+    }
+
+    func testSetupProgressCopyExplainsCurrentStepAndOverallProgress() {
+        let copy = TranscriptionSetupCopy.progressLabel(
+            for: .listening,
+            stageFraction: 0.62,
+            overallFraction: 0.29
+        )
+
+        XCTAssertTrue(copy.contains("62%"))
+        XCTAssertTrue(copy.contains("29%"))
+        XCTAssertFalse(copy.lowercased().contains("model"))
+        XCTAssertFalse(copy.contains("\n"))
+    }
+
     func testManualChangeFlagsDistinguishTextAndSpeakerNames() {
         let recordingID = UUID(uuidString: "00000000-0000-0000-0000-000000000700")!
         let speakerID = UUID(uuidString: "00000000-0000-0000-0000-000000000799")!

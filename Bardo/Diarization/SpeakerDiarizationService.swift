@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
-@preconcurrency import SpeakerKit
 @preconcurrency import ArgmaxCore
+@preconcurrency import SpeakerKit
 
 enum DiarizationStage: String, Sendable {
     case preparingModel
@@ -16,6 +16,7 @@ struct DiarizationProgressSnapshot: Equatable, Sendable {
 }
 
 enum DiarizationSetupStage: String, Sendable {
+    case checking
     case downloading
     case optimizingForMac
 }
@@ -27,13 +28,8 @@ struct DiarizationSetupProgressSnapshot: Equatable, Sendable {
 
 protocol SpeakerDiarizationEngine: AnyObject, Sendable {
     var isLoaded: Bool { get }
-
-    func downloadModels(
-        progressCallback: (@Sendable (Progress) -> Void)?
-    ) async throws
-
+    func downloadModels(progressCallback: (@Sendable (Progress) -> Void)?) async throws
     func loadModels() async throws
-
     func diarize(
         audioArray: [Float],
         options: (any DiarizationOptions)?,
@@ -41,48 +37,25 @@ protocol SpeakerDiarizationEngine: AnyObject, Sendable {
     ) async throws -> DiarizationResult
 }
 
-/// Adapts SpeakerKit's concrete class to the narrow interface used by Bardo.
-///
-/// SpeakerKitDiarizer also inherits an overload of `downloadModels` from
-/// ArgmaxCore.ModelManager. Keeping the overload resolution inside this
-/// adapter prevents that library detail from leaking into Bardo's recovery
-/// and test abstractions.
 final class SpeakerKitDiarizationEngineAdapter: SpeakerDiarizationEngine {
     private let base: SpeakerKitDiarizer
 
-    init(base: SpeakerKitDiarizer) {
-        self.base = base
-    }
+    init(base: SpeakerKitDiarizer) { self.base = base }
+    var isLoaded: Bool { base.isLoaded }
 
-    var isLoaded: Bool {
-        base.isLoaded
-    }
-
-    func downloadModels(
-        progressCallback: (@Sendable (Progress) -> Void)?
-    ) async throws {
-        // SpeakerKitDiarizer exposes an overload with the same label as its
-        // inherited ModelManager method. The inherited implementation is the
-        // one that accepts progress callbacks and is what the subclass
-        // overload delegates to; the upcast makes that choice explicit.
+    func downloadModels(progressCallback: (@Sendable (Progress) -> Void)?) async throws {
         let manager: ModelManager = base
         try await manager.downloadModels(progressCallback: progressCallback)
     }
 
-    func loadModels() async throws {
-        try await base.loadModels()
-    }
+    func loadModels() async throws { try await base.loadModels() }
 
     func diarize(
         audioArray: [Float],
         options: (any DiarizationOptions)?,
         progressCallback: (@Sendable (Progress) -> Void)?
     ) async throws -> DiarizationResult {
-        try await base.diarize(
-            audioArray: audioArray,
-            options: options,
-            progressCallback: progressCallback
-        )
+        try await base.diarize(audioArray: audioArray, options: options, progressCallback: progressCallback)
     }
 }
 
@@ -100,6 +73,7 @@ enum RecordingDiarizationError: Error, LocalizedError, Equatable, Sendable {
     case combinedAudioUnavailable(Recording.ID)
     case invalidDuration
     case noSpeakerActivity
+    case speakerModelsUnavailable
     case speakerModelsNotLoaded
 
     var errorDescription: String? {
@@ -112,6 +86,8 @@ enum RecordingDiarizationError: Error, LocalizedError, Equatable, Sendable {
             return "Bardo could not determine a valid audio duration for speaker identification."
         case .noSpeakerActivity:
             return "SpeakerKit completed without finding any speaker activity."
+        case .speakerModelsUnavailable:
+            return "Bardo could not download or verify the private SpeakerKit models. Check the connection and try again."
         case .speakerModelsNotLoaded:
             return "Bardo could not load the private SpeakerKit models. Reset the SpeakerKit models and download them again."
         }
@@ -124,6 +100,8 @@ struct DiarizationInterval: Equatable, Sendable {
     let endTime: TimeInterval
 }
 
+/// Applies speaker intervals to words and reconstructs natural conversation turns.
+/// Existing text edits and old transcripts without word timestamps remain intact.
 enum TranscriptSpeakerAligner {
     static func applying(
         intervals: [DiarizationInterval],
@@ -132,10 +110,8 @@ enum TranscriptSpeakerAligner {
     ) throws -> Transcript {
         let validIntervals = intervals
             .filter {
-                $0.speakerIndex >= 0
-                    && $0.startTime.isFinite
-                    && $0.endTime.isFinite
-                    && $0.endTime > $0.startTime
+                $0.speakerIndex >= 0 && $0.startTime.isFinite
+                    && $0.endTime.isFinite && $0.endTime > $0.startTime
             }
             .sorted {
                 if $0.startTime == $1.startTime {
@@ -144,120 +120,93 @@ enum TranscriptSpeakerAligner {
                 }
                 return $0.startTime < $1.startTime
             }
+        guard !validIntervals.isEmpty else { throw RecordingDiarizationError.noSpeakerActivity }
 
-        guard !validIntervals.isEmpty else {
-            throw RecordingDiarizationError.noSpeakerActivity
-        }
-
-        let speakerOrder = orderedSpeakerIndices(from: validIntervals)
-        let speakers = speakerOrder.map { _ in Speaker() }
-        let speakerIDs = Dictionary(
-            uniqueKeysWithValues: zip(speakerOrder, speakers.map(\.id))
-        )
+        let order = orderedSpeakerIndices(from: validIntervals)
+        let speakers = speakersForDiarization(order: order, transcript: transcript)
+        let speakerIDs = Dictionary(uniqueKeysWithValues: zip(order, speakers.map(\.id)))
 
         var updated = transcript
         updated.speakers = speakers
         updated.diarizationMetadata = metadata
 
-        for index in updated.segments.indices {
-            let segment = updated.segments[index]
-            let speakerIndex = bestSpeakerIndex(for: segment, intervals: validIntervals)
-            updated.segments[index].speakerID = speakerIndex.flatMap { speakerIDs[$0] }
+        if transcript.hasManualTextEdits || transcript.segments.allSatisfy({ $0.words.isEmpty }) {
+            for index in updated.segments.indices {
+                updated.segments[index].speakerID = bestSpeakerID(
+                    for: updated.segments[index], intervals: validIntervals, speakerIDs: speakerIDs
+                )
+            }
+            return updated
         }
 
+        let words = transcript.segments.flatMap(\.words).sorted {
+            $0.startTime == $1.startTime ? $0.endTime < $1.endTime : $0.startTime < $1.startTime
+        }
+        let attributedWords = BardoWordSpeakerAligner.attributed(
+            words: words, intervals: validIntervals, speakerIDs: speakerIDs
+        )
+        let rebuilt = BardoConversationTurnBuilder.build(from: attributedWords)
+        if !rebuilt.isEmpty { updated.segments = rebuilt }
         return updated
     }
 
     private static func orderedSpeakerIndices(from intervals: [DiarizationInterval]) -> [Int] {
         var seen = Set<Int>()
-        var ordered: [Int] = []
-        for interval in intervals where seen.insert(interval.speakerIndex).inserted {
-            ordered.append(interval.speakerIndex)
-        }
-        return ordered
+        return intervals.compactMap { seen.insert($0.speakerIndex).inserted ? $0.speakerIndex : nil }
     }
 
-    private static func bestSpeakerIndex(
+    private static func speakersForDiarization(order: [Int], transcript: Transcript) -> [Speaker] {
+        var existingIDs: [Speaker.ID] = []
+        var seen = Set<Speaker.ID>()
+        for segment in transcript.segments {
+            if let id = segment.speakerID, seen.insert(id).inserted { existingIDs.append(id) }
+        }
+        for speaker in transcript.speakers where seen.insert(speaker.id).inserted { existingIDs.append(speaker.id) }
+
+        return order.indices.map { index in
+            if index < existingIDs.count,
+               let existing = transcript.speakers.first(where: { $0.id == existingIDs[index] }) {
+                return existing
+            }
+            return Speaker()
+        }
+    }
+
+    private static func bestSpeakerID(
         for segment: TranscriptSegment,
-        intervals: [DiarizationInterval]
-    ) -> Int? {
-        var scores: [Int: TimeInterval] = [:]
-
-        if !segment.words.isEmpty {
-            for word in segment.words {
-                accumulateScores(
-                    startTime: word.startTime,
-                    endTime: word.endTime,
-                    intervals: intervals,
-                    into: &scores
-                )
-            }
-        }
-
-        if scores.values.allSatisfy({ $0 <= 0 }) {
-            accumulateScores(
-                startTime: segment.startTime,
-                endTime: segment.endTime,
-                intervals: intervals,
-                into: &scores
-            )
-        }
-
-        return scores
-            .filter { $0.value > 0 }
-            .max {
-                if $0.value == $1.value { return $0.key > $1.key }
-                return $0.value < $1.value
-            }?
-            .key
-    }
-
-    private static func accumulateScores(
-        startTime: TimeInterval,
-        endTime: TimeInterval,
         intervals: [DiarizationInterval],
-        into scores: inout [Int: TimeInterval]
-    ) {
-        guard startTime.isFinite, endTime.isFinite, endTime >= startTime else { return }
-
-        if endTime == startTime {
-            let midpoint = startTime
-            for interval in intervals where midpoint >= interval.startTime && midpoint <= interval.endTime {
-                scores[interval.speakerIndex, default: 0] += 0.000_001
-            }
-            return
+        speakerIDs: [Int: Speaker.ID]
+    ) -> Speaker.ID? {
+        let words = segment.words.isEmpty
+            ? [TranscriptWord(startTime: segment.startTime, endTime: segment.endTime, text: segment.text)]
+            : segment.words
+        var scores: [Int: Int] = [:]
+        for word in BardoWordSpeakerAligner.align(words: words, intervals: intervals) {
+            if let index = word.speakerIndex { scores[index, default: 0] += 1 }
         }
-
-        for interval in intervals {
-            let overlap = max(0, min(endTime, interval.endTime) - max(startTime, interval.startTime))
-            if overlap > 0 {
-                scores[interval.speakerIndex, default: 0] += overlap
-            }
-        }
+        return scores.max {
+            if $0.value == $1.value { return $0.key > $1.key }
+            return $0.value < $1.value
+        }.flatMap { speakerIDs[$0.key] }
     }
+}
+
+struct DiarizationPerformanceMetrics: Equatable, Sendable {
+    let audioSeconds: TimeInterval
+    let elapsedSeconds: TimeInterval
+    let realTimeFactor: Double
+    let alignmentAndTurnBuildMilliseconds: Double
+    let speakerCount: Int
+    let segmentCount: Int
+    let wordCount: Int
 }
 
 actor SpeakerDiarizationService: RecordingDiarizing {
     static let engineVersion = "1.1.0"
     static let modelID = "pyannote-v3+plda-v4"
-
-    private static let requiredModelNames: Set<String> = [
-        "SpeakerSegmenter",
-        "SpeakerEmbedderPreprocessor",
-        "SpeakerEmbedder",
-        "PldaProjector"
-    ]
-
-    private static let logger = Logger(
-        subsystem: "com.maxavend.bardo",
-        category: "diarization.performance"
-    )
-
+    private static let logger = Logger(subsystem: "com.maxavend.bardo", category: "diarization.performance")
     private static let sharedServiceResult: Result<SpeakerDiarizationService, Error> = Result {
-        SpeakerDiarizationService(
-            modelStore: try BardoModelStore.live(),
-            operations: .live
-        )
+        SpeakerDiarizationService(modelStore: try BardoModelStore.live(), operations: .live)
     }
 
     private let modelStore: BardoModelStore
@@ -265,44 +214,24 @@ actor SpeakerDiarizationService: RecordingDiarizing {
     private let operations: SpeakerDiarizationOperations
     private var loadedDiarizer: (any SpeakerDiarizationEngine)?
     private var modelState: ManagedModelState = .notInstalled
+    private(set) var lastMetrics: DiarizationPerformanceMetrics?
 
-    init(
-        modelStore: BardoModelStore,
-        operations: SpeakerDiarizationOperations = .live
-    ) {
+    init(modelStore: BardoModelStore, operations: SpeakerDiarizationOperations = .live) {
         self.modelStore = modelStore
-        self.modelRoot = modelStore.root(for: .speakerKit).standardizedFileURL
+        modelRoot = modelStore.root(for: .speakerKit).standardizedFileURL
         self.operations = operations
     }
 
-    static func live() throws -> SpeakerDiarizationService {
-        try sharedServiceResult.get()
-    }
+    static func live() throws -> SpeakerDiarizationService { try sharedServiceResult.get() }
 
     func hasInstalledModels() async -> Bool {
         if let loadedDiarizer, loadedDiarizer.isLoaded {
             modelState = .installed
             return true
         }
-
-        guard hasCompleteModelCache() else {
-            modelState = .notInstalled
-            return false
-        }
-
-        do {
-            let diarizer = makeEngine(allowsDownload: false)
-            try Task.checkCancellation()
-            modelState = .preparing(0)
-            try await diarizer.loadModels()
-            try Task.checkCancellation()
-            guard diarizer.isLoaded else {
-                throw RecordingDiarizationError.speakerModelsNotLoaded
-            }
-            loadedDiarizer = diarizer
-            modelState = .installed
-            return true
-        } catch {
+        guard hasCompleteModelCache() else { modelState = .notInstalled; return false }
+        do { try await loadIfNeeded(); return true }
+        catch {
             loadedDiarizer = nil
             modelState = .failed(error.localizedDescription)
             return false
@@ -310,17 +239,9 @@ actor SpeakerDiarizationService: RecordingDiarizing {
     }
 
     func warmUpIfInstalled() async {
-        guard hasCompleteModelCache() else {
-            modelState = .notInstalled
-            return
-        }
-
-        do {
-            try await prepareForUse { _ in }
-        } catch {
-            modelState = .failed(error.localizedDescription)
-            Self.logger.debug("Background speaker warm-up skipped: \(error.localizedDescription, privacy: .public)")
-        }
+        guard hasCompleteModelCache() else { return }
+        do { try await loadIfNeeded() }
+        catch { Self.logger.debug("Background speaker warm-up skipped: \(error.localizedDescription, privacy: .public)") }
     }
 
     func prepareForUse(
@@ -328,71 +249,33 @@ actor SpeakerDiarizationService: RecordingDiarizing {
     ) async throws {
         try Task.checkCancellation()
         try ensureModelDirectory()
-
+        progress(.init(stage: .checking, fractionCompleted: 0))
+        progress(.init(stage: .checking, fractionCompleted: 1))
         if let loadedDiarizer, loadedDiarizer.isLoaded {
             modelState = .installed
             progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
             return
         }
 
-        let wasComplete = hasCompleteModelCache()
-        do {
-            if wasComplete {
-                do {
-                    try await loadExistingModels(progress: progress)
-                    return
-                } catch {
-                    let decision = Self.recoveryDecision(
-                        wasComplete: true,
-                        phase: .loading,
-                        isCancellation: Self.isCancellation(error),
-                        errorKind: Self.errorKind(error)
-                    )
-                    guard decision == .retryLoadAfterRepair else {
-                        modelState = .failed(error.localizedDescription)
-                        throw error
-                    }
-
-                    // Drop invalid Core ML state before removing its files and
-                    // before creating the repair engine.
-                    loadedDiarizer = nil
-                    try reset()
-                    try Task.checkCancellation()
-                    try await downloadAndLoadModels(progress: progress, allowsDownload: true)
-                    return
-                }
+        if hasCompleteModelCache() {
+            do {
+                try await loadIfNeeded(progress: progress)
+                return
+            } catch {
+                loadedDiarizer = nil
+                try modelStore.reset(.speakerKit)
+                try ensureModelDirectory()
             }
-
-            try await downloadAndLoadModels(progress: progress, allowsDownload: true)
-        } catch {
-            loadedDiarizer = nil
-            modelState = .failed(error.localizedDescription)
-            throw error
         }
+        try await downloadAndLoadModels(progress: progress)
     }
 
-    func state() -> ManagedModelState {
-        modelState
-    }
+    func state() -> ManagedModelState { modelState }
 
     func reset() throws {
         loadedDiarizer = nil
         try modelStore.reset(.speakerKit)
         modelState = .notInstalled
-    }
-
-    nonisolated static func recoveryDecision(
-        wasComplete: Bool,
-        phase: ModelOperationPhase,
-        isCancellation: Bool,
-        errorKind: ModelErrorKind
-    ) -> ModelRecoveryDecision {
-        ModelRecoveryPolicy.decision(
-            wasComplete: wasComplete,
-            phase: phase,
-            isCancellation: isCancellation,
-            errorKind: errorKind
-        )
     }
 
     func diarize(
@@ -404,18 +287,12 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         try Task.checkCancellation()
         let overallStart = ProcessInfo.processInfo.systemUptime
         let (audioURL, duration) = try await resolveAudio(recording: recording, store: store)
-        guard duration.isFinite, duration > 0 else {
-            throw RecordingDiarizationError.invalidDuration
-        }
+        guard duration.isFinite, duration > 0 else { throw RecordingDiarizationError.invalidDuration }
 
         try await prepareForUse { snapshot in
-            let stage: DiarizationStage
-            switch snapshot.stage {
-            case .downloading:
-                stage = .preparingModel
-            case .optimizingForMac:
-                stage = .loadingModel
-            }
+            let stage: DiarizationStage = snapshot.stage == .downloading
+                ? .preparingModel
+                : .loadingModel
             progress(.init(stage: stage, fractionCompleted: snapshot.fractionCompleted))
         }
         guard let diarizer = loadedDiarizer, diarizer.isLoaded else {
@@ -424,104 +301,104 @@ actor SpeakerDiarizationService: RecordingDiarizing {
 
         progress(.init(stage: .diarizing, fractionCompleted: 0))
         let result = try await runSpeakerKitDiarization(
-            diarizer: diarizer,
-            audioURL: audioURL,
-            duration: duration,
-            progress: progress
+            diarizer: diarizer, audioURL: audioURL, duration: duration, progress: progress
         )
         try Task.checkCancellation()
         progress(.init(stage: .diarizing, fractionCompleted: 1))
 
         let intervals = result.segments.compactMap { segment -> DiarizationInterval? in
-            guard let speakerIndex = segment.speaker.speakerId else { return nil }
-            return DiarizationInterval(
-                speakerIndex: speakerIndex,
-                startTime: TimeInterval(segment.startTime),
-                endTime: TimeInterval(segment.endTime)
-            )
+            guard let index = segment.speaker.speakerId else { return nil }
+            return DiarizationInterval(speakerIndex: index, startTime: TimeInterval(segment.startTime), endTime: TimeInterval(segment.endTime))
         }
-
+        let alignmentStart = ProcessInfo.processInfo.systemUptime
         let aligned = try TranscriptSpeakerAligner.applying(
-            intervals: intervals,
-            to: transcript,
-            metadata: DiarizationMetadata(
-                engine: "SpeakerKit",
-                engineVersion: Self.engineVersion,
-                modelID: Self.modelID
-            )
+            intervals: intervals, to: transcript,
+            metadata: DiarizationMetadata(engine: "SpeakerKit", engineVersion: Self.engineVersion, modelID: Self.modelID)
         )
-
+        let alignmentMilliseconds = max(0, ProcessInfo.processInfo.systemUptime - alignmentStart) * 1_000
         let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
-        let realTimeFactor = duration > 0 ? elapsed / duration : 0
-        Self.logger.info(
-            "Speaker identification finished audioSeconds=\(duration) elapsedSeconds=\(elapsed) rtf=\(realTimeFactor) speakers=\(aligned.speakers.count)"
+        lastMetrics = DiarizationPerformanceMetrics(
+            audioSeconds: duration, elapsedSeconds: elapsed, realTimeFactor: elapsed / duration,
+            alignmentAndTurnBuildMilliseconds: alignmentMilliseconds,
+            speakerCount: aligned.speakers.count, segmentCount: aligned.segments.count,
+            wordCount: aligned.segments.reduce(0) { $0 + $1.words.count }
         )
+        Self.logger.info("Speaker identification finished audioSeconds=\(duration) elapsedSeconds=\(elapsed) rtf=\(elapsed / duration) speakers=\(aligned.speakers.count) segments=\(aligned.segments.count) words=\(aligned.segments.reduce(0) { $0 + $1.words.count })")
         return aligned
     }
 
-    private func makeEngine(allowsDownload: Bool) -> any SpeakerDiarizationEngine {
-        operations.makeEngine(modelRoot, allowsDownload)
+    private func loadIfNeeded(
+        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void = { _ in }
+    ) async throws {
+        if let loadedDiarizer, loadedDiarizer.isLoaded {
+            modelState = .installed
+            progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
+            return
+        }
+        try Task.checkCancellation()
+        guard hasCompleteModelCache() else { throw RecordingDiarizationError.speakerModelsUnavailable }
+
+        let diarizer = operations.makeEngine(modelRoot, false)
+        modelState = .preparing(0)
+        progress(.init(stage: .optimizingForMac, fractionCompleted: 0))
+        let loadStart = ProcessInfo.processInfo.systemUptime
+        try await diarizer.loadModels()
+        try Task.checkCancellation()
+        guard diarizer.isLoaded else { throw RecordingDiarizationError.speakerModelsNotLoaded }
+        loadedDiarizer = diarizer
+        modelState = .installed
+        Self.logger.info("Speaker Core ML load finished elapsedSeconds=\(ProcessInfo.processInfo.systemUptime - loadStart)")
+        progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
     }
 
     private func ensureModelDirectory() throws {
-        try FileManager.default.createDirectory(
-            at: modelRoot,
-            withIntermediateDirectories: true
-        )
+        try FileManager.default.createDirectory(at: modelRoot, withIntermediateDirectories: true)
     }
 
     private func hasCompleteModelCache() -> Bool {
         guard modelRoot.resolvingSymlinksInPath() == modelRoot,
               let values = try? modelRoot.resourceValues(forKeys: [.isDirectoryKey]),
               values.isDirectory == true,
-              let entries = try? FileManager.default.contentsOfDirectory(
+              let enumerator = FileManager.default.enumerator(
                   at: modelRoot,
                   includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return false
-        }
+                  options: [.skipsHiddenFiles, .skipsPackageDescendants]
+              ) else { return false }
 
         var found = Set<String>()
-        for url in entries {
+        for case let url as URL in enumerator {
             guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
                   values.isSymbolicLink != true,
-                  values.isDirectory == true else {
-                continue
-            }
-
+                  values.isDirectory == true else { continue }
             let baseName = url.deletingPathExtension().lastPathComponent
             if Self.requiredModelNames.contains(baseName) {
                 found.insert(baseName)
+            }
+            if Self.requiredModelNames.contains(baseName),
+               let nested = FileManager.default.enumerator(
+                   at: url,
+                   includingPropertiesForKeys: nil,
+                   options: [.skipsHiddenFiles]
+               ) {
+                for case let child as URL in nested {
+                    let childBaseName = child.deletingPathExtension().lastPathComponent
+                    if Self.requiredModelNames.contains(childBaseName) {
+                        found.insert(childBaseName)
+                    }
+                }
             }
         }
         return found == Self.requiredModelNames
     }
 
-    private func loadExistingModels(
-        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void
-    ) async throws {
-        let diarizer = makeEngine(allowsDownload: false)
-        modelState = .preparing(0)
-        progress(.init(stage: .optimizingForMac, fractionCompleted: 0))
-        let loadStart = ProcessInfo.processInfo.systemUptime
-        try await diarizer.loadModels()
-        try Task.checkCancellation()
-        guard diarizer.isLoaded else {
-            throw RecordingDiarizationError.speakerModelsNotLoaded
-        }
-        loadedDiarizer = diarizer
-        modelState = .installed
-        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - loadStart)
-        Self.logger.info("Speaker Core ML load finished elapsedSeconds=\(elapsed)")
-        progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
-    }
+    private static let requiredModelNames: Set<String> = [
+        "SpeakerSegmenter", "SpeakerEmbedderPreprocessor", "SpeakerEmbedder", "PldaProjector"
+    ]
 
     private func downloadAndLoadModels(
-        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void,
-        allowsDownload: Bool
+        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void
     ) async throws {
-        let diarizer = makeEngine(allowsDownload: allowsDownload)
+        let diarizer = operations.makeEngine(modelRoot, true)
         progress(.init(stage: .downloading, fractionCompleted: 0))
         modelState = .downloading(0)
         try await diarizer.downloadModels { downloadProgress in
@@ -530,19 +407,20 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         }
         try Task.checkCancellation()
         progress(.init(stage: .downloading, fractionCompleted: 1))
+        try await load(diarizer, progress: progress)
+    }
 
+    private func load(
+        _ diarizer: any SpeakerDiarizationEngine,
+        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void
+    ) async throws {
         progress(.init(stage: .optimizingForMac, fractionCompleted: 0))
         modelState = .preparing(0)
-        let loadStart = ProcessInfo.processInfo.systemUptime
         try await diarizer.loadModels()
         try Task.checkCancellation()
-        guard diarizer.isLoaded else {
-            throw RecordingDiarizationError.speakerModelsNotLoaded
-        }
+        guard diarizer.isLoaded else { throw RecordingDiarizationError.speakerModelsNotLoaded }
         loadedDiarizer = diarizer
         modelState = .installed
-        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - loadStart)
-        Self.logger.info("Speaker Core ML load finished elapsedSeconds=\(elapsed)")
         progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
     }
 
@@ -552,111 +430,44 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         duration: TimeInterval,
         progress: @escaping @Sendable (DiarizationProgressSnapshot) -> Void
     ) async throws -> DiarizationResult {
-        let samples = try BoundedWhisperAudioLoader.loadSamples(
-            from: audioURL,
-            startTime: 0,
-            endTime: duration
-        )
+        // Full-file inference keeps speaker embeddings globally consistent. The bounded
+        // loader limits peak audio memory without splitting the diarization identity space.
+        let samples = try BoundedWhisperAudioLoader.loadSamples(from: audioURL, startTime: 0, endTime: duration)
         try Task.checkCancellation()
-        guard !samples.isEmpty else {
-            throw RecordingDiarizationError.noSpeakerActivity
+        guard !samples.isEmpty else { throw RecordingDiarizationError.noSpeakerActivity }
+        let options = PyannoteDiarizationOptions(useExclusiveReconciliation: true, centroidSource: .finalAssignment)
+        return try await diarizer.diarize(audioArray: samples, options: options) { speakerProgress in
+            progress(.init(stage: .diarizing, fractionCompleted: Self.clamped(speakerProgress.fractionCompleted)))
         }
-
-        let options = PyannoteDiarizationOptions(useExclusiveReconciliation: true)
-        return try await diarizer.diarize(
-            audioArray: samples,
-            options: options,
-            progressCallback: { speakerProgress in
-                progress(
-                    .init(
-                        stage: .diarizing,
-                        fractionCompleted: Self.clamped(speakerProgress.fractionCompleted)
-                    )
-                )
-            }
-        )
     }
 
-    private func resolveAudio(
-        recording: Recording,
-        store: RecordingStore
-    ) async throws -> (URL, TimeInterval) {
+    private func resolveAudio(recording: Recording, store: RecordingStore) async throws -> (URL, TimeInterval) {
         let candidates = TranscriptionAudioSelection.candidates(for: recording)
-        let isDualCapture = recording.sources.contains(.systemAudio)
-            && recording.sources.contains(.microphone)
-
-        guard !isDualCapture || !candidates.isEmpty else {
-            throw RecordingDiarizationError.combinedAudioUnavailable(recording.id)
-        }
-
+        let isDualCapture = recording.sources.contains(.systemAudio) && recording.sources.contains(.microphone)
+        guard !isDualCapture || !candidates.isEmpty else { throw RecordingDiarizationError.combinedAudioUnavailable(recording.id) }
         for asset in candidates {
             do {
-                let url = try await store.managedAudioURL(
-                    recordingID: recording.id,
-                    audioAssetID: asset.id
-                )
-                let duration = asset.metadata.duration
-                if duration.isFinite, duration > 0 {
-                    return (url, duration)
-                }
-            } catch {
-                continue
-            }
+                let url = try await store.managedAudioURL(recordingID: recording.id, audioAssetID: asset.id)
+                if asset.metadata.duration.isFinite, asset.metadata.duration > 0 { return (url, asset.metadata.duration) }
+            } catch { continue }
         }
-
-        if isDualCapture {
-            throw RecordingDiarizationError.combinedAudioUnavailable(recording.id)
-        }
+        if isDualCapture { throw RecordingDiarizationError.combinedAudioUnavailable(recording.id) }
         throw RecordingDiarizationError.noManagedAudio(recording.id)
     }
 
-    nonisolated private static func clamped(_ value: Double) -> Double {
-        min(1, max(0, value.isFinite ? value : 0))
-    }
-
-    nonisolated private static func isCancellation(_ error: Error) -> Bool {
-        error is CancellationError || Task.isCancelled
-    }
-
-    nonisolated private static func errorKind(_ error: Error) -> ModelErrorKind {
-        if error is URLError || (error as NSError).domain == NSURLErrorDomain {
-            return .network
-        }
-        return .load
-    }
+    nonisolated private static func clamped(_ value: Double) -> Double { min(1, max(0, value.isFinite ? value : 0)) }
 }
 
 struct SpeakerDiarizationOperations: Sendable {
     let makeEngine: @Sendable (URL, Bool) -> any SpeakerDiarizationEngine
 
-    init(
-        makeEngine: @escaping @Sendable (URL, Bool) -> any SpeakerDiarizationEngine
-    ) {
-        self.makeEngine = makeEngine
-    }
+    init(makeEngine: @escaping @Sendable (URL, Bool) -> any SpeakerDiarizationEngine) { self.makeEngine = makeEngine }
 
     static let live = SpeakerDiarizationOperations { modelRoot, allowsDownload in
-        let config: PyannoteConfig
-        if allowsDownload {
-            config = PyannoteConfig(
-                downloadBase: modelRoot.path,
-                download: true,
-                load: false,
-                verbose: false
-            )
-        } else {
-            config = PyannoteConfig(
-                // Keep validation pointed at the same private Hub root used by
-                // downloads, but disable network resolution. This loads the
-                // repository snapshot under Bardo/Models/SpeakerKit only.
-                downloadBase: modelRoot.path,
-                download: false,
-                load: false,
-                verbose: false
-            )
-        }
-        return SpeakerKitDiarizationEngineAdapter(
-            base: SpeakerKitDiarizer.pyannote(config: config)
+        let config = PyannoteConfig(
+            downloadBase: modelRoot.path, download: allowsDownload, load: false, verbose: false,
+            fullRedundancy: true, concurrentSegmenterWorkers: 4, concurrentEmbedderWorkers: nil
         )
+        return SpeakerKitDiarizationEngineAdapter(base: SpeakerKitDiarizer.pyannote(config: config))
     }
 }

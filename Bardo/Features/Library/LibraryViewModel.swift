@@ -18,6 +18,7 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var diarizationProgress: DiarizationProgressSnapshot?
     @Published private(set) var diarizationRecordingID: Recording.ID?
     @Published private(set) var meetingMinutes: MeetingMinutes?
+    @Published private(set) var meetingMinutesIsStale = false
     @Published private(set) var meetingMinutesErrorMessage: String?
     @Published private(set) var meetingMinutesProgress: Double?
     @Published private(set) var meetingMinutesProgressSnapshot: MeetingMinutesProgressSnapshot?
@@ -28,12 +29,6 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var isImporting = false
     @Published private(set) var isTranscribing = false
     @Published private(set) var isDiarizing = false
-    @Published var selectedTranscriptionPreset: TranscriptionPreset {
-        didSet {
-            guard oldValue != selectedTranscriptionPreset else { return }
-            transcriptionPreferences.setSelectedPreset(selectedTranscriptionPreset)
-        }
-    }
     @Published var selection: Recording.ID?
 
     let playback: AudioPlaybackController
@@ -45,8 +40,6 @@ final class LibraryViewModel: ObservableObject {
     private var transcriber: (any RecordingTranscribing)?
     private var diarizer: (any RecordingDiarizing)?
     private var meetingMinutesGenerator: (any MeetingMinutesGenerating)?
-    private var cachedTranscribers: [TranscriptionPreset: any RecordingTranscribing] = [:]
-    private let transcriptionPreferences: TranscriptionPreferenceStore
     private var transcriptionTask: Task<Void, Never>?
     private var diarizationTask: Task<Void, Never>?
     private var meetingMinutesTask: Task<Void, Never>?
@@ -59,11 +52,8 @@ final class LibraryViewModel: ObservableObject {
         transcriber: (any RecordingTranscribing)? = nil,
         diarizer: (any RecordingDiarizing)? = nil,
         meetingMinutesStore: MeetingMinutesStore? = nil,
-        meetingMinutesGenerator: (any MeetingMinutesGenerating)? = nil,
-        transcriptionPreferences: TranscriptionPreferenceStore = TranscriptionPreferenceStore()
+        meetingMinutesGenerator: (any MeetingMinutesGenerating)? = nil
     ) {
-        self.transcriptionPreferences = transcriptionPreferences
-        self.selectedTranscriptionPreset = transcriptionPreferences.selectedPreset()
         self.store = store
         self.importer = importer
         self.playback = playback ?? AudioPlaybackController()
@@ -188,6 +178,7 @@ final class LibraryViewModel: ObservableObject {
                 selection = nil
                 transcript = nil
                 meetingMinutes = nil
+                meetingMinutesIsStale = false
                 playback.unload()
             }
             recordingActionFeedback = "Recording moved to the Trash"
@@ -303,6 +294,7 @@ final class LibraryViewModel: ObservableObject {
         guard let recordingID = selection else {
             transcript = nil
             meetingMinutes = nil
+            meetingMinutesIsStale = false
             return
         }
 
@@ -314,8 +306,10 @@ final class LibraryViewModel: ObservableObject {
 
             if let loaded {
                 meetingMinutes = try await resolveMeetingMinutesStore().read(recordingID: loaded.recordingID)
+                meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: loaded) ?? false
             } else {
                 meetingMinutes = nil
+                meetingMinutesIsStale = false
             }
 
             if loaded == nil {
@@ -396,9 +390,9 @@ final class LibraryViewModel: ObservableObject {
             replaceRecording(recording)
             if selection == recordingID {
                 transcript = generated
+                meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: generated) ?? false
             }
             transcriptionProgress = .init(stage: .saving, fractionCompleted: 1)
-            warmMeetingMinutesGenerator()
         } catch is CancellationError {
             recording.processingState = .pending
             if let activeStore = try? resolveStore() {
@@ -482,6 +476,7 @@ final class LibraryViewModel: ObservableObject {
             try await resolveTranscriptStore().save(updated)
             if selection == recordingID {
                 transcript = updated
+                meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: updated) ?? false
                 if SpeakerNamingPolicy.shouldOpenNamingFlow(after: updated) {
                     shouldPresentSpeakerNamingSheet = true
                 }
@@ -629,7 +624,7 @@ final class LibraryViewModel: ObservableObject {
         meetingMinutesProgressSnapshot = MeetingMinutesProgressSnapshot(
             stage: .preparingModel,
             fractionCompleted: 0,
-            message: String(localized: "Preparing Qwen model in local memory…")
+            message: String(localized: "Preparing meeting-minutes model in local memory…")
         )
         streamingMeetingMinutesText = ""
         meetingMinutesTask = Task { [weak self] in
@@ -661,35 +656,42 @@ final class LibraryViewModel: ObservableObject {
               !Task.isCancelled else { return }
 
         do {
+            playback.unload()
             let generator = try resolveMeetingMinutesGenerator()
-            let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let resolvedContext = context?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let generated = try await generator.generate(
-                from: MeetingMinutesInput(
-                    transcript: transcript,
-                    title: resolvedTitle?.isEmpty == false ? resolvedTitle! : recording.title,
-                    context: resolvedContext?.isEmpty == false ? resolvedContext : nil
-                ),
-                progress: { [weak self] snapshot in
-                    Task { @MainActor in
-                        guard let self, self.selection == recording.id else { return }
-                        self.meetingMinutesProgress = min(1, max(0, snapshot.fractionCompleted))
-                        self.meetingMinutesProgressSnapshot = snapshot
+            do {
+                let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let resolvedContext = context?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let generated = try await generator.generate(
+                    from: MeetingMinutesInput(
+                        transcript: transcript,
+                        title: resolvedTitle?.isEmpty == false ? resolvedTitle! : recording.title,
+                        context: resolvedContext?.isEmpty == false ? resolvedContext : nil
+                    ),
+                    progress: { [weak self] snapshot in
+                        Task { @MainActor in
+                            guard let self, self.selection == recording.id else { return }
+                            self.meetingMinutesProgress = min(1, max(0, snapshot.fractionCompleted))
+                            self.meetingMinutesProgressSnapshot = snapshot
+                        }
+                    },
+                    onStreamChunk: { [weak self] chunk in
+                        Task { @MainActor in
+                            guard let self, self.selection == recording.id else { return }
+                            self.streamingMeetingMinutesText = (self.streamingMeetingMinutesText ?? "") + chunk
+                        }
                     }
-                },
-                onStreamChunk: { [weak self] chunk in
-                    Task { @MainActor in
-                        guard let self, self.selection == recording.id else { return }
-                        self.streamingMeetingMinutesText = (self.streamingMeetingMinutesText ?? "") + chunk
-                    }
-                }
-            )
-            try Task.checkCancellation()
-            try await resolveMeetingMinutesStore().save(generated)
-            guard selection == recording.id else { return }
-            meetingMinutes = generated
-            streamingMeetingMinutesText = nil
-            meetingMinutesProgress = 1
+                )
+                try Task.checkCancellation()
+                try await resolveMeetingMinutesStore().save(generated)
+                await generator.reset()
+                guard selection == recording.id else { return }
+                meetingMinutes = generated
+                streamingMeetingMinutesText = nil
+                meetingMinutesProgress = 1
+            } catch {
+                await generator.reset()
+                throw error
+            }
         } catch is CancellationError {
             // Cancellation leaves the last persisted minutes intact.
             if selection == recording.id {
@@ -714,6 +716,7 @@ final class LibraryViewModel: ObservableObject {
             try await resolveTranscriptStore().save(updated)
             guard selection == recordingID else { return }
             transcript = updated
+            meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: updated) ?? false
             transcriptEditErrorMessage = nil
         } catch {
             guard selection == recordingID else { return }
@@ -782,19 +785,8 @@ final class LibraryViewModel: ObservableObject {
         if let transcriber {
             return transcriber
         }
-        if let service = cachedTranscribers[selectedTranscriptionPreset] {
-            return service
-        }
-
-        let option = TranscriptionOption.option(for: selectedTranscriptionPreset)
-        let service: any RecordingTranscribing
-        switch option.selection.backend {
-        case .parakeet:
-            service = try ParakeetTranscriptionService.live()
-        case .whisperKit:
-            service = try WhisperTranscriptionService.live(for: option.preset)
-        }
-        cachedTranscribers[selectedTranscriptionPreset] = service
+        let service = try WhisperTranscriptionService.live()
+        transcriber = service
         return service
     }
 
@@ -811,16 +803,9 @@ final class LibraryViewModel: ObservableObject {
         if let meetingMinutesGenerator {
             return meetingMinutesGenerator
         }
-        let generator = try QwenMeetingMinutesGenerator.live()
+        let generator = try MeetingMinutesGenerator.live()
         meetingMinutesGenerator = generator
         return generator
-    }
-
-    func warmMeetingMinutesGenerator() {
-        Task {
-            guard let generator = try? resolveMeetingMinutesGenerator() else { return }
-            try? await generator.prepareForUse { _ in }
-        }
     }
 
     private func reconcileSelection() {

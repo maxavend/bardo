@@ -23,7 +23,7 @@ final class MeetingMinutesStoreTests: XCTestCase {
         let minutes = MeetingMinutes(
             recordingID: recordingID,
             sourceTranscriptMetadata: transcriptMetadata,
-            modelID: QwenMeetingMinutesModel.modelID,
+            modelID: MeetingMinutesModel.modelID,
             text: "## Summary\n- The team agreed to ship the local build.",
             createdAt: Date(timeIntervalSince1970: 1_700_000_601)
         )
