@@ -13,7 +13,7 @@ struct LibrarySidebar: View {
             .navigationSplitViewColumnWidth(
                 min: BardoLayout.librarySidebarMinWidth,
                 ideal: BardoLayout.librarySidebarIdealWidth,
-                max: 360
+                max: BardoLayout.librarySidebarMaxWidth
             )
             .enableInjection()
     }
