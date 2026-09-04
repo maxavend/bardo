@@ -14,6 +14,8 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var transcriptErrorMessage: String?
     @Published private(set) var transcriptEditErrorMessage: String?
     @Published private(set) var transcriptionProgress: TranscriptionProgressSnapshot?
+    @Published private(set) var liveTranscription: TranscriptionLiveSnapshot?
+    @Published private(set) var transcriptionRecordingID: Recording.ID?
     @Published private(set) var diarizationErrorMessage: String?
     @Published private(set) var diarizationProgress: DiarizationProgressSnapshot?
     @Published private(set) var diarizationRecordingID: Recording.ID?
@@ -158,8 +160,8 @@ final class LibraryViewModel: ObservableObject {
             return
         }
 
-        guard recordingID != diarizationRecordingID,
-              !(isTranscribing && selection == recordingID),
+        guard recordingID != transcriptionRecordingID,
+              recordingID != diarizationRecordingID,
               !(isDiarizing && selection == recordingID),
               !(isGeneratingMeetingMinutes && selection == recordingID)
         else {
@@ -295,7 +297,12 @@ final class LibraryViewModel: ObservableObject {
             transcript = nil
             meetingMinutes = nil
             meetingMinutesIsStale = false
+            liveTranscription = nil
             return
+        }
+
+        if transcriptionRecordingID != recordingID {
+            liveTranscription = nil
         }
 
         do {
@@ -352,13 +359,17 @@ final class LibraryViewModel: ObservableObject {
         guard !isTranscribing, !isDiarizing, var recording = selectedRecording else { return }
         let recordingID = recording.id
         isTranscribing = true
+        transcriptionRecordingID = recordingID
         transcriptErrorMessage = nil
         transcriptEditErrorMessage = nil
         diarizationErrorMessage = nil
         transcriptionProgress = .init(stage: .preparingModel, fractionCompleted: 0)
+        liveTranscription = .empty(recordingID: recordingID, audioDuration: recording.duration)
         defer {
             isTranscribing = false
+            transcriptionRecordingID = nil
             transcriptionProgress = nil
+            liveTranscription = nil
             transcriptionTask = nil
         }
 
@@ -374,8 +385,23 @@ final class LibraryViewModel: ObservableObject {
                 store: activeRecordingStore,
                 progress: { [weak self] snapshot in
                     Task { @MainActor in
-                        guard let self, self.selection == recordingID else { return }
+                        guard let self,
+                              self.transcriptionRecordingID == recordingID,
+                              self.selection == recordingID else {
+                            return
+                        }
                         self.transcriptionProgress = snapshot
+                    }
+                },
+                liveUpdate: { [weak self] snapshot in
+                    Task { @MainActor in
+                        guard let self,
+                              self.transcriptionRecordingID == recordingID,
+                              self.selection == recordingID,
+                              snapshot.recordingID == recordingID else {
+                            return
+                        }
+                        self.liveTranscription = snapshot
                     }
                 }
             )
@@ -390,6 +416,7 @@ final class LibraryViewModel: ObservableObject {
             replaceRecording(recording)
             if selection == recordingID {
                 transcript = generated
+                liveTranscription = nil
                 meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: generated) ?? false
             }
             transcriptionProgress = .init(stage: .saving, fractionCompleted: 1)
