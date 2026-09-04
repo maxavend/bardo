@@ -6,6 +6,7 @@ struct RecordingDetailView: View {
     let recording: Recording
     @ObservedObject var model: LibraryViewModel
     @ObservedObject var playback: AudioPlaybackController
+    @ObservedObject private var favorites = BardoFavoritesStore.shared
 
     @Binding var transcriptSearch: String
     @State private var editor: TranscriptEditorState?
@@ -13,7 +14,6 @@ struct RecordingDetailView: View {
     @State private var isSpeakerNamingPresented = false
     @State private var isRenamePresented = false
     @State private var isDeleteConfirmationPresented = false
-    @State private var isRecordingInfoPresented = false
     @State private var selectedTab: DetailTab = .transcript
 
     enum DetailTab: String, CaseIterable, Identifiable, Hashable {
@@ -24,8 +24,8 @@ struct RecordingDetailView: View {
 
         var title: String {
             switch self {
-            case .transcript: String(localized: "Transcript")
-            case .minutes: String(localized: "Minutes")
+            case .transcript: "Transcripción"
+            case .minutes: "Minuta"
             }
         }
     }
@@ -70,23 +70,29 @@ struct RecordingDetailView: View {
         .searchable(
             text: $transcriptSearch,
             placement: .toolbar,
-            prompt: Text(String(localized: "Search Transcript"))
+            prompt: Text("Buscar en la transcripción")
         )
         .toolbar {
             ToolbarItem(id: "bardo.detail.mode", placement: .principal) {
                 detailModePicker
             }
 
+            ToolbarItem(id: "bardo.detail.favorite", placement: .secondaryAction) {
+                Button {
+                    favorites.toggle(recording.id)
+                } label: {
+                    Label(
+                        favorites.contains(recording.id) ? "Quitar de Favoritos" : "Agregar a Favoritos",
+                        systemImage: favorites.contains(recording.id) ? "star.fill" : "star"
+                    )
+                    .labelStyle(.iconOnly)
+                }
+                .help(favorites.contains(recording.id) ? "Quitar de Favoritos" : "Agregar a Favoritos")
+            }
+
             ToolbarItem(id: "bardo.detail.more", placement: .primaryAction) {
                 recordingActionsMenu
             }
-        }
-        .sheet(isPresented: $isRecordingInfoPresented) {
-            RecordingInformationSheet(
-                recording: recording,
-                transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil,
-                meetingMinutes: model.meetingMinutes?.recordingID == recording.id ? model.meetingMinutes : nil
-            )
         }
         .background {
             BardoDetailBackground()
@@ -196,9 +202,9 @@ struct RecordingDetailView: View {
     private var recordingActionsMenu: some View {
         Menu {
             Button {
-                isRecordingInfoPresented = true
+                NotificationCenter.default.post(name: BardoCommandNotification.toggleInspector, object: nil)
             } label: {
-                Label(String(localized: "Recording Information…"), systemImage: "info.circle")
+                Label("Más información", systemImage: "info.circle")
             }
 
             Divider()
@@ -206,7 +212,7 @@ struct RecordingDetailView: View {
             Button {
                 isRenamePresented = true
             } label: {
-                Label(String(localized: "Rename…"), systemImage: "pencil")
+                Label("Renombrar…", systemImage: "pencil")
             }
             .disabled(model.isTranscribing || model.isDiarizing)
             .keyboardShortcut("e", modifiers: [.command])
@@ -214,13 +220,13 @@ struct RecordingDetailView: View {
             Button {
                 revealInFinder()
             } label: {
-                Label(String(localized: "Reveal in Finder"), systemImage: "folder")
+                Label("Mostrar en Finder", systemImage: "folder")
             }
 
             Button {
                 Task { await model.copyManagedLocation(recording.id) }
             } label: {
-                Label(String(localized: "Copy Location"), systemImage: "doc.on.doc")
+                Label("Copiar ubicación", systemImage: "doc.on.doc")
             }
 
             if let transcript = model.transcript,
@@ -230,7 +236,7 @@ struct RecordingDetailView: View {
                 Button {
                     copyTranscript(transcript)
                 } label: {
-                    Label(String(localized: "Copy Transcript"), systemImage: "doc.on.doc")
+                    Label("Copiar transcripción", systemImage: "doc.on.doc")
                 }
                 .disabled(transcript.text.isEmpty)
 
@@ -243,8 +249,8 @@ struct RecordingDetailView: View {
                 } label: {
                     Label(
                         transcript.diarizationMetadata == nil
-                            ? String(localized: "Identify Speakers")
-                            : String(localized: "Identify Speakers Again"),
+                            ? "Identificar hablantes"
+                            : "Identificar hablantes de nuevo",
                         systemImage: "person.2.wave.2"
                     )
                 }
@@ -257,7 +263,7 @@ struct RecordingDetailView: View {
                         model.beginTranscription()
                     }
                 } label: {
-                    Label(String(localized: "Transcribe Again…"), systemImage: "arrow.clockwise")
+                    Label("Transcribir de nuevo…", systemImage: "arrow.clockwise")
                 }
                 .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
             }
@@ -267,12 +273,12 @@ struct RecordingDetailView: View {
             Button(role: .destructive) {
                 isDeleteConfirmationPresented = true
             } label: {
-                Label(String(localized: "Move to Trash"), systemImage: "trash")
+                Label("Mover a la Papelera", systemImage: "trash")
             }
             .disabled(model.isTranscribing || model.isDiarizing || model.isGeneratingMeetingMinutes)
             .keyboardShortcut(.delete, modifiers: [.command])
         } label: {
-            Label(String(localized: "More"), systemImage: "ellipsis")
+            Label("Más", systemImage: "ellipsis")
                 .labelStyle(.iconOnly)
         }
         .help(String(localized: "More recording and transcript actions"))
