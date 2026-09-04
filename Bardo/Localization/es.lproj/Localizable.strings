@@ -256,3 +256,15 @@
 "Continuando la transcripción…" = "Continuando la transcripción…";
 "Texto provisional" = "Texto provisional";
 "La transcripción aparecerá aquí en cuanto Bardo reconozca las primeras palabras." = "La transcripción aparecerá aquí en cuanto Bardo reconozca las primeras palabras.";
+"Older Qwen files" = "Archivos antiguos de Qwen";
+"Bardo no longer uses Qwen. These files can be removed to recover storage." = "Bardo ya no usa Qwen. Puedes eliminar estos archivos para recuperar espacio.";
+"Remove Qwen Files…" = "Eliminar archivos de Qwen…";
+"Remove old Qwen files?" = "¿Eliminar los archivos antiguos de Qwen?";
+"Remove Files" = "Eliminar archivos";
+"Qwen is no longer used by Bardo. This removes only the old private Qwen folder and does not affect LFM2.5, transcripts, recordings, or meeting minutes." = "Qwen ya no forma parte de Bardo. Esto elimina únicamente la carpeta privada antigua de Qwen y no afecta LFM2.5, las transcripciones, las grabaciones ni las minutas.";
+"The model is downloaded but still needs a local runtime check. Retry to verify it." = "El modelo está descargado, pero todavía necesita una comprobación local. Reintenta para verificarlo.";
+"Meeting Minutes · LFM2.5" = "Minutas · LFM2.5";
+"LFM2.5 1.2B 4-bit is verified with a local generation check before Bardo marks it ready." = "Bardo comprueba LFM2.5 1.2B 4-bit con una generación local antes de marcarlo como listo.";
+"Preparing meeting-minutes files…" = "Preparando los archivos de minutas…";
+"Loading meeting-minutes model in local memory…" = "Cargando el modelo de minutas en la memoria local…";
+"Checking local generation…" = "Comprobando la generación local…";
