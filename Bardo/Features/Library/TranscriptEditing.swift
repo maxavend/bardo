@@ -175,9 +175,16 @@ struct SpeakerNamingSheet: View {
         VStack(alignment: .leading, spacing: 20) {
             header
 
-            if let errorMessage = previewPlayback.errorMessage,
-               !previewPlayback.isLoaded,
-               !isPreparingPreviewAudio {
+            if isPreparingPreviewAudio {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(localized: "Preparing local audio previews…"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let errorMessage = previewPlayback.errorMessage,
+                      !previewPlayback.isLoaded {
                 Label {
                     Text(String(localized: "Audio previews are unavailable. You can still name participants."))
                         .font(.caption)
@@ -224,6 +231,9 @@ struct SpeakerNamingSheet: View {
         .padding(24)
         .frame(minWidth: 620, minHeight: 340)
         .task {
+            if model.playback.isPlaying {
+                model.playback.pause()
+            }
             isPreparingPreviewAudio = true
             _ = await model.prepareSpeakerPreviewPlayback(previewPlayback)
             isPreparingPreviewAudio = false
