@@ -16,7 +16,7 @@ enum TranscriptionSetupCopy {
     static func title(for stage: Stage) -> String {
         switch stage {
         case .checking: return "Preparando Bardo"
-        case .listening: return "Bardo está aprendiendo a escuchar"
+        case .listening: return "Preparando Bardo"
         case .settling: return "Bardo está terminando de prepararse"
         case .meetingVoices: return "Preparando la identificación de participantes"
         case .welcomingVoices: return "Bardo está organizando las voces"
@@ -30,7 +30,7 @@ enum TranscriptionSetupCopy {
     static func detail(for stage: Stage) -> String {
         switch stage {
         case .checking: return "Estamos revisando que todo esté listo."
-        case .listening: return "Estamos preparando el reconocimiento de voz."
+        case .listening: return "Estamos preparando todo para que puedas empezar."
         case .settling: return "Estamos terminando la preparación."
         case .meetingVoices: return "Estamos preparando la identificación de participantes."
         case .welcomingVoices: return "Cada voz tendrá su propio espacio."
