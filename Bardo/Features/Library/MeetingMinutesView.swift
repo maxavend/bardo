@@ -13,6 +13,8 @@ struct MeetingMinutesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: BardoSpacing.section) {
+                RecordingDocumentHeader(recording: recording)
+
                 if let error = model.meetingMinutesErrorMessage {
                     errorView(error)
                 }
