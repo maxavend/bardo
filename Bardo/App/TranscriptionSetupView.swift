@@ -117,18 +117,6 @@ enum TranscriptionSetupCopy {
         }
     }
 
-    static func progressLabel(for stage: Stage, stageFraction: Double, overallFraction: Double) -> String {
-        let stagePercent = percentage(stageFraction)
-        let overallPercent = percentage(overallFraction)
-
-        switch stage {
-        case .ready: return "Todo listo"
-        case .paused: return "En pausa"
-        case .failed: return "Esperando otro intento"
-        default: return "Esta etapa: \(stagePercent)%  ·  Total: \(overallPercent)%"
-        }
-    }
-
     static let retryButton = "Intentar de nuevo"
     static let resetButton = "Empezar de nuevo"
     static let cancelButton = "Pausar"
@@ -141,9 +129,6 @@ enum TranscriptionSetupCopy {
         return stageCopy + [retryButton, resetButton, cancelButton, footer]
     }
 
-    private static func percentage(_ fraction: Double) -> Int {
-        Int((min(1, max(0, fraction.isFinite ? fraction : 0)) * 100).rounded())
-    }
 }
 
 struct TranscriptionSetupView: View {
@@ -251,7 +236,7 @@ struct TranscriptionSetupView: View {
                 .accessibilityValue("\(Int((fraction * 100).rounded()))%")
         } else {
             ProgressView()
-                .progressViewStyle(.linear)
+                .progressViewStyle(LinearProgressViewStyle())
                 .accessibilityLabel(stageLabel)
         }
     }
