@@ -224,8 +224,8 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
         XCTAssertTrue(stages.contains(.preparingModel))
         XCTAssertTrue(stages.contains(.synthesizing))
         XCTAssertEqual(values.last?.fractionCompleted, 1)
-        XCTAssertTrue(zip(values, values.dropFirst()).allSatisfy {
-            $0.fractionCompleted <= $1.fractionCompleted
+        XCTAssertTrue(zip(values, values.dropFirst()).allSatisfy { pair in
+            pair.0.fractionCompleted <= pair.1.fractionCompleted
         })
     }
 
