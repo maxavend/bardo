@@ -12,9 +12,10 @@ struct FloatingPlaybackBar: View {
             }
 
             playerContent
+                .frame(height: 44)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .bardoGlassSurface(cornerRadius: BardoCornerRadius.floating, interactive: true)
+                .padding(.vertical, 7)
+                .bardoPlaybackSurface()
                 .frame(maxWidth: 820)
         }
         .padding(.horizontal, 20)
@@ -24,11 +25,8 @@ struct FloatingPlaybackBar: View {
     }
 
     private var playerContent: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             transportControls
-
-            Divider()
-                .frame(height: 34)
 
             Image(systemName: LibraryFormatting.sourceSymbol(recording.sources))
                 .font(.title3)
@@ -67,6 +65,7 @@ struct FloatingPlaybackBar: View {
                         ),
                         in: 0...max(playback.duration, 0.01)
                     )
+                    .controlSize(.mini)
                     .disabled(!playback.isLoaded)
                     .accessibilityLabel(String(localized: "Playback position"))
                     .accessibilityValue(LibraryFormatting.duration(playback.position))
@@ -110,9 +109,11 @@ struct FloatingPlaybackBar: View {
                 systemImage: playback.isPlaying ? "pause.fill" : "play.fill"
             )
             .labelStyle(.iconOnly)
-            .frame(minWidth: 18)
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
         .disabled(!playback.isLoaded)
         .help(playback.isPlaying ? String(localized: "Pause") : String(localized: "Play"))
         .accessibilityLabel(playback.isPlaying ? String(localized: "Pause") : String(localized: "Play"))
@@ -138,9 +139,11 @@ struct FloatingPlaybackBar: View {
         Button(action: action) {
             Label(accessibilityLabel, systemImage: systemImage)
                 .labelStyle(.iconOnly)
-                .frame(minWidth: 18)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
         .disabled(!playback.isLoaded)
         .accessibilityLabel(accessibilityLabel)
         .help(accessibilityLabel)
