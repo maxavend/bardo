@@ -340,18 +340,32 @@ final class LibraryViewModel: ObservableObject {
             let activeStore = try resolveTranscriptStore()
             let loaded = try await activeStore.read(recordingID: recordingID)
             guard selection == recordingID else { return }
-            transcript = loaded
 
             if let loaded {
-                meetingMinutes = try await resolveMeetingMinutesStore().read(recordingID: loaded.recordingID)
-                meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: loaded) ?? false
+                transcript = loaded
+
+                do {
+                    let loadedMinutes = try await resolveMeetingMinutesStore().read(
+                        recordingID: loaded.recordingID
+                    )
+                    guard selection == recordingID else { return }
+                    meetingMinutes = loadedMinutes
+                    meetingMinutesIsStale = loadedMinutes?.isStale(comparedTo: loaded) ?? false
+                } catch {
+                    guard selection == recordingID else { return }
+                    // A damaged or unreadable minutes document must not hide a valid transcript
+                    // or leave minutes from the previously selected recording on screen.
+                    meetingMinutes = nil
+                    meetingMinutesIsStale = false
+                    meetingMinutesErrorMessage = error.localizedDescription
+                }
             } else {
+                transcript = nil
                 meetingMinutes = nil
                 meetingMinutesIsStale = false
-            }
 
-            if loaded == nil {
                 let residues = await activeStore.temporaryArtifacts(recordingID: recordingID)
+                guard selection == recordingID else { return }
                 if !residues.isEmpty {
                     transcriptErrorMessage = "An interrupted transcription artifact was found and preserved. Retry transcription when ready."
                 }
@@ -359,12 +373,17 @@ final class LibraryViewModel: ObservableObject {
         } catch {
             guard selection == recordingID else { return }
             transcript = nil
+            meetingMinutes = nil
+            meetingMinutesIsStale = false
             transcriptErrorMessage = error.localizedDescription
         }
     }
 
     func beginTranscription() {
-        guard !isTranscribing, !isDiarizing, selectedRecording != nil else { return }
+        guard transcriptionTask == nil,
+              !isTranscribing,
+              !isDiarizing,
+              selectedRecording != nil else { return }
         transcriptionTask = Task { [weak self] in
             await self?.performSelectedTranscription()
         }
@@ -463,12 +482,15 @@ final class LibraryViewModel: ObservableObject {
                 try? await activeStore.update(recording)
             }
             replaceRecording(recording)
-            transcriptErrorMessage = error.localizedDescription
+            if selection == recordingID {
+                transcriptErrorMessage = error.localizedDescription
+            }
         }
     }
 
     func beginDiarization() {
-        guard !isTranscribing,
+        guard diarizationTask == nil,
+              !isTranscribing,
               !isDiarizing,
               let recording = selectedRecording,
               let transcript,
@@ -523,7 +545,9 @@ final class LibraryViewModel: ObservableObject {
                 store: try resolveStore(),
                 progress: { [weak self] snapshot in
                     Task { @MainActor in
-                        guard let self, self.diarizationRecordingID == recordingID else { return }
+                        guard let self,
+                              self.diarizationRecordingID == recordingID,
+                              self.selection == recordingID else { return }
                         self.diarizationProgress = snapshot
                     }
                 }
@@ -551,7 +575,9 @@ final class LibraryViewModel: ObservableObject {
         } catch is CancellationError {
             // The previously persisted raw/diarized transcript remains authoritative.
         } catch {
-            diarizationErrorMessage = error.localizedDescription
+            if selection == recordingID {
+                diarizationErrorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -670,7 +696,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func beginMeetingMinutes() {
-        guard canGenerateMeetingMinutes else { return }
+        guard meetingMinutesTask == nil, canGenerateMeetingMinutes else { return }
         isGeneratingMeetingMinutes = true
         meetingMinutesErrorMessage = nil
         meetingMinutesProgress = 0
@@ -688,6 +714,7 @@ final class LibraryViewModel: ObservableObject {
     func cancelMeetingMinutes() {
         meetingMinutesTask?.cancel()
         streamingMeetingMinutesText = nil
+        meetingMinutesProgress = nil
         meetingMinutesProgressSnapshot = nil
     }
 
@@ -751,8 +778,8 @@ final class LibraryViewModel: ObservableObject {
         } catch {
             if selection == recording.id {
                 streamingMeetingMinutesText = nil
+                meetingMinutesErrorMessage = error.localizedDescription
             }
-            meetingMinutesErrorMessage = error.localizedDescription
         }
     }
 
