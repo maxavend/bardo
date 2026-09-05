@@ -40,7 +40,7 @@ struct TranscriptContentView: View {
 
                             if !transcript.segments.isEmpty {
                                 minutesNavigationGroup
-                                    .padding(.top, 8)
+                                    .padding(.top, BardoSpacing.small)
                             }
                         }
                     } else {
@@ -53,7 +53,7 @@ struct TranscriptContentView: View {
                 }
                 .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
                 .padding(.horizontal, BardoSpacing.detailHorizontal)
-                .padding(.top, 8)
+                .padding(.top, BardoSpacing.detailBodyTop)
                 .padding(.bottom, BardoSpacing.section)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
@@ -117,7 +117,7 @@ struct TranscriptContentView: View {
         }
 
         if let error = model.transcriptEditErrorMessage {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: BardoSpacing.compact) {
                 InlineIssueView(message: error)
                 Spacer()
                 Button(String(localized: "Dismiss")) {
@@ -128,7 +128,7 @@ struct TranscriptContentView: View {
     }
 
     private func transcriptHeader(for transcript: Transcript) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: BardoSpacing.compact) {
             speakerControl(for: transcript)
 
             if transcript.segments.contains(where: { $0.editedText != nil }) {
@@ -184,14 +184,14 @@ struct TranscriptContentView: View {
     }
 
     private var transcriptionLiveView: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: BardoSpacing.section) {
             transcriptionLiveStatus
 
             if let live = model.liveTranscription, live.recordingID == recording.id {
                 let paragraphs = buildParagraphs(from: live.segments)
 
                 if !paragraphs.isEmpty {
-                    LazyVStack(alignment: .leading, spacing: 20) {
+                    LazyVStack(alignment: .leading, spacing: BardoSpacing.section) {
                         ForEach(paragraphs) { paragraph in
                             TranscriptParagraphRow(
                                 paragraph: paragraph,
@@ -212,7 +212,7 @@ struct TranscriptContentView: View {
                     }
                     .accessibilityElement(children: .combine)
                 } else if !live.provisionalText.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: BardoSpacing.small) {
                         Text(live.provisionalText)
                             .font(.body)
                             .lineSpacing(4)
@@ -227,7 +227,7 @@ struct TranscriptContentView: View {
                         }
                     }
                 } else {
-                    HStack(spacing: 10) {
+                    HStack(spacing: BardoSpacing.compact) {
                         ProgressView()
                             .controlSize(.small)
                         Text(String(localized: "La transcripción aparecerá aquí en cuanto Bardo reconozca las primeras palabras."))
@@ -367,12 +367,12 @@ struct TranscriptContentView: View {
                 systemImage: "text.bubble",
                 description: Text(String(localized: "WhisperKit produced no readable transcript segments for this recording."))
             )
-            .frame(maxWidth: .infinity, minHeight: 240)
+            .frame(maxWidth: .infinity, minHeight: BardoLayout.inlineUnavailableMinHeight)
         } else if paragraphs.isEmpty {
             ContentUnavailableView.search(text: searchText)
-                .frame(maxWidth: .infinity, minHeight: 240)
+                .frame(maxWidth: .infinity, minHeight: BardoLayout.inlineUnavailableMinHeight)
         } else {
-            LazyVStack(alignment: .leading, spacing: 20) {
+            LazyVStack(alignment: .leading, spacing: BardoSpacing.section) {
                 ForEach(Array(paragraphs.enumerated()), id: \.element.id) { index, paragraph in
                     let currentSpeaker = speakerLabel(for: paragraph.speakerID, in: transcript)
                     let previousSpeaker = index > 0
@@ -380,7 +380,7 @@ struct TranscriptContentView: View {
                         : nil
                     let startsSpeakerTurn = currentSpeaker != previousSpeaker
 
-                    VStack(alignment: .leading, spacing: 7) {
+                    VStack(alignment: .leading, spacing: BardoSpacing.small) {
                         if !transcript.speakers.isEmpty && (startsSpeakerTurn || index == 0) {
                             speakerHeader(speakerID: paragraph.speakerID, in: transcript)
                         }
@@ -517,7 +517,7 @@ private struct TranscriptParagraphRow: View {
     let onEditSegment: (TranscriptSegment) -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: BardoSpacing.compact) {
             Button {
                 playback.seek(to: paragraph.startTime)
                 _ = playback.play()
@@ -538,7 +538,7 @@ private struct TranscriptParagraphRow: View {
                 )
             )
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                 paragraphText
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -749,10 +749,10 @@ private struct ProcessingView: View {
 
     var body: some View {
         GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: BardoSpacing.compact) {
                 ProgressView(value: fractionCompleted)
 
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: BardoSpacing.compact) {
                     Text(detail)
                         .font(.callout)
                         .foregroundStyle(.secondary)
