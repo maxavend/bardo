@@ -25,6 +25,7 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var meetingMinutesProgress: Double?
     @Published private(set) var meetingMinutesProgressSnapshot: MeetingMinutesProgressSnapshot?
     @Published private(set) var streamingMeetingMinutesText: String?
+    @Published private(set) var meetingMinutesRecordingID: Recording.ID?
     @Published private(set) var isGeneratingMeetingMinutes = false
     @Published private(set) var shouldPresentSpeakerNamingSheet = false
     @Published private(set) var isLoading = false
@@ -162,8 +163,8 @@ final class LibraryViewModel: ObservableObject {
 
         guard recordingID != transcriptionRecordingID,
               recordingID != diarizationRecordingID,
-              !(isDiarizing && selection == recordingID),
-              !(isGeneratingMeetingMinutes && selection == recordingID)
+              recordingID != meetingMinutesRecordingID,
+              !(isDiarizing && selection == recordingID)
         else {
             recordingActionErrorMessage = "Finish or cancel processing before deleting this recording."
             return
@@ -696,8 +697,11 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func beginMeetingMinutes() {
-        guard meetingMinutesTask == nil, canGenerateMeetingMinutes else { return }
+        guard meetingMinutesTask == nil,
+              canGenerateMeetingMinutes,
+              let recordingID = selectedRecording?.id else { return }
         isGeneratingMeetingMinutes = true
+        meetingMinutesRecordingID = recordingID
         meetingMinutesErrorMessage = nil
         meetingMinutesProgress = 0
         meetingMinutesProgressSnapshot = MeetingMinutesProgressSnapshot(
@@ -725,6 +729,7 @@ final class LibraryViewModel: ObservableObject {
     func performMeetingMinutes(title: String? = nil, context: String? = nil) async {
         defer {
             isGeneratingMeetingMinutes = false
+            meetingMinutesRecordingID = nil
             meetingMinutesProgress = nil
             meetingMinutesProgressSnapshot = nil
             meetingMinutesTask = nil
