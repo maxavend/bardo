@@ -33,6 +33,7 @@ final class MeetingMinutesStoreTests: XCTestCase {
                 id: recordingID,
                 title: "Meeting minutes fixture",
                 createdAt: Date(timeIntervalSince1970: 1_700_000_600),
+                sources: [.importedFile],
                 processingState: .completed,
                 audioAssets: []
             )
