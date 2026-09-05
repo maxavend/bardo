@@ -117,6 +117,7 @@ struct LibraryView: View {
         .onDisappear {
             model.cancelTranscription()
             model.cancelDiarization()
+            model.cancelMeetingMinutes()
             model.stopPlayback()
         }
         .frame(minWidth: 900, minHeight: 560)
