@@ -92,8 +92,8 @@ struct TranscriptEditorSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: BardoSpacing.standard) {
+            VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                 Text(state.title)
                     .font(.title3.weight(.semibold))
 
@@ -107,7 +107,7 @@ struct TranscriptEditorSheet: View {
 
             Divider()
 
-            HStack(spacing: 10) {
+            HStack(spacing: BardoSpacing.compact) {
                 if let onRestore {
                     Button {
                         onRestore()
@@ -131,8 +131,13 @@ struct TranscriptEditorSheet: View {
                 .disabled(state.isMultiline && value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(24)
-        .frame(minWidth: 520, minHeight: state.isMultiline ? 340 : 190)
+        .padding(BardoSpacing.sheet)
+        .frame(
+            minWidth: BardoLayout.transcriptEditorMinWidth,
+            minHeight: state.isMultiline
+                ? BardoLayout.transcriptEditorMultilineMinHeight
+                : BardoLayout.transcriptEditorCompactMinHeight
+        )
         .task {
             isEditorFocused = true
         }
@@ -144,7 +149,7 @@ struct TranscriptEditorSheet: View {
             TextEditor(text: $value)
                 .font(.body)
                 .focused($isEditorFocused)
-                .frame(minHeight: 180)
+                .frame(minHeight: BardoLayout.transcriptEditorTextMinHeight)
         } else {
             TextField(String(localized: "Speaker name"), text: $value)
                 .focused($isEditorFocused)
@@ -168,8 +173,8 @@ struct SpeakerNamingSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: BardoSpacing.standard) {
+            VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                 Text(String(localized: "Name Participants"))
                     .font(.title3.weight(.semibold))
 
@@ -208,8 +213,11 @@ struct SpeakerNamingSheet: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
-        .frame(minWidth: 580, minHeight: 390)
+        .padding(BardoSpacing.sheet)
+        .frame(
+            minWidth: BardoLayout.speakerNamingSheetMinWidth,
+            minHeight: BardoLayout.speakerNamingSheetMinHeight
+        )
     }
 
     private func speakerRow(_ speaker: Speaker, index: Int) -> some View {
@@ -217,7 +225,7 @@ struct SpeakerNamingSheet: View {
         let preview = model.speakerPreviews.first { $0.speakerID == speaker.id }
 
         return LabeledContent(fallback) {
-            HStack(spacing: 10) {
+            HStack(spacing: BardoSpacing.compact) {
                 Button {
                     guard let preview else { return }
                     _ = model.playSpeakerPreview(preview)
@@ -239,7 +247,7 @@ struct SpeakerNamingSheet: View {
                         set: { names[speaker.id] = $0 }
                     )
                 )
-                .frame(minWidth: 220)
+                .frame(minWidth: BardoLayout.speakerNameFieldMinWidth)
             }
         }
     }
