@@ -29,6 +29,9 @@ enum BardoLayout {
     static let informationSheetWidth: CGFloat = 480
     static let informationSheetHeight: CGFloat = 580
     static let renameSheetWidth: CGFloat = 420
+    static let recoverySheetMinWidth: CGFloat = 560
+    static let recoverySheetIdealHeight: CGFloat = 360
+    static let recoverySheetMaxHeight: CGFloat = 620
 
     static let settingsMinWidth: CGFloat = 620
     static let settingsMinHeight: CGFloat = 540
