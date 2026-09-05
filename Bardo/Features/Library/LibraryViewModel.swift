@@ -753,11 +753,13 @@ final class LibraryViewModel: ObservableObject {
             do {
                 let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let resolvedContext = context?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let effectiveTitle = resolvedTitle.flatMap { $0.isEmpty ? nil : $0 } ?? recording.title
+                let effectiveContext = resolvedContext.flatMap { $0.isEmpty ? nil : $0 }
                 let generated = try await generator.generate(
                     from: MeetingMinutesInput(
                         transcript: transcript,
-                        title: resolvedTitle?.isEmpty == false ? resolvedTitle! : recording.title,
-                        context: resolvedContext?.isEmpty == false ? resolvedContext : nil
+                        title: effectiveTitle,
+                        context: effectiveContext
                     ),
                     progress: { [weak self] snapshot in
                         Task { @MainActor in
