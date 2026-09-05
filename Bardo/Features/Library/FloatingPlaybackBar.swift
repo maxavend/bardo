@@ -37,7 +37,7 @@ struct FloatingPlaybackBar: View {
 
             VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                 HStack(alignment: .firstTextBaseline, spacing: BardoSpacing.compact) {
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(alignment: .leading, spacing: BardoSpacing.micro) {
                         Text(LibraryFormatting.recordingTitle(recording))
                             .font(.caption.weight(.medium))
                             .lineLimit(1)
