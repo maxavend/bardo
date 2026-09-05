@@ -56,6 +56,7 @@ jobs:
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath .derived-data \
             -skipPackagePluginValidation \
+            -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO \
             build
 
@@ -77,6 +78,7 @@ jobs:
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath .derived-data \
             -skipPackagePluginValidation \
+            -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO \
             test > xcode-test.log 2>&1
           STATUS=$?
