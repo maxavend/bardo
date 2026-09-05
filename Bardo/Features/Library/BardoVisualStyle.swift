@@ -1,30 +1,49 @@
 import AppKit
 import SwiftUI
 
-/// Structural proportions shared by the native macOS library shell.
+/// Structural proportions shared by Bardo's native macOS shell.
 ///
-/// Keep these values limited to constraints SwiftUI cannot infer from the
-/// semantic controls themselves. Visual styling belongs to the system.
+/// Keep these values limited to layout constraints SwiftUI can't infer from
+/// semantic controls. Visual styling and interaction states belong to macOS.
 enum BardoLayout {
-    static let librarySidebarMinWidth: CGFloat = 220
-    static let librarySidebarIdealWidth: CGFloat = 240
-    static let librarySidebarMaxWidth: CGFloat = 300
+    static let librarySidebarMinWidth: CGFloat = 232
+    static let librarySidebarIdealWidth: CGFloat = 252
+    static let librarySidebarMaxWidth: CGFloat = 320
     static let libraryToolbarHeight: CGFloat = 52
-    static let libraryDetailPadding: CGFloat = 20
-    static let detailContentMaxWidth: CGFloat = 800
-    static let emptyStateMinHeight: CGFloat = 340
 
-    static let playbackMaxWidth: CGFloat = 820
-    static let playbackHorizontalPadding: CGFloat = 20
-    static let playbackBottomPadding: CGFloat = 16
+    static let libraryDetailPadding: CGFloat = 24
+    static let detailContentMaxWidth: CGFloat = 840
+    static let emptyStateMinHeight: CGFloat = 320
+
+    static let playbackMaxWidth: CGFloat = detailContentMaxWidth + 40
+    static let playbackHorizontalPadding: CGFloat = libraryDetailPadding
+    static let playbackBottomPadding: CGFloat = 18
     static let playbackSurfaceHeight: CGFloat = 58
     static let playbackContentClearance: CGFloat = 96
-    static let followLiveGapAbovePlayback: CGFloat = 8
+    static let followLiveGapAbovePlayback: CGFloat = 10
+
+    static let informationSheetWidth: CGFloat = 480
+    static let informationSheetHeight: CGFloat = 580
+    static let renameSheetWidth: CGFloat = 420
+
+    static let settingsMinWidth: CGFloat = 620
+    static let settingsMinHeight: CGFloat = 540
 }
 
 enum BardoSpacing {
-    static let detailHorizontal: CGFloat = BardoLayout.libraryDetailPadding
+    static let xSmall: CGFloat = 4
+    static let small: CGFloat = 8
+    static let compact: CGFloat = 12
+    static let standard: CGFloat = 16
     static let section: CGFloat = 20
+    static let large: CGFloat = 24
+    static let extraLarge: CGFloat = 32
+
+    static let detailHorizontal: CGFloat = BardoLayout.libraryDetailPadding
+    static let detailHeaderTop: CGFloat = large
+    static let detailHeaderBottom: CGFloat = standard
+    static let detailBodyTop: CGFloat = 0
+    static let sheet: CGFloat = large
 }
 
 enum BardoCornerRadius {
@@ -65,47 +84,42 @@ struct BardoEmptyState<Actions: View>: View {
     }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: BardoSpacing.standard) {
             Image(systemName: systemImage)
                 .font(.system(size: 32, weight: .regular))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.secondary)
-                .frame(height: 38)
+                .frame(minHeight: 38)
                 .accessibilityHidden(true)
 
             VStack(spacing: 6) {
                 Text(title)
                     .font(.title3.weight(.semibold))
-                    .frame(height: 24)
+                    .multilineTextAlignment(.center)
 
                 Text(detail)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 400)
-                    .frame(height: 42, alignment: .top)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 420)
             }
 
             actions
-                .frame(height: 32)
 
-            Group {
-                if let footnote {
-                    Label(footnote, systemImage: "lock.fill")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                } else {
-                    Color.clear
-                }
+            if let footnote {
+                Label(footnote, systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(height: 18)
         }
         .frame(
             maxWidth: .infinity,
             minHeight: BardoLayout.emptyStateMinHeight,
             alignment: .top
         )
-        .padding(.top, 54)
-        .padding(.bottom, 24)
+        .padding(.top, 48)
+        .padding(.bottom, BardoSpacing.large)
     }
 }
