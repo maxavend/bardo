@@ -33,8 +33,8 @@ struct LibraryView: View {
                 .safeAreaInset(edge: .top, spacing: 0) {
                     if let activeCaptureBanner {
                         activeCaptureBanner
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, BardoSpacing.detailHorizontal)
+                            .padding(.vertical, BardoSpacing.small)
                     }
                 }
         }
@@ -119,7 +119,10 @@ struct LibraryView: View {
             model.cancelDiarization()
             model.stopPlayback()
         }
-        .frame(minWidth: 900, minHeight: 560)
+        .frame(
+            minWidth: BardoLayout.libraryWindowMinWidth,
+            minHeight: BardoLayout.libraryWindowMinHeight
+        )
         .enableInjection()
     }
 
