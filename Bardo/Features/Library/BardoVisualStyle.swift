@@ -17,6 +17,8 @@ enum BardoLayout {
     static let libraryDetailPadding: CGFloat = 24
     static let detailContentMaxWidth: CGFloat = 840
     static let emptyStateMinHeight: CGFloat = 320
+    static let emptyStateTopInset: CGFloat = 48
+    static let emptyStateTextMaxWidth: CGFloat = 420
     static let inlineUnavailableMinHeight: CGFloat = 240
 
     static let playbackMaxWidth: CGFloat = detailContentMaxWidth + 40
@@ -47,6 +49,7 @@ enum BardoLayout {
 }
 
 enum BardoSpacing {
+    static let micro: CGFloat = 2
     static let xSmall: CGFloat = 4
     static let small: CGFloat = 8
     static let compact: CGFloat = 12
@@ -108,7 +111,7 @@ struct BardoEmptyState<Actions: View>: View {
                 .frame(minHeight: 38)
                 .accessibilityHidden(true)
 
-            VStack(spacing: 6) {
+            VStack(spacing: BardoSpacing.small) {
                 Text(title)
                     .font(.title3.weight(.semibold))
                     .multilineTextAlignment(.center)
@@ -118,7 +121,7 @@ struct BardoEmptyState<Actions: View>: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 420)
+                    .frame(maxWidth: BardoLayout.emptyStateTextMaxWidth)
             }
 
             actions
@@ -135,7 +138,7 @@ struct BardoEmptyState<Actions: View>: View {
             minHeight: BardoLayout.emptyStateMinHeight,
             alignment: .top
         )
-        .padding(.top, 48)
+        .padding(.top, BardoLayout.emptyStateTopInset)
         .padding(.bottom, BardoSpacing.large)
     }
 }
