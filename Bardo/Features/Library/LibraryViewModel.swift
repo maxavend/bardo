@@ -90,7 +90,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func importAudio(from urls: [URL]) async {
-        guard !urls.isEmpty else { return }
+        guard !isImporting, !urls.isEmpty else { return }
         isImporting = true
         importErrorMessage = nil
         defer { isImporting = false }
@@ -130,7 +130,9 @@ final class LibraryViewModel: ObservableObject {
             return
         }
 
-        guard !isTranscribing, !isDiarizing else {
+        guard !isTranscribing,
+              !isDiarizing,
+              recordingID != meetingMinutesRecordingID else {
             recordingActionErrorMessage = "Finish or cancel processing before renaming this recording."
             return
         }
@@ -384,6 +386,7 @@ final class LibraryViewModel: ObservableObject {
         guard transcriptionTask == nil,
               !isTranscribing,
               !isDiarizing,
+              !isGeneratingMeetingMinutes,
               selectedRecording != nil else { return }
         transcriptionTask = Task { [weak self] in
             await self?.performSelectedTranscription()
@@ -407,7 +410,10 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func performSelectedTranscription() async {
-        guard !isTranscribing, !isDiarizing, var recording = selectedRecording else { return }
+        guard !isTranscribing,
+              !isDiarizing,
+              !isGeneratingMeetingMinutes,
+              var recording = selectedRecording else { return }
         let recordingID = recording.id
         isTranscribing = true
         transcriptionRecordingID = recordingID
@@ -493,6 +499,7 @@ final class LibraryViewModel: ObservableObject {
         guard diarizationTask == nil,
               !isTranscribing,
               !isDiarizing,
+              !isGeneratingMeetingMinutes,
               let recording = selectedRecording,
               let transcript,
               transcript.recordingID == recording.id else {
@@ -519,6 +526,7 @@ final class LibraryViewModel: ObservableObject {
     func performSelectedDiarization() async {
         guard !isTranscribing,
               !isDiarizing,
+              !isGeneratingMeetingMinutes,
               let recording = selectedRecording,
               let currentTranscript = transcript,
               currentTranscript.recordingID == recording.id else {
@@ -769,6 +777,8 @@ final class LibraryViewModel: ObservableObject {
                 try await resolveMeetingMinutesStore().save(generated)
                 guard selection == recording.id else { return }
                 meetingMinutes = generated
+                meetingMinutesIsStale = self.transcript
+                    .map { generated.isStale(comparedTo: $0) } ?? true
                 streamingMeetingMinutesText = nil
                 meetingMinutesProgress = 1
             } catch {
