@@ -205,6 +205,7 @@ final class ModelTaskLifecycleTests: XCTestCase {
             transcriptStore: transcriptStore,
             transcriber: transcriber,
             diarizer: diarizer,
+            meetingMinutesStore: MeetingMinutesStore(rootURL: root),
             meetingMinutesGenerator: minutesGenerator
         )
         await model.reload()
