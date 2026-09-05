@@ -27,6 +27,17 @@ final class MeetingMinutesStoreTests: XCTestCase {
             text: "## Summary\n- The team agreed to ship the local build.",
             createdAt: Date(timeIntervalSince1970: 1_700_000_601)
         )
+        let recordingStore = RecordingStore(rootURL: rootURL)
+        try await recordingStore.save(
+            Recording(
+                id: recordingID,
+                title: "Meeting minutes fixture",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_600),
+                sources: [.importedFile],
+                processingState: .completed,
+                audioAssets: []
+            )
+        )
         let store = MeetingMinutesStore(rootURL: rootURL)
 
         try await store.save(minutes)

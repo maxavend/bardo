@@ -25,6 +25,7 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var meetingMinutesProgress: Double?
     @Published private(set) var meetingMinutesProgressSnapshot: MeetingMinutesProgressSnapshot?
     @Published private(set) var streamingMeetingMinutesText: String?
+    @Published private(set) var meetingMinutesRecordingID: Recording.ID?
     @Published private(set) var isGeneratingMeetingMinutes = false
     @Published private(set) var shouldPresentSpeakerNamingSheet = false
     @Published private(set) var isLoading = false
@@ -89,7 +90,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func importAudio(from urls: [URL]) async {
-        guard !urls.isEmpty else { return }
+        guard !isImporting, !urls.isEmpty else { return }
         isImporting = true
         importErrorMessage = nil
         defer { isImporting = false }
@@ -129,7 +130,9 @@ final class LibraryViewModel: ObservableObject {
             return
         }
 
-        guard !isTranscribing, !isDiarizing else {
+        guard !isTranscribing,
+              !isDiarizing,
+              recordingID != meetingMinutesRecordingID else {
             recordingActionErrorMessage = "Finish or cancel processing before renaming this recording."
             return
         }
@@ -162,8 +165,8 @@ final class LibraryViewModel: ObservableObject {
 
         guard recordingID != transcriptionRecordingID,
               recordingID != diarizationRecordingID,
-              !(isDiarizing && selection == recordingID),
-              !(isGeneratingMeetingMinutes && selection == recordingID)
+              recordingID != meetingMinutesRecordingID,
+              !(isDiarizing && selection == recordingID)
         else {
             recordingActionErrorMessage = "Finish or cancel processing before deleting this recording."
             return
@@ -254,16 +257,35 @@ final class LibraryViewModel: ObservableObject {
             playback.unload()
             return
         }
-        guard !recording.audioAssets.isEmpty else {
-            playback.setUnavailable("This recording has no managed audio file.")
-            return
-        }
 
         // Keep the current player geometry/state alive while the new managed URL
         // resolves. Unloading here made toolbar/sidebar clicks visibly disable and
         // rebuild the player before the replacement audio was ready.
         if playback.isPlaying {
             playback.pause()
+        }
+
+        _ = await preparePlayback(playback, for: recording)
+    }
+
+    @discardableResult
+    func prepareSpeakerPreviewPlayback(_ previewPlayback: AudioPlaybackController) async -> Bool {
+        guard let recording = selectedRecording else {
+            previewPlayback.setUnavailable("This recording is no longer available.")
+            return false
+        }
+
+        return await preparePlayback(previewPlayback, for: recording)
+    }
+
+    @discardableResult
+    private func preparePlayback(
+        _ controller: AudioPlaybackController,
+        for recording: Recording
+    ) async -> Bool {
+        guard !recording.audioAssets.isEmpty else {
+            controller.setUnavailable("This recording has no managed audio file.")
+            return false
         }
 
         let recordingID = recording.id
@@ -276,22 +298,24 @@ final class LibraryViewModel: ObservableObject {
                     recordingID: recordingID,
                     audioAssetID: asset.id
                 )
-                guard selection == recordingID else { return }
+                guard selection == recordingID else { return false }
+
                 let metadata = AudioPlaybackMetadata(
                     title: recording.title,
                     trackLabel: asset.originalFileName
                 )
-                if playback.load(url: url, metadata: metadata) {
-                    return
+                if controller.load(url: url, metadata: metadata) {
+                    return true
                 }
-                lastError = playback.errorMessage
+                lastError = controller.errorMessage
             } catch {
-                guard selection == recordingID else { return }
+                guard selection == recordingID else { return false }
                 lastError = error.localizedDescription
             }
         }
 
-        playback.setUnavailable(lastError ?? "This recording has no playable managed audio.")
+        controller.setUnavailable(lastError ?? "This recording has no playable managed audio.")
+        return false
     }
 
     func loadTranscriptForSelection() async {
@@ -319,18 +343,32 @@ final class LibraryViewModel: ObservableObject {
             let activeStore = try resolveTranscriptStore()
             let loaded = try await activeStore.read(recordingID: recordingID)
             guard selection == recordingID else { return }
-            transcript = loaded
 
             if let loaded {
-                meetingMinutes = try await resolveMeetingMinutesStore().read(recordingID: loaded.recordingID)
-                meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: loaded) ?? false
+                transcript = loaded
+
+                do {
+                    let loadedMinutes = try await resolveMeetingMinutesStore().read(
+                        recordingID: loaded.recordingID
+                    )
+                    guard selection == recordingID else { return }
+                    meetingMinutes = loadedMinutes
+                    meetingMinutesIsStale = loadedMinutes?.isStale(comparedTo: loaded) ?? false
+                } catch {
+                    guard selection == recordingID else { return }
+                    // A damaged or unreadable minutes document must not hide a valid transcript
+                    // or leave minutes from the previously selected recording on screen.
+                    meetingMinutes = nil
+                    meetingMinutesIsStale = false
+                    meetingMinutesErrorMessage = error.localizedDescription
+                }
             } else {
+                transcript = nil
                 meetingMinutes = nil
                 meetingMinutesIsStale = false
-            }
 
-            if loaded == nil {
                 let residues = await activeStore.temporaryArtifacts(recordingID: recordingID)
+                guard selection == recordingID else { return }
                 if !residues.isEmpty {
                     transcriptErrorMessage = "An interrupted transcription artifact was found and preserved. Retry transcription when ready."
                 }
@@ -338,12 +376,18 @@ final class LibraryViewModel: ObservableObject {
         } catch {
             guard selection == recordingID else { return }
             transcript = nil
+            meetingMinutes = nil
+            meetingMinutesIsStale = false
             transcriptErrorMessage = error.localizedDescription
         }
     }
 
     func beginTranscription() {
-        guard !isTranscribing, !isDiarizing, selectedRecording != nil else { return }
+        guard transcriptionTask == nil,
+              !isTranscribing,
+              !isDiarizing,
+              !isGeneratingMeetingMinutes,
+              selectedRecording != nil else { return }
         transcriptionTask = Task { [weak self] in
             await self?.performSelectedTranscription()
         }
@@ -366,7 +410,10 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func performSelectedTranscription() async {
-        guard !isTranscribing, !isDiarizing, var recording = selectedRecording else { return }
+        guard !isTranscribing,
+              !isDiarizing,
+              !isGeneratingMeetingMinutes,
+              var recording = selectedRecording else { return }
         let recordingID = recording.id
         isTranscribing = true
         transcriptionRecordingID = recordingID
@@ -442,13 +489,17 @@ final class LibraryViewModel: ObservableObject {
                 try? await activeStore.update(recording)
             }
             replaceRecording(recording)
-            transcriptErrorMessage = error.localizedDescription
+            if selection == recordingID {
+                transcriptErrorMessage = error.localizedDescription
+            }
         }
     }
 
     func beginDiarization() {
-        guard !isTranscribing,
+        guard diarizationTask == nil,
+              !isTranscribing,
               !isDiarizing,
+              !isGeneratingMeetingMinutes,
               let recording = selectedRecording,
               let transcript,
               transcript.recordingID == recording.id else {
@@ -475,6 +526,7 @@ final class LibraryViewModel: ObservableObject {
     func performSelectedDiarization() async {
         guard !isTranscribing,
               !isDiarizing,
+              !isGeneratingMeetingMinutes,
               let recording = selectedRecording,
               let currentTranscript = transcript,
               currentTranscript.recordingID == recording.id else {
@@ -502,7 +554,9 @@ final class LibraryViewModel: ObservableObject {
                 store: try resolveStore(),
                 progress: { [weak self] snapshot in
                     Task { @MainActor in
-                        guard let self, self.diarizationRecordingID == recordingID else { return }
+                        guard let self,
+                              self.diarizationRecordingID == recordingID,
+                              self.selection == recordingID else { return }
                         self.diarizationProgress = snapshot
                     }
                 }
@@ -514,6 +568,14 @@ final class LibraryViewModel: ObservableObject {
             if selection == recordingID {
                 transcript = updated
                 meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: updated) ?? false
+
+                // Speaker identification must never leave the document player unusable.
+                // If playback was unavailable before or during diarization, restore it
+                // from the authoritative managed recording before presenting naming.
+                if !playback.isLoaded {
+                    _ = await preparePlayback(playback, for: recording)
+                }
+
                 if SpeakerNamingPolicy.shouldOpenNamingFlow(after: updated) {
                     shouldPresentSpeakerNamingSheet = true
                 }
@@ -522,7 +584,9 @@ final class LibraryViewModel: ObservableObject {
         } catch is CancellationError {
             // The previously persisted raw/diarized transcript remains authoritative.
         } catch {
-            diarizationErrorMessage = error.localizedDescription
+            if selection == recordingID {
+                diarizationErrorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -623,19 +687,6 @@ final class LibraryViewModel: ObservableObject {
         return SpeakerNamingPolicy.shouldOpenNamingFlow(after: transcript)
     }
 
-    @discardableResult
-    func playSpeakerPreview(_ preview: SpeakerPreview) -> Bool {
-        guard let transcript,
-              transcript.recordingID == selection,
-              transcript.speakers.contains(where: { $0.id == preview.speakerID }),
-              preview.startTime >= 0,
-              preview.endTime > preview.startTime else {
-            return false
-        }
-
-        return playback.playPreview(from: preview.startTime, to: preview.endTime)
-    }
-
     var hasActiveDiarizationTask: Bool {
         diarizationTask != nil
     }
@@ -654,14 +705,17 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func beginMeetingMinutes() {
-        guard canGenerateMeetingMinutes else { return }
+        guard meetingMinutesTask == nil,
+              canGenerateMeetingMinutes,
+              let recordingID = selectedRecording?.id else { return }
         isGeneratingMeetingMinutes = true
+        meetingMinutesRecordingID = recordingID
         meetingMinutesErrorMessage = nil
         meetingMinutesProgress = 0
         meetingMinutesProgressSnapshot = MeetingMinutesProgressSnapshot(
             stage: .preparingModel,
             fractionCompleted: 0,
-            message: String(localized: "Preparing meeting-minutes model in local memory…")
+            message: String(localized: "Preparing the conversation…")
         )
         streamingMeetingMinutesText = ""
         meetingMinutesTask = Task { [weak self] in
@@ -672,6 +726,7 @@ final class LibraryViewModel: ObservableObject {
     func cancelMeetingMinutes() {
         meetingMinutesTask?.cancel()
         streamingMeetingMinutesText = nil
+        meetingMinutesProgress = nil
         meetingMinutesProgressSnapshot = nil
     }
 
@@ -682,6 +737,7 @@ final class LibraryViewModel: ObservableObject {
     func performMeetingMinutes(title: String? = nil, context: String? = nil) async {
         defer {
             isGeneratingMeetingMinutes = false
+            meetingMinutesRecordingID = nil
             meetingMinutesProgress = nil
             meetingMinutesProgressSnapshot = nil
             meetingMinutesTask = nil
@@ -693,16 +749,17 @@ final class LibraryViewModel: ObservableObject {
               !Task.isCancelled else { return }
 
         do {
-            playback.unload()
             let generator = try resolveMeetingMinutesGenerator()
             do {
                 let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let resolvedContext = context?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let effectiveTitle = resolvedTitle.flatMap { $0.isEmpty ? nil : $0 } ?? recording.title
+                let effectiveContext = resolvedContext.flatMap { $0.isEmpty ? nil : $0 }
                 let generated = try await generator.generate(
                     from: MeetingMinutesInput(
                         transcript: transcript,
-                        title: resolvedTitle?.isEmpty == false ? resolvedTitle! : recording.title,
-                        context: resolvedContext?.isEmpty == false ? resolvedContext : nil
+                        title: effectiveTitle,
+                        context: effectiveContext
                     ),
                     progress: { [weak self] snapshot in
                         Task { @MainActor in
@@ -722,6 +779,8 @@ final class LibraryViewModel: ObservableObject {
                 try await resolveMeetingMinutesStore().save(generated)
                 guard selection == recording.id else { return }
                 meetingMinutes = generated
+                meetingMinutesIsStale = self.transcript
+                    .map { generated.isStale(comparedTo: $0) } ?? true
                 streamingMeetingMinutesText = nil
                 meetingMinutesProgress = 1
             } catch {
@@ -736,8 +795,8 @@ final class LibraryViewModel: ObservableObject {
         } catch {
             if selection == recording.id {
                 streamingMeetingMinutesText = nil
+                meetingMinutesErrorMessage = error.localizedDescription
             }
-            meetingMinutesErrorMessage = error.localizedDescription
         }
     }
 

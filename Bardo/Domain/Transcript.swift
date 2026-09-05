@@ -70,19 +70,22 @@ struct TranscriptMetadata: Codable, Equatable, Sendable {
     let modelID: String
     let selection: TranscriptionSelection?
     let createdAt: Date
+    let processingDuration: TimeInterval?
 
     init(
         engine: String,
         engineVersion: String,
         modelID: String,
         selection: TranscriptionSelection? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        processingDuration: TimeInterval? = nil
     ) {
         self.engine = engine
         self.engineVersion = engineVersion
         self.modelID = modelID
         self.selection = selection
         self.createdAt = createdAt
+        self.processingDuration = processingDuration
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -91,6 +94,7 @@ struct TranscriptMetadata: Codable, Equatable, Sendable {
         case modelID
         case selection
         case createdAt
+        case processingDuration
     }
 
     init(from decoder: Decoder) throws {
@@ -100,6 +104,7 @@ struct TranscriptMetadata: Codable, Equatable, Sendable {
         modelID = try container.decode(String.self, forKey: .modelID)
         selection = try container.decodeIfPresent(TranscriptionSelection.self, forKey: .selection)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
+        processingDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .processingDuration)
     }
 }
 
@@ -108,17 +113,20 @@ struct DiarizationMetadata: Codable, Equatable, Sendable {
     let engineVersion: String
     let modelID: String
     let createdAt: Date
+    let processingDuration: TimeInterval?
 
     init(
         engine: String,
         engineVersion: String,
         modelID: String,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        processingDuration: TimeInterval? = nil
     ) {
         self.engine = engine
         self.engineVersion = engineVersion
         self.modelID = modelID
         self.createdAt = createdAt
+        self.processingDuration = processingDuration
     }
 }
 

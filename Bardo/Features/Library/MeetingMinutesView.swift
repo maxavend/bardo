@@ -61,7 +61,7 @@ struct MeetingMinutesView: View {
 
     private var generationProgressView: some View {
         let snapshot = model.meetingMinutesProgressSnapshot
-        let message = snapshot?.message ?? String(localized: "Generating meeting minutes…")
+        let message = snapshot?.message ?? String(localized: "Preparing the conversation…")
         let fraction = model.meetingMinutesProgress ?? 0
 
         return GroupBox {
@@ -69,15 +69,11 @@ struct MeetingMinutesView: View {
                 ProgressView(value: fraction)
 
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(String(localized: "Processing locally on your Mac."))
+                    Text(String(localized: "You can keep using Bardo while this finishes."))
                         .font(.callout)
                         .foregroundStyle(.secondary)
 
                     Spacer(minLength: 12)
-
-                    Text("\(Int(fraction * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
 
                     Button(String(localized: "Cancel"), role: .cancel) {
                         model.cancelMeetingMinutes()
@@ -85,29 +81,20 @@ struct MeetingMinutesView: View {
                 }
             }
         } label: {
-            HStack {
-                Label {
-                    Text(message)
-                } icon: {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-
-                if let streaming = model.streamingMeetingMinutesText, !streaming.isEmpty {
-                    Spacer()
-                    Text(String.localizedStringWithFormat(String(localized: "%lld characters"), streaming.count))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
+            Label {
+                Text(message)
+            } icon: {
+                ProgressView()
+                    .controlSize(.small)
             }
         }
     }
 
     private var preparingModelPlaceholder: some View {
         ContentUnavailableView {
-            Label(String(localized: "Preparing Meeting Minutes"), systemImage: "list.bullet.clipboard")
+            Label(String(localized: "Preparing the meeting minutes"), systemImage: "list.bullet.clipboard")
         } description: {
-            Text(String(localized: "Preparing the conversation analysis locally on this Mac."))
+            Text(String(localized: "Reviewing the conversation and organizing the important points."))
         } actions: {
             ProgressView()
         }
@@ -127,11 +114,20 @@ struct MeetingMinutesView: View {
 
                 HStack(spacing: 10) {
                     Label(
-                        String(localized: "Generated on-device from transcript"),
+                        String(localized: "Created from the transcript on this Mac"),
                         systemImage: "lock.shield"
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                    if let duration = model.meetingMinutes?.processingDuration {
+                        Text(String.localizedStringWithFormat(
+                            String(localized: "Ready in %@"),
+                            LibraryFormatting.processingDuration(duration)
+                        ))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    }
 
                     Spacer()
 
@@ -164,10 +160,10 @@ struct MeetingMinutesView: View {
             systemImage: "list.bullet.clipboard",
             title: String(localized: "Meeting Minutes"),
             detail: model.canGenerateMeetingMinutes
-                ? String(localized: "Create a structured record of topics, decisions, pending work, and next steps from the transcript.")
-                : String(localized: "Complete the transcript before generating meeting minutes."),
+                ? String(localized: "Turn this conversation into a clear record of decisions, agreements, pending items, and next steps.")
+                : String(localized: "Create the transcript first, then Bardo can prepare the meeting minutes."),
             footnote: model.canGenerateMeetingMinutes
-                ? String(localized: "Generated locally on this Mac")
+                ? String(localized: "Everything stays on this Mac")
                 : nil
         ) {
             if model.canGenerateMeetingMinutes {

@@ -110,7 +110,7 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
         XCTAssertTrue(prompts[0].contains("Product planning"))
         XCTAssertTrue(prompts[0].contains("Weekly meeting"))
         XCTAssertTrue(prompts[0].contains("Maxi asked whether we should launch."))
-        XCTAssertTrue(prompts[0].contains("Do not infer external knowledge, advice, deadlines, names, or decisions."))
+        XCTAssertTrue(prompts[0].contains("Do not infer external knowledge, advice, deadlines, names, consensus, or decisions."))
         XCTAssertTrue(prompts[0].contains("A question is not an agreement."))
         XCTAssertFalse(prompts[0].contains("private-audio.wav"))
         XCTAssertFalse(prompts[0].contains("samples"))
@@ -119,7 +119,11 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
     }
 
     func testLongTranscriptUsesSegmentBoundedExtractionThenFinalSynthesis() async throws {
-        let spy = TextGeneratorSpy(responses: ["Extract one", "Extract two", "Final minutes"])
+        let spy = TextGeneratorSpy(responses: [
+            #"[{"type":"context","topic":"First","statement":"Extract one","certainty":"qualified","sourceSegmentIDs":[]}]"#,
+            #"[{"type":"context","topic":"Second","statement":"Extract two","certainty":"qualified","sourceSegmentIDs":[]}]"#,
+            "Final minutes"
+        ])
         let generator = MeetingMinutesGenerator(
             textGenerator: spy,
             chunkingConfiguration: .init(targetTokens: 20, overlapSegmentCount: 0),
@@ -143,8 +147,8 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
 
         XCTAssertEqual(result.text, "Final minutes")
         XCTAssertEqual(prompts.count, 4)
-        XCTAssertTrue(prompts[0].contains("MAP: extract conservative"))
-        XCTAssertTrue(prompts[1].contains("MAP: extract conservative"))
+        XCTAssertTrue(prompts[0].contains("MAP: extract ALL substantive evidence"))
+        XCTAssertTrue(prompts[1].contains("MAP: extract ALL substantive evidence"))
         XCTAssertTrue(prompts[2].contains("REDUCE: reconstruct"))
         XCTAssertTrue(prompts[2].contains("Extract one"))
         XCTAssertTrue(prompts[2].contains("Extract two"))
@@ -206,18 +210,40 @@ final class MeetingMinutesGeneratorTests: XCTestCase {
             context: nil
         )
 
-        let snapshots = LockedBox<[MeetingMinutesStage]>([])
+        let snapshots = LockedBox<[MeetingMinutesProgressSnapshot]>([])
         _ = try await generator.generate(
             from: input,
             progress: { snapshot in
-                snapshots.append(snapshot.stage)
+                snapshots.append(snapshot)
             },
             onStreamChunk: nil
         )
 
-        let stages = snapshots.value
+        let values = snapshots.value
+        let stages = values.map(\.stage)
         XCTAssertTrue(stages.contains(.preparingModel))
         XCTAssertTrue(stages.contains(.synthesizing))
+        XCTAssertEqual(values.last?.fractionCompleted, 1)
+        XCTAssertTrue(zip(values, values.dropFirst()).allSatisfy { pair in
+            pair.0.fractionCompleted <= pair.1.fractionCompleted
+        })
+    }
+
+    func testInvalidExtractionFallsBackToTranscriptSegmentsInsteadOfModelProse() async throws {
+        let spy = TextGeneratorSpy(responses: ["not valid json", "not valid analysis", "Final minutes"])
+        let generator = MeetingMinutesGenerator(textGenerator: spy)
+        let transcript = makeTranscript(recordingID: UUID(), text: "Figma needs an empty state before handoff.")
+
+        _ = try await generator.generate(
+            from: MeetingMinutesInput(transcript: transcript, title: "Design review", context: nil),
+            progress: { (_: MeetingMinutesProgressSnapshot) in },
+            onStreamChunk: nil
+        )
+
+        let prompts = await spy.prompts
+        XCTAssertEqual(prompts.count, 3)
+        XCTAssertTrue(prompts[1].contains("Figma needs an empty state before handoff."))
+        XCTAssertFalse(prompts[1].contains("not valid json"))
     }
 
     func testRepetitionDetectorIdentifiesLineLevelLoopsAndCleans() {

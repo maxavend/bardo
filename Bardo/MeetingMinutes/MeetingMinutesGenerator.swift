@@ -63,47 +63,64 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
         onStreamChunk: (@Sendable (String) -> Void)? = nil
     ) async throws -> MeetingMinutes {
         try Task.checkCancellation()
+        let generationStart = ProcessInfo.processInfo.systemUptime
         let chunks = MeetingMinutesPromptBuilder.chunks(
             for: input.transcript,
             configuration: chunkingConfiguration
         )
         guard !chunks.isEmpty else { throw MeetingMinutesError.emptyTranscript }
 
-        let mapOptions = MeetingMinutesGenerationOptions(maxTokens: 768, temperature: 0, topP: 0.9)
-        let reduceOptions = MeetingMinutesGenerationOptions(maxTokens: 1_536, temperature: 0, topP: 0.9)
-        let renderOptions = MeetingMinutesGenerationOptions(maxTokens: 2_048, temperature: 0, topP: 0.9)
+        let mapOptions = MeetingMinutesGenerationOptions(maxTokens: 1_400, temperature: 0, topP: 0.9)
+        let reduceOptions = MeetingMinutesGenerationOptions(maxTokens: 2_048, temperature: 0, topP: 0.9)
+        let renderOptions = MeetingMinutesGenerationOptions(maxTokens: 3_072, temperature: 0, topP: 0.9)
+        let preparationRange = 0.00...0.10
+        let extractionRange = 0.10...0.66
+        let consolidationRange = 0.66...0.84
+        let renderingRange = 0.84...1.00
         var evidence = [MeetingEvidence]()
 
         progress(.init(
             stage: .preparingModel,
             fractionCompleted: 0,
-            message: String(localized: "Preparing meeting-minutes model in local memory…")
+            message: String(localized: "Preparing the conversation…")
         ))
         try await textGenerator.prepareForUse { (setupSnapshot: MeetingMinutesSetupProgressSnapshot) in
             let message: String
             switch setupSnapshot.stage {
             case .downloading:
-                message = String(localized: "Preparing meeting-minutes files…")
+                message = String(localized: "Preparing the conversation…")
             case .loading:
-                message = String(localized: "Loading meeting-minutes model in local memory…")
+                message = String(localized: "Getting everything ready…")
             case .checkingRuntime:
-                message = String(localized: "Checking local generation…")
+                message = String(localized: "Getting everything ready…")
+            }
+            let setupFraction: Double
+            switch setupSnapshot.stage {
+            case .downloading:
+                setupFraction = 0.65 * setupSnapshot.fractionCompleted
+            case .loading:
+                setupFraction = 0.65 + (0.25 * setupSnapshot.fractionCompleted)
+            case .checkingRuntime:
+                setupFraction = 0.90 + (0.10 * setupSnapshot.fractionCompleted)
             }
             progress(.init(
                 stage: .preparingModel,
-                fractionCompleted: 0,
+                fractionCompleted: Self.mapProgress(
+                    setupFraction,
+                    into: preparationRange
+                ),
                 message: message
             ))
         }
 
         for (index, chunk) in chunks.enumerated() {
             try Task.checkCancellation()
-            let start = Double(index) / Double(chunks.count + 2)
+            let chunkStart = Double(index) / Double(chunks.count)
             progress(.init(
                 stage: .extracting(current: index + 1, total: chunks.count),
-                fractionCompleted: start,
+                fractionCompleted: Self.mapProgress(chunkStart, into: extractionRange),
                 message: String.localizedStringWithFormat(
-                    String(localized: "Identifying agreements in section %lld of %lld…"),
+                    String(localized: "Reviewing the conversation · part %lld of %lld…"),
                     index + 1,
                     chunks.count
                 )
@@ -119,12 +136,12 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
                 ),
                 options: mapOptions,
                 progress: { value in
-                    let fraction = (Double(index) + value) / Double(chunks.count + 2)
+                    let extractionFraction = (Double(index) + value) / Double(chunks.count)
                     progress(.init(
                         stage: .extracting(current: index + 1, total: chunks.count),
-                        fractionCompleted: fraction,
+                        fractionCompleted: Self.mapProgress(extractionFraction, into: extractionRange),
                         message: String.localizedStringWithFormat(
-                            String(localized: "Identifying agreements in section %lld of %lld…"),
+                            String(localized: "Reviewing the conversation · part %lld of %lld…"),
                             index + 1,
                             chunks.count
                         )
@@ -132,26 +149,20 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
                 },
                 onStreamChunk: nil
             )
-            let parsed = Self.decodeEvidence(raw) ?? [MeetingEvidence(
-                type: .context,
-                topic: input.title,
-                statement: Self.nonEmptyText(raw),
-                certainty: .qualified,
-                sourceSegmentIDs: chunk.sourceSegmentIDs,
-                startTime: chunk.segments.first?.startTime,
-                endTime: chunk.segments.last?.endTime
-            )]
+            let parsed = Self.decodeEvidence(raw) ?? Self.fallbackEvidence(
+                for: chunk,
+                topic: input.title
+            )
             evidence.append(contentsOf: parsed.map { Self.restrictToChunk($0, chunk: chunk) })
         }
 
         try Task.checkCancellation()
         let reducedEvidence = MeetingMinutesEvidenceReducer.reduce(evidence)
         let encodedEvidence = try Self.encode(reducedEvidence)
-        let reduceStart = Double(chunks.count) / Double(chunks.count + 2)
         progress(.init(
             stage: .synthesizing,
-            fractionCompleted: reduceStart,
-            message: String(localized: "Organizing the final meeting state…")
+            fractionCompleted: consolidationRange.lowerBound,
+            message: String(localized: "Organizing decisions and pending items…")
         ))
 
         let rawAnalysis = try await textGenerator.generate(
@@ -165,8 +176,8 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
             progress: { value in
                 progress(.init(
                     stage: .synthesizing,
-                    fractionCompleted: reduceStart + (value / Double(chunks.count + 2)),
-                    message: String(localized: "Organizing the final meeting state…")
+                    fractionCompleted: Self.mapProgress(value, into: consolidationRange),
+                    message: String(localized: "Organizing decisions and pending items…")
                 ))
             },
             onStreamChunk: nil
@@ -177,8 +188,8 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
 
         progress(.init(
             stage: .synthesizing,
-            fractionCompleted: (Double(chunks.count) + 1) / Double(chunks.count + 2),
-            message: String(localized: "Preparing meeting minutes…")
+            fractionCompleted: renderingRange.lowerBound,
+            message: String(localized: "Writing the meeting minutes…")
         ))
         let rendered = try await textGenerator.generate(
             prompt: MeetingMinutesPromptBuilder.renderPrompt(
@@ -191,8 +202,8 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
             progress: { value in
                 progress(.init(
                     stage: .synthesizing,
-                    fractionCompleted: min(1, max(0, (Double(chunks.count) + 1 + value) / Double(chunks.count + 2))),
-                    message: String(localized: "Preparing meeting minutes…")
+                    fractionCompleted: Self.mapProgress(value, into: renderingRange),
+                    message: String(localized: "Writing the meeting minutes…")
                 ))
             },
             onStreamChunk: onStreamChunk
@@ -203,8 +214,9 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
         progress(.init(
             stage: .synthesizing,
             fractionCompleted: 1,
-            message: String(localized: "Meeting minutes complete.")
+            message: String(localized: "Meeting minutes ready.")
         ))
+        let processingDuration = max(0, ProcessInfo.processInfo.systemUptime - generationStart)
         return MeetingMinutes(
             recordingID: input.transcript.recordingID,
             sourceTranscriptMetadata: input.transcript.metadata,
@@ -215,7 +227,8 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
             sourceTranscriptHash: TranscriptFingerprint.hash(input.transcript),
             modelRevision: MeetingMinutesModel.modelRevision,
             promptVersion: MeetingMinutesPromptBuilder.promptVersion,
-            pipelineVersion: MeetingMinutesPromptBuilder.pipelineVersion
+            pipelineVersion: MeetingMinutesPromptBuilder.pipelineVersion,
+            processingDuration: processingDuration
         )
     }
 
@@ -228,6 +241,14 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
             progress: { snapshot in progress(snapshot.fractionCompleted) },
             onStreamChunk: nil
         )
+    }
+
+    private static func mapProgress(
+        _ value: Double,
+        into range: ClosedRange<Double>
+    ) -> Double {
+        let normalized = min(1, max(0, value))
+        return range.lowerBound + ((range.upperBound - range.lowerBound) * normalized)
     }
 
     private static func restrictToChunk(_ evidence: MeetingEvidence, chunk: MeetingMinutesChunk) -> MeetingEvidence {
@@ -282,9 +303,23 @@ struct MeetingMinutesGenerator: MeetingMinutesGenerating {
         return String(unwrapped[start...end]).data(using: .utf8)
     }
 
-    private static func nonEmptyText(_ value: String) -> String {
-        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? "The transcript contained no additional supported evidence." : text
+    private static func fallbackEvidence(
+        for chunk: MeetingMinutesChunk,
+        topic: String
+    ) -> [MeetingEvidence] {
+        chunk.segments.compactMap { segment in
+            let statement = segment.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !statement.isEmpty else { return nil }
+            return MeetingEvidence(
+                type: .context,
+                topic: topic,
+                statement: statement,
+                certainty: .qualified,
+                sourceSegmentIDs: [segment.id],
+                startTime: segment.startTime,
+                endTime: segment.endTime
+            )
+        }
     }
 }
 

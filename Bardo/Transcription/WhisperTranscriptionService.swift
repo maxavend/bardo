@@ -83,6 +83,7 @@ enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
     case combinedAudioUnavailable(Recording.ID)
     case invalidDuration
     case emptyTranscription
+    case operationInProgress
 
     var errorDescription: String? {
         switch self {
@@ -94,6 +95,8 @@ enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
             return "Bardo could not determine a valid audio duration for transcription."
         case .emptyTranscription:
             return "WhisperKit completed without producing any transcript segments."
+        case .operationInProgress:
+            return "Whisper is currently in use. Finish or cancel the active transcription before changing its model."
         }
     }
 }
@@ -178,7 +181,7 @@ final class TranscriptionLiveBuffer: @unchecked Sendable {
         defer { lock.unlock() }
 
         provisionalText = segmentsByKey.isEmpty
-            ? TranscriptTextSanitizer.sanitize(text).trimmingCharacters(in: .whitespacesAndNewlines)
+            ? TranscriptTextSanitizer.normalizeRecognizedText(text).trimmingCharacters(in: .whitespacesAndNewlines)
             : ""
         return makeSnapshot()
     }
@@ -254,6 +257,13 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         category: "transcription.performance"
     )
 
+    /// Short decoder context for product-design vocabulary commonly used in meetings.
+    /// It improves lexical recognition without forcing a language or paraphrasing speech.
+    private static let transcriptionVocabulary = """
+    Figma, UX, UI, design system, empty state, supporting text, breadcrumb, breadcrumbs, handoff, layout, mobile, desktop,
+    modal, chip, release, sprint, weekly, prototype, prototipo, Chrome, Discord, roaming, LDI.
+    """
+
     private static let sharedServiceResult: Result<WhisperTranscriptionService, Error> = Result {
         WhisperTranscriptionService(modelManager: try TranscriptionModelManager.live())
     }
@@ -264,6 +274,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
 
     private var loadedWhisper: WhisperKit?
     private var idleUnloadTask: Task<Void, Never>?
+    private var activeTranscriptionCount = 0
+    private var resetInProgress = false
     private(set) var lastMetrics: WhisperTranscriptionMetrics?
 
     init(
@@ -285,18 +297,28 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     }
 
     func reset() async throws {
+        guard activeTranscriptionCount == 0, !resetInProgress else {
+            throw RecordingTranscriptionError.operationInProgress
+        }
+
+        resetInProgress = true
+        defer { resetInProgress = false }
         idleUnloadTask?.cancel()
         idleUnloadTask = nil
         if let loadedWhisper {
             self.loadedWhisper = nil
             await loadedWhisper.unloadModels()
         }
+        try Task.checkCancellation()
         try await modelManager.reset()
     }
 
     func prepareForUse(
         progress: @escaping @Sendable (TranscriptionSetupProgressSnapshot) -> Void
     ) async throws {
+        guard !resetInProgress else {
+            throw RecordingTranscriptionError.operationInProgress
+        }
         idleUnloadTask?.cancel()
         idleUnloadTask = nil
         progress(.init(stage: .checking, fractionCompleted: 0))
@@ -323,6 +345,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     }
 
     func warmUpIfInstalled() async {
+        guard !resetInProgress else { return }
         guard loadedWhisper == nil else {
             scheduleIdleUnload()
             return
@@ -357,6 +380,12 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
         liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
     ) async throws -> Transcript {
+        guard activeTranscriptionCount == 0, !resetInProgress else {
+            throw RecordingTranscriptionError.operationInProgress
+        }
+        activeTranscriptionCount += 1
+        defer { activeTranscriptionCount = max(0, activeTranscriptionCount - 1) }
+
         idleUnloadTask?.cancel()
         idleUnloadTask = nil
         let cancellation = TranscriptionCancellationFlag()
@@ -414,12 +443,14 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         try checkCancellation(cancellation)
         progress(.init(stage: .transcribing, fractionCompleted: 0))
 
+        let vocabularyTokens = whisper.tokenizer?.encode(text: Self.transcriptionVocabulary)
         let options = DecodingOptions(
             temperatureFallbackCount: performanceProfile.temperatureFallbackCount,
             usePrefillPrompt: true,
             detectLanguage: true,
             skipSpecialTokens: true,
             wordTimestamps: true,
+            promptTokens: vocabularyTokens,
             concurrentWorkerCount: performanceProfile.concurrentWorkerCount,
             chunkingStrategy: performanceProfile.usesVAD ? .vad : nil
         )
@@ -440,7 +471,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         let previousSegmentDiscoveryCallback = whisper.segmentDiscoveryCallback
         whisper.segmentDiscoveryCallback = { discoveredSegments in
             let converted = discoveredSegments.compactMap { segment -> TranscriptSegment? in
-                let text = TranscriptTextSanitizer.sanitize(segment.text)
+                let text = TranscriptTextSanitizer.normalizeRecognizedText(segment.text)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { return nil }
 
@@ -501,7 +532,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                         probability: $0.probability
                     )
                 }
-                let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let text = TranscriptTextSanitizer.normalizeRecognizedText(segment.text)
                 guard !text.isEmpty else { return nil }
                 return TranscriptSegment(
                     startTime: TimeInterval(segment.start),
@@ -518,6 +549,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
 
         let language = results.lazy.map(\.language).first { !$0.isEmpty }
         let selection = await modelManager.selectedSelection()
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
         let transcript = Transcript(
             recordingID: recording.id,
             languageCode: language,
@@ -526,11 +558,11 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                 engine: "WhisperKit",
                 engineVersion: Self.engineVersion,
                 modelID: selection.modelID,
-                selection: selection
+                selection: selection,
+                processingDuration: elapsed
             )
         )
 
-        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
         let timings = results.map(\.timings)
         let fallbackCount = Int(timings.reduce(0) { $0 + $1.totalDecodingFallbacks })
         let windowCount = Int(timings.reduce(0) { $0 + $1.totalDecodingWindows })

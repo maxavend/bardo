@@ -13,6 +13,7 @@ struct MeetingMinutesDocumentV1: Codable, Equatable, Sendable {
 }
 
 enum MeetingMinutesStoreError: Error, LocalizedError, Equatable, Sendable {
+    case recordingNotFound(Recording.ID)
     case unsupportedSchemaVersion(Int)
     case invalidMinutes(String)
     case identityMismatch(expected: Recording.ID, actual: Recording.ID)
@@ -20,6 +21,8 @@ enum MeetingMinutesStoreError: Error, LocalizedError, Equatable, Sendable {
 
     var errorDescription: String? {
         switch self {
+        case .recordingNotFound(let id):
+            return "Recording \(id.uuidString) was not found."
         case .unsupportedSchemaVersion(let version):
             return "Meeting-minutes schema version \(version) is not supported."
         case .invalidMinutes(let description):
@@ -51,11 +54,12 @@ actor MeetingMinutesStore {
 
     func save(_ minutes: MeetingMinutes) throws {
         let directory = recordingDirectory(for: minutes.recordingID)
+        let manifestURL = directory.appendingPathComponent(RecordingStore.manifestFileName)
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+            throw MeetingMinutesStoreError.recordingNotFound(minutes.recordingID)
+        }
+
         do {
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(MeetingMinutesDocumentV1(minutes: minutes))

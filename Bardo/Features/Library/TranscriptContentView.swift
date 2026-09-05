@@ -34,14 +34,14 @@ struct TranscriptContentView: View {
                               transcript.recordingID == recording.id {
                         if model.isDiarizing, model.diarizationRecordingID == recording.id {
                             diarizationProgressView
-                        } else {
-                            transcriptHeader(for: transcript)
-                            transcriptConversation(transcript)
+                        }
 
-                            if !transcript.segments.isEmpty {
-                                minutesNavigationGroup
-                                    .padding(.top, 8)
-                            }
+                        transcriptHeader(for: transcript)
+                        transcriptConversation(transcript)
+
+                        if !transcript.segments.isEmpty {
+                            minutesNavigationGroup
+                                .padding(.top, 8)
                         }
                     } else {
                         emptyTranscriptView
@@ -275,12 +275,8 @@ struct TranscriptContentView: View {
     }
 
     private var diarizationProgressView: some View {
-        let progress = model.diarizationProgress
-        return ProcessingView(
-            title: diarizationStageText(progress?.stage),
-            detail: String(localized: "Speaker identification runs locally with SpeakerKit."),
-            fractionCompleted: progress?.fractionCompleted ?? 0,
-            cancelTitle: String(localized: "Cancel Speaker Identification"),
+        SpeakerIdentificationProgressView(
+            progress: model.diarizationProgress,
             cancelAction: { model.cancelDiarization() }
         )
     }
@@ -523,10 +519,19 @@ private struct TranscriptParagraphRow: View {
                 _ = playback.play()
             } label: {
                 Text(LibraryFormatting.duration(paragraph.startTime))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(
+                        .caption
+                            .monospacedDigit()
+                            .weight(isActivePlaybackParagraph ? .medium : .regular)
+                    )
+                    .foregroundStyle(
+                        isActivePlaybackParagraph
+                            ? Color.primary
+                            : Color.secondary.opacity(0.72)
+                    )
                     .frame(width: 44, alignment: .trailing)
                     .contentShape(Rectangle())
+                    .animation(.easeOut(duration: 0.1), value: isActivePlaybackParagraph)
             }
             .buttonStyle(.plain)
             .pointerStyle(.link)
@@ -583,6 +588,13 @@ private struct TranscriptParagraphRow: View {
         }
     }
 
+    private var isActivePlaybackParagraph: Bool {
+        let hasEnteredParagraph = playback.position > paragraph.startTime + 0.02
+        return playback.position >= paragraph.startTime
+            && playback.position <= paragraph.endTime
+            && (playback.isPlaying || hasEnteredParagraph)
+    }
+
     @ViewBuilder
     private var paragraphText: some View {
         if !usesKaraoke || paragraph.hasEdits || paragraph.timedWords.isEmpty {
@@ -627,7 +639,7 @@ private struct KaraokeTranscriptText: View {
             BardoWordFlowLayout(horizontalSpacing: 4, verticalSpacing: 5) {
                 ForEach(words) { word in
                     Text(word.text.trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(.body.weight(isSpokenOrCurrent(word) ? .semibold : .regular))
+                        .font(.body.weight(isSpokenOrCurrent(word) ? .medium : .regular))
                         .foregroundStyle(color(for: word))
                 }
             }
@@ -645,23 +657,16 @@ private struct KaraokeTranscriptText: View {
             && (isPlaying || hasEnteredParagraph)
     }
 
-    private func isCurrent(_ word: TranscriptWord) -> Bool {
-        isActiveParagraph
-            && playbackPosition >= word.startTime
-            && playbackPosition < max(word.endTime, word.startTime + 0.08)
-    }
-
     private func isSpokenOrCurrent(_ word: TranscriptWord) -> Bool {
         guard isActiveParagraph else { return false }
         return playbackPosition >= word.startTime
     }
 
     private func color(for word: TranscriptWord) -> Color {
-        guard isActiveParagraph else { return .primary }
         if isSpokenOrCurrent(word) {
             return .primary
         }
-        return .secondary.opacity(0.48)
+        return .secondary.opacity(0.72)
     }
 }
 
@@ -740,36 +745,87 @@ private struct BardoWordFlowLayout: Layout {
     }
 }
 
-private struct ProcessingView: View {
-    let title: String
-    let detail: String
-    let fractionCompleted: Double
-    let cancelTitle: String
+private struct SpeakerIdentificationProgressView: View {
+    let progress: DiarizationProgressSnapshot?
     let cancelAction: () -> Void
+
+    private var fractionCompleted: Double {
+        min(1, max(0, progress?.fractionCompleted ?? 0))
+    }
+
+    private var step: Int {
+        switch progress?.stage {
+        case .preparingModel, nil: 1
+        case .loadingModel: 2
+        case .diarizing: 3
+        case .saving: 4
+        }
+    }
+
+    private var detail: String {
+        switch progress?.stage {
+        case .preparingModel:
+            String(localized: "Preparing SpeakerKit and checking the local speaker models.")
+        case .loadingModel:
+            String(localized: "Loading the speaker models into local memory.")
+        case .diarizing:
+            String(localized: "Analyzing the recording and grouping speech by voice.")
+        case .saving:
+            String(localized: "Applying the detected speaker labels to the transcript.")
+        case nil:
+            String(localized: "Starting local speaker analysis.")
+        }
+    }
+
+    private var progressLabel: String {
+        let percentage = Int((fractionCompleted * 100).rounded())
+        return String.localizedStringWithFormat(
+            String(localized: "Step %lld of 4 · %lld%%"),
+            step,
+            percentage
+        )
+    }
 
     var body: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Label {
+                        Text(diarizationStageText(progress?.stage))
+                            .font(.callout.weight(.semibold))
+                    } icon: {
+                        Image(systemName: "person.2.wave.2")
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(Color.accentColor)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Text(progressLabel)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
                 ProgressView(value: fractionCompleted)
+                    .progressViewStyle(.linear)
+                    .animation(.easeOut(duration: 0.16), value: fractionCompleted)
 
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(detail)
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Spacer(minLength: 12)
 
-                    Button(cancelTitle, role: .cancel, action: cancelAction)
+                    Button(String(localized: "Cancel"), role: .cancel, action: cancelAction)
                 }
             }
-        } label: {
-            Label {
-                Text(title)
-            } icon: {
-                ProgressView()
-                    .controlSize(.small)
-            }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "\(diarizationStageText(progress?.stage)). \(progressLabel). \(detail)"
+        )
     }
 }
 

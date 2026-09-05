@@ -157,7 +157,11 @@ struct SpeakerNamingSheet: View {
     @ObservedObject var model: LibraryViewModel
 
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var previewPlayback = AudioPlaybackController()
     @State private var names: [Speaker.ID: String]
+    @State private var activePreviewSpeakerID: Speaker.ID?
+    @State private var isPreparingPreviewAudio = true
+    @State private var isSaving = false
 
     init(transcript: Transcript, model: LibraryViewModel) {
         self.transcript = transcript
@@ -168,79 +172,194 @@ struct SpeakerNamingSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(String(localized: "Name Participants"))
-                    .font(.title3.weight(.semibold))
+        VStack(alignment: .leading, spacing: 20) {
+            header
 
-                Text(String(localized: "Listen to a short local audio sample for each detected speaker. Leave a name blank to keep the automatic label."))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Form {
-                Section(String(localized: "Participants")) {
-                    ForEach(Array(transcript.speakers.enumerated()), id: \.element.id) { index, speaker in
-                        speakerRow(speaker, index: index)
-                    }
+            if isPreparingPreviewAudio {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(localized: "Preparing local audio previews…"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+            } else if let errorMessage = previewPlayback.errorMessage,
+                      !previewPlayback.isLoaded {
+                Label {
+                    Text(String(localized: "Audio previews are unavailable. You can still name participants."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: "speaker.slash")
+                        .foregroundStyle(.secondary)
+                }
+                .help(errorMessage)
             }
-            .formStyle(.grouped)
+
+            participantList
 
             Divider()
 
-            HStack {
+            HStack(spacing: 10) {
                 Spacer()
 
                 Button(String(localized: "Cancel")) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
+                .disabled(isSaving)
 
-                Button(String(localized: "Save Names")) {
+                Button {
+                    isSaving = true
                     Task {
                         await model.renameSpeakers(names)
                         dismiss()
                     }
+                } label: {
+                    if isSaving {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text(String(localized: "Save Names"))
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
+                .disabled(isSaving)
             }
         }
         .padding(24)
-        .frame(minWidth: 580, minHeight: 390)
+        .frame(minWidth: 620, minHeight: 340)
+        .task {
+            if model.playback.isPlaying {
+                model.playback.pause()
+            }
+            isPreparingPreviewAudio = true
+            _ = await model.prepareSpeakerPreviewPlayback(previewPlayback)
+            isPreparingPreviewAudio = false
+        }
+        .onDisappear {
+            previewPlayback.unload()
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "person.2.wave.2")
+                .font(.title2)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+                .frame(width: 30)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(String(localized: "Name Participants"))
+                    .font(.title3.weight(.semibold))
+
+                Text(String(localized: "Listen to a short sample from each detected voice, then add names where useful. Empty fields keep Bardo's automatic speaker labels."))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var participantList: some View {
+        GroupBox {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(transcript.speakers.enumerated()), id: \.element.id) { index, speaker in
+                        if index > 0 {
+                            Divider()
+                                .padding(.leading, 42)
+                        }
+
+                        speakerRow(speaker, index: index)
+                    }
+                }
+            }
+            .frame(maxHeight: 340)
+        } label: {
+            Text(String(localized: "Participants"))
+                .font(.headline)
+        }
     }
 
     private func speakerRow(_ speaker: Speaker, index: Int) -> some View {
         let fallback = String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
         let preview = model.speakerPreviews.first { $0.speakerID == speaker.id }
+        let isThisPreviewPlaying = activePreviewSpeakerID == speaker.id && previewPlayback.isPlaying
 
-        return LabeledContent(fallback) {
-            HStack(spacing: 10) {
-                Button {
-                    guard let preview else { return }
-                    _ = model.playSpeakerPreview(preview)
-                } label: {
-                    Label(String(localized: "Play Speaker Sample"), systemImage: "play.fill")
-                        .labelStyle(.iconOnly)
-                }
-                .disabled(preview == nil)
-                .help(
-                    preview == nil
-                        ? String(localized: "No representative audio sample")
-                        : String(localized: "Play speaker sample")
-                )
+        return HStack(spacing: 12) {
+            Image(systemName: "person.crop.circle.fill")
+                .font(.title3)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+                .frame(width: 30)
+                .accessibilityHidden(true)
 
-                TextField(
-                    fallback,
-                    text: Binding(
-                        get: { names[speaker.id, default: ""] },
-                        set: { names[speaker.id] = $0 }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(fallback)
+                    .font(.callout.weight(.medium))
+
+                if let preview {
+                    Text(
+                        String.localizedStringWithFormat(
+                            String(localized: "Sample · %@"),
+                            LibraryFormatting.duration(preview.endTime - preview.startTime)
+                        )
                     )
-                )
-                .frame(minWidth: 220)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                } else {
+                    Text(String(localized: "No representative sample"))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
             }
+            .frame(minWidth: 110, alignment: .leading)
+
+            Spacer(minLength: 12)
+
+            Button {
+                guard let preview else { return }
+
+                if isThisPreviewPlaying {
+                    previewPlayback.pause()
+                } else {
+                    activePreviewSpeakerID = speaker.id
+                    _ = previewPlayback.playPreview(
+                        from: preview.startTime,
+                        to: preview.endTime
+                    )
+                }
+            } label: {
+                Label(
+                    isThisPreviewPlaying
+                        ? String(localized: "Pause Sample")
+                        : String(localized: "Play Sample"),
+                    systemImage: isThisPreviewPlaying ? "pause.fill" : "play.fill"
+                )
+            }
+            .controlSize(.small)
+            .disabled(preview == nil || isPreparingPreviewAudio || !previewPlayback.isLoaded)
+            .help(
+                preview == nil
+                    ? String(localized: "No representative audio sample")
+                    : String(localized: "Play a short local sample of this speaker")
+            )
+
+            TextField(
+                String(localized: "Name (optional)"),
+                text: Binding(
+                    get: { names[speaker.id, default: ""] },
+                    set: { names[speaker.id] = $0 }
+                )
+            )
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 220)
         }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 2)
     }
 }

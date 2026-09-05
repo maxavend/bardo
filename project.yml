@@ -49,6 +49,7 @@ targets:
       - path: Bardo/Models
     resources:
       - path: Bardo/Localization
+      - path: Bardo/Resources/Assets.xcassets
     dependencies:
       - package: ArgmaxOSS
         product: WhisperKit
