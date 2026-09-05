@@ -65,6 +65,10 @@ struct LibraryView: View {
             await model.reload()
         }
         .task(id: model.selection) {
+            // reload() already prepares the reconciled selection while isLoading is true.
+            // Skipping this duplicate pass prevents a late second audio load from resetting
+            // playback just after the user starts listening.
+            guard !model.isLoading else { return }
             await model.prepareSelection()
         }
         .onChange(of: model.selection) { _, _ in
