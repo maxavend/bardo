@@ -152,15 +152,15 @@ struct TranscriptionSetupView: View {
     }
 
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer(minLength: 24)
+        VStack(spacing: BardoSpacing.large) {
+            Spacer(minLength: BardoSpacing.large)
 
             Image(systemName: "waveform.badge.mic")
                 .font(.largeTitle)
                 .symbolRenderingMode(.hierarchical)
                 .accessibilityHidden(true)
 
-            VStack(spacing: 6) {
+            VStack(spacing: BardoSpacing.small) {
                 Text(title)
                     .font(.title2.weight(.semibold))
                     .multilineTextAlignment(.center)
@@ -170,10 +170,10 @@ struct TranscriptionSetupView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
-            .frame(maxWidth: 520)
+            .frame(maxWidth: BardoLayout.setupContentMaxWidth)
 
             GroupBox {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: BardoSpacing.standard) {
                     if isTerminalState {
                         terminalStateContent
                     } else {
@@ -182,26 +182,26 @@ struct TranscriptionSetupView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: 520)
+            .frame(maxWidth: BardoLayout.setupContentMaxWidth)
 
             Text(TranscriptionSetupCopy.footer)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 520)
+                .frame(maxWidth: BardoLayout.setupContentMaxWidth)
 
-            Spacer(minLength: 24)
+            Spacer(minLength: BardoSpacing.large)
         }
-        .padding(32)
+        .padding(BardoSpacing.extraLarge)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .enableInjection()
     }
 
     private var activeSetupContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: BardoSpacing.compact) {
             setupProgressIndicator
 
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: BardoSpacing.compact) {
                 Label {
                     Text(stageLabel)
                 } icon: {
@@ -209,7 +209,7 @@ struct TranscriptionSetupView: View {
                         .controlSize(.small)
                 }
 
-                Spacer(minLength: 12)
+                Spacer(minLength: BardoSpacing.compact)
 
                 Text(stepLabel)
                     .font(.caption.monospacedDigit())
@@ -256,7 +256,7 @@ struct TranscriptionSetupView: View {
     }
 
     private var terminalStateContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: BardoSpacing.standard) {
             Label(stageLabel, systemImage: terminalStateSymbol)
                 .font(.headline)
 
@@ -270,7 +270,7 @@ struct TranscriptionSetupView: View {
     }
 
     private var setupActions: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: BardoSpacing.compact) {
             Button(TranscriptionSetupCopy.retryButton, action: retry)
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)

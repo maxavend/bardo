@@ -220,12 +220,12 @@ struct RootView: View {
 
         if total > 0 {
             GroupBox {
-                HStack(alignment: .center, spacing: 12) {
+                HStack(alignment: .center, spacing: BardoSpacing.compact) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                         .accessibilityHidden(true)
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                         Text(RecoveryCopy.reviewTitle(total))
                             .font(.callout.weight(.semibold))
                         Text(RecoveryCopy.countDescription(total))
@@ -233,7 +233,7 @@ struct RootView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    Spacer(minLength: 16)
+                    Spacer(minLength: BardoSpacing.standard)
 
                     Button(RecoveryCopy.reviewAction) {
                         isRecoveryPresented = true
@@ -242,7 +242,7 @@ struct RootView: View {
                     .help(String(localized: "Review, open, or discard interrupted capture files"))
                 }
             }
-            .frame(maxWidth: 720)
+            .frame(maxWidth: BardoLayout.statusBannerMaxWidth)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(RecoveryCopy.reviewTitle(total)). \(RecoveryCopy.reviewDetail(total)). \(RecoveryCopy.reviewAction)")
         }
@@ -256,14 +256,14 @@ struct RootView: View {
         stopAction: @escaping () -> Void
     ) -> some View {
         GroupBox {
-            HStack(spacing: 12) {
+            HStack(spacing: BardoSpacing.compact) {
                 Image(systemName: "record.circle.fill")
                     .foregroundStyle(.red)
                     .symbolEffect(.pulse)
                     .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
+                    HStack(spacing: BardoSpacing.small) {
                         Text(title)
                             .font(.callout.weight(.semibold))
                         Text(LibraryFormatting.duration(duration))
@@ -276,7 +276,7 @@ struct RootView: View {
                         .lineLimit(1)
                 }
 
-                Spacer(minLength: 16)
+                Spacer(minLength: BardoSpacing.standard)
 
                 if let changeSourceAction {
                     Button(String(localized: "Change Source…"), action: changeSourceAction)
@@ -294,18 +294,18 @@ struct RootView: View {
                 .help(String(localized: "Stop recording (⎋)"))
             }
         }
-        .frame(maxWidth: 720)
+        .frame(maxWidth: BardoLayout.statusBannerMaxWidth)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(LibraryFormatting.duration(duration)). \(detail)")
     }
 
     private func transitionPill(title: String, detail: String) -> some View {
         GroupBox {
-            HStack(spacing: 12) {
+            HStack(spacing: BardoSpacing.compact) {
                 ProgressView()
                     .controlSize(.small)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                     Text(title)
                         .font(.callout.weight(.semibold))
                     Text(detail)
@@ -317,7 +317,7 @@ struct RootView: View {
                 Spacer()
             }
         }
-        .frame(maxWidth: 720)
+        .frame(maxWidth: BardoLayout.statusBannerMaxWidth)
     }
 
     @MainActor
@@ -484,7 +484,7 @@ private struct RecoveryReviewView: View {
     #endif
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: BardoSpacing.standard) {
             Text(RecoveryCopy.title)
                 .font(.title2.weight(.semibold))
 
@@ -501,7 +501,7 @@ private struct RecoveryReviewView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: BardoSpacing.compact) {
                         issueSection(
                             source: .microphone,
                             issues: microphoneIssues,
@@ -517,7 +517,7 @@ private struct RecoveryReviewView: View {
             }
 
             Divider()
-            HStack(spacing: 12) {
+            HStack(spacing: BardoSpacing.compact) {
                 if actionableIssueCount > 0 {
                     Button(RecoveryCopy.moveAllToTrash) {
                         isBulkDiscardConfirmationPresented = true
@@ -530,8 +530,12 @@ private struct RecoveryReviewView: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
-        .frame(minWidth: 560, idealHeight: 360, maxHeight: 620)
+        .padding(BardoSpacing.sheet)
+        .frame(
+            minWidth: BardoLayout.recoverySheetMinWidth,
+            idealHeight: BardoLayout.recoverySheetIdealHeight,
+            maxHeight: BardoLayout.recoverySheetMaxHeight
+        )
         .alert(item: $pendingDiscard) { pending in
             Alert(
                 title: Text(RecoveryCopy.moveToTrashTitle),
@@ -574,7 +578,7 @@ private struct RecoveryReviewView: View {
         openFolder: @escaping () -> Bool
     ) -> some View {
         if !issues.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: BardoSpacing.small) {
                 HStack {
                     Label(RecoveryCopy.sectionTitle(for: source), systemImage: source == .microphone ? "mic" : "waveform")
                         .font(.headline)
@@ -583,8 +587,8 @@ private struct RecoveryReviewView: View {
                 }
                 VStack(spacing: 0) {
                     ForEach(Array(issues.enumerated()), id: \.element.id) { index, issue in
-                        HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .top, spacing: BardoSpacing.compact) {
+                        VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                             Text(issue.entryName)
                                 .font(.body.weight(.medium))
                             Text(RecoveryCopy.preservedMessage(for: source))
@@ -602,12 +606,12 @@ private struct RecoveryReviewView: View {
                             .controlSize(.small)
                         }
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, BardoSpacing.compact)
+                        .padding(.vertical, BardoSpacing.small)
 
                         if index < issues.count - 1 {
                             Divider()
-                                .padding(.leading, 12)
+                                .padding(.leading, BardoSpacing.compact)
                         }
                     }
                 }

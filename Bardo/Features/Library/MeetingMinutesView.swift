@@ -39,7 +39,7 @@ struct MeetingMinutesView: View {
             }
             .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
             .padding(.horizontal, BardoSpacing.detailHorizontal)
-            .padding(.top, 8)
+            .padding(.top, BardoSpacing.detailBodyTop)
             .padding(.bottom, BardoSpacing.section + bottomContentInset)
             .frame(maxWidth: .infinity, alignment: .top)
         }
@@ -65,10 +65,10 @@ struct MeetingMinutesView: View {
         let fraction = model.meetingMinutesProgress ?? 0
 
         return GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: BardoSpacing.compact) {
                 ProgressView(value: fraction)
 
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: BardoSpacing.compact) {
                     Text(String(localized: "Processing locally on your Mac."))
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -111,11 +111,11 @@ struct MeetingMinutesView: View {
         } actions: {
             ProgressView()
         }
-        .frame(maxWidth: .infinity, minHeight: 220)
+        .frame(maxWidth: .infinity, minHeight: BardoLayout.inlineUnavailableMinHeight)
     }
 
     private func minutesDocument(text: String, isStreaming: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: BardoSpacing.section) {
             BardoMarkdownView(
                 text: text,
                 isStreaming: isStreaming,
@@ -125,7 +125,7 @@ struct MeetingMinutesView: View {
             if !isStreaming {
                 Divider()
 
-                HStack(spacing: 10) {
+                HStack(spacing: BardoSpacing.compact) {
                     Label(
                         String(localized: "Generated on-device from transcript"),
                         systemImage: "lock.shield"
@@ -187,7 +187,7 @@ struct MeetingMinutesView: View {
 
     private func errorView(_ message: String) -> some View {
         GroupBox {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: BardoSpacing.compact) {
                 Text(message)
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -209,7 +209,7 @@ struct MeetingMinutesView: View {
     }
 
     private var staleMinutesView: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: BardoSpacing.compact) {
             Label(
                 String(localized: "The transcript changed after these minutes were generated."),
                 systemImage: "arrow.triangle.2.circlepath"
@@ -240,7 +240,7 @@ struct BardoMarkdownView: View {
     var cursorVisible: Bool = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: BardoSpacing.compact) {
             let lines = text.components(separatedBy: "\n")
 
             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
@@ -250,17 +250,17 @@ struct BardoMarkdownView: View {
                 if trimmed.hasPrefix("# ") {
                     Text(.init(String(trimmed.dropFirst(2))))
                         .font(.title2.weight(.semibold))
-                        .padding(.top, index == 0 ? 0 : 10)
+                        .padding(.top, index == 0 ? 0 : BardoSpacing.compact)
                 } else if trimmed.hasPrefix("## ") {
                     Text(.init(String(trimmed.dropFirst(3))))
                         .font(.title3.weight(.semibold))
-                        .padding(.top, 10)
+                        .padding(.top, BardoSpacing.compact)
                 } else if trimmed.hasPrefix("### ") {
                     Text(.init(String(trimmed.dropFirst(4))))
                         .font(.headline)
-                        .padding(.top, 6)
+                        .padding(.top, BardoSpacing.small)
                 } else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
-                    HStack(alignment: .top, spacing: 8) {
+                    HStack(alignment: .top, spacing: BardoSpacing.small) {
                         Text("•")
                             .foregroundStyle(.secondary)
                         Text(.init(String(trimmed.dropFirst(2))))
@@ -271,7 +271,7 @@ struct BardoMarkdownView: View {
                     Spacer()
                         .frame(height: 2)
                 } else {
-                    HStack(alignment: .bottom, spacing: 2) {
+                    HStack(alignment: .bottom, spacing: BardoSpacing.micro) {
                         Text(.init(trimmed))
                             .font(.body)
                             .lineSpacing(3)
@@ -341,7 +341,7 @@ private struct DetachedMinutesContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 12) {
+            HStack(spacing: BardoSpacing.compact) {
                 Label(String(localized: "Meeting Minutes"), systemImage: "list.bullet.clipboard")
                     .font(.headline)
 
@@ -362,14 +362,14 @@ private struct DetachedMinutesContentView: View {
                     Label(String(localized: "Copy"), systemImage: "doc.on.doc")
                 }
             }
-            .padding()
+            .padding(BardoSpacing.standard)
 
             Divider()
 
             ScrollView {
                 BardoMarkdownView(text: text, isStreaming: false)
-                    .padding(24)
-                    .frame(maxWidth: 760, alignment: .leading)
+                    .padding(BardoSpacing.large)
+                    .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .top)
             }
         }

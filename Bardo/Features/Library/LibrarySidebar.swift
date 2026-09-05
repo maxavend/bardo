@@ -129,7 +129,7 @@ struct LibrarySidebar: View {
                         )
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
-                        .padding(.leading, 24)
+                        .padding(.leading, BardoSpacing.large)
                     }
                 } label: {
                     Label(
@@ -156,7 +156,7 @@ private struct RecoveryIssueSidebarRow: View {
 
     var body: some View {
         Label {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: BardoSpacing.micro) {
                 Text(title)
                     .font(.caption.weight(.medium))
                     .lineLimit(1)
@@ -169,7 +169,7 @@ private struct RecoveryIssueSidebarRow: View {
             Image(systemName: symbol)
                 .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, BardoSpacing.micro)
         .help("\(detail)\n\(issue.message)\n\(issue.entryName)")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(detail)")
@@ -228,13 +228,13 @@ private struct RecordingRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: BardoSpacing.small) {
             Image(systemName: isPlaying ? "speaker.wave.2.fill" : "waveform")
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 18)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: BardoSpacing.micro) {
                 Text(LibraryFormatting.recordingTitle(recording))
                     .font(.body.weight(.medium))
                     .lineLimit(1)
@@ -248,7 +248,7 @@ private struct RecordingRowView: View {
             Spacer(minLength: 4)
             stateIcon
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, BardoSpacing.micro)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             guard RecordingActionPolicy.allows(.playPause, for: recording) else { return }

@@ -20,8 +20,8 @@ struct RecordingRenameSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: BardoSpacing.standard) {
+            VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                 Text(String(localized: "Rename Recording"))
                     .font(.title3.weight(.semibold))
 
@@ -48,8 +48,8 @@ struct RecordingRenameSheet: View {
                     .disabled(trimmedTitle.isEmpty)
             }
         }
-        .padding(24)
-        .frame(width: 420)
+        .padding(BardoSpacing.sheet)
+        .frame(width: BardoLayout.renameSheetWidth)
         .task {
             isTitleFocused = true
         }

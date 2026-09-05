@@ -77,8 +77,8 @@ struct RecordingInformationSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: BardoSpacing.compact) {
+                VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                     Text(String(localized: "Recording Information"))
                         .font(.headline)
 
@@ -95,12 +95,15 @@ struct RecordingInformationSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
             }
-            .padding(20)
+            .padding(BardoSpacing.sheet)
 
             Divider()
 
             RecordingInspector(recording: recording, transcript: transcript)
         }
-        .frame(width: 460, height: 560)
+        .frame(
+            width: BardoLayout.informationSheetWidth,
+            height: BardoLayout.informationSheetHeight
+        )
     }
 }

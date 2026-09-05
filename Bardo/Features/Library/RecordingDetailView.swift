@@ -35,8 +35,8 @@ struct RecordingDetailView: View {
             RecordingDocumentHeader(recording: recording)
                 .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
                 .padding(.horizontal, BardoSpacing.detailHorizontal)
-                .padding(.top, BardoSpacing.section)
-                .padding(.bottom, 12)
+                .padding(.top, BardoSpacing.detailHeaderTop)
+                .padding(.bottom, BardoSpacing.detailHeaderBottom)
                 .frame(maxWidth: .infinity, alignment: .top)
 
             Group {
@@ -315,7 +315,7 @@ struct RecordingDocumentHeader: View {
     let recording: Recording
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
             Text(LibraryFormatting.recordingTitle(recording))
                 .font(.title2.weight(.semibold))
                 .lineLimit(2)
