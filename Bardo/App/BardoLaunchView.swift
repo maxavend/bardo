@@ -35,10 +35,10 @@ private struct BardoWelcomeView: View {
 
     var body: some View {
         VStack {
-            Spacer(minLength: 32)
+            Spacer(minLength: BardoSpacing.extraLarge)
 
             GroupBox {
-                VStack(alignment: .leading, spacing: 26) {
+                VStack(alignment: .leading, spacing: BardoSpacing.large) {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(String(localized: "Welcome to"))
                             .foregroundStyle(Color.accentColor)
@@ -46,7 +46,7 @@ private struct BardoWelcomeView: View {
                     }
                     .font(.title2.weight(.bold))
 
-                    VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: BardoSpacing.section) {
                         WelcomeFeatureRow(
                             systemImage: "waveform.and.mic",
                             title: String(localized: "Transcribe conversations"),
@@ -66,11 +66,11 @@ private struct BardoWelcomeView: View {
                         )
                     }
 
-                    HStack(alignment: .top, spacing: 10) {
+                    HStack(alignment: .top, spacing: BardoSpacing.compact) {
                         Image(systemName: "lock.shield")
                             .font(.title3)
                             .foregroundStyle(Color.accentColor)
-                            .frame(width: 34)
+                            .frame(width: BardoSpacing.extraLarge)
                             .accessibilityHidden(true)
 
                         Text(String(localized: "Bardo processes your recordings locally on this Mac. Audio, transcripts, and minutes stay on your device."))
@@ -88,13 +88,13 @@ private struct BardoWelcomeView: View {
                             .keyboardShortcut(.defaultAction)
                     }
                 }
-                .padding(14)
+                .padding(BardoSpacing.standard)
             }
-            .frame(maxWidth: 500)
+            .frame(maxWidth: BardoLayout.setupContentMaxWidth)
 
-            Spacer(minLength: 32)
+            Spacer(minLength: BardoSpacing.extraLarge)
         }
-        .padding(32)
+        .padding(BardoSpacing.extraLarge)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
@@ -105,7 +105,7 @@ private struct WelcomeFeatureRow: View {
     let detail: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: BardoSpacing.standard) {
             Image(systemName: systemImage)
                 .font(.title2)
                 .symbolRenderingMode(.hierarchical)
@@ -113,7 +113,7 @@ private struct WelcomeFeatureRow: View {
                 .frame(width: 42)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                 Text(title)
                     .font(.headline)
 
