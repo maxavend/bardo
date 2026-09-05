@@ -35,6 +35,15 @@ enum BardoLayout {
 
     static let settingsMinWidth: CGFloat = 620
     static let settingsMinHeight: CGFloat = 540
+
+    static let setupContentMaxWidth: CGFloat = 520
+    static let transcriptEditorMinWidth: CGFloat = 520
+    static let transcriptEditorMultilineMinHeight: CGFloat = 340
+    static let transcriptEditorCompactMinHeight: CGFloat = 190
+    static let transcriptEditorTextMinHeight: CGFloat = 180
+    static let speakerNamingSheetMinWidth: CGFloat = 580
+    static let speakerNamingSheetMinHeight: CGFloat = 390
+    static let speakerNameFieldMinWidth: CGFloat = 220
 }
 
 enum BardoSpacing {
