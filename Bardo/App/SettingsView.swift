@@ -116,7 +116,10 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 600, minHeight: 520)
+        .frame(
+            minWidth: BardoLayout.settingsMinWidth,
+            minHeight: BardoLayout.settingsMinHeight
+        )
         .task {
             await model.refreshIfNeeded()
         }
@@ -178,8 +181,8 @@ private struct ModelSettingsRow: View {
     let action: (ModelSettingsAction) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: BardoSpacing.small) {
+            HStack(alignment: .center, spacing: BardoSpacing.compact) {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(row.title)
