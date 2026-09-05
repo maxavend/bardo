@@ -11,7 +11,7 @@ struct SettingsView: View {
         Form {
             Section {
                 Label {
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                         Text("Privacy")
                             .fontWeight(.semibold)
                         Text("Your recordings and transcripts stay on this Mac. Bardo does not upload audio to the internet.")
@@ -26,7 +26,7 @@ struct SettingsView: View {
 
             Section {
                 Label {
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
                         Text(String(localized: "Whisper Large v3 Turbo"))
                             .fontWeight(.semibold)
                         Text(String(localized: "The only transcription engine. It keeps word timestamps and processes audio locally."))
@@ -82,9 +82,9 @@ struct SettingsView: View {
                 }
 
                 if model.hasLegacyQwenData {
-                    HStack(alignment: .center, spacing: 12) {
+                    HStack(alignment: .center, spacing: BardoSpacing.compact) {
                         Label {
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: BardoSpacing.micro) {
                                 Text(String(localized: "Older Qwen files"))
                                     .fontWeight(.medium)
                                 Text(String(localized: "Bardo no longer uses Qwen. These files can be removed to recover storage."))
@@ -184,7 +184,7 @@ private struct ModelSettingsRow: View {
         VStack(alignment: .leading, spacing: BardoSpacing.small) {
             HStack(alignment: .center, spacing: BardoSpacing.compact) {
                 Label {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: BardoSpacing.micro) {
                         Text(row.title)
                             .fontWeight(.medium)
                             .lineLimit(1)
@@ -224,7 +224,7 @@ private struct ModelSettingsRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, BardoSpacing.xSmall)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }
