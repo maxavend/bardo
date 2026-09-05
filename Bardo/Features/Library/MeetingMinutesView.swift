@@ -271,7 +271,7 @@ struct BardoMarkdownView: View {
                     Spacer()
                         .frame(height: 2)
                 } else {
-                    HStack(alignment: .bottom, spacing: 2) {
+                    HStack(alignment: .bottom, spacing: BardoSpacing.micro) {
                         Text(.init(trimmed))
                             .font(.body)
                             .lineSpacing(3)
