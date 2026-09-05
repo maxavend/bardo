@@ -83,6 +83,7 @@ enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
     case combinedAudioUnavailable(Recording.ID)
     case invalidDuration
     case emptyTranscription
+    case operationInProgress
 
     var errorDescription: String? {
         switch self {
@@ -94,6 +95,8 @@ enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
             return "Bardo could not determine a valid audio duration for transcription."
         case .emptyTranscription:
             return "WhisperKit completed without producing any transcript segments."
+        case .operationInProgress:
+            return "Whisper is currently in use. Finish or cancel the active transcription before changing its model."
         }
     }
 }
@@ -271,6 +274,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
 
     private var loadedWhisper: WhisperKit?
     private var idleUnloadTask: Task<Void, Never>?
+    private var activeTranscriptionCount = 0
+    private var resetInProgress = false
     private(set) var lastMetrics: WhisperTranscriptionMetrics?
 
     init(
@@ -292,18 +297,28 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     }
 
     func reset() async throws {
+        guard activeTranscriptionCount == 0, !resetInProgress else {
+            throw RecordingTranscriptionError.operationInProgress
+        }
+
+        resetInProgress = true
+        defer { resetInProgress = false }
         idleUnloadTask?.cancel()
         idleUnloadTask = nil
         if let loadedWhisper {
             self.loadedWhisper = nil
             await loadedWhisper.unloadModels()
         }
+        try Task.checkCancellation()
         try await modelManager.reset()
     }
 
     func prepareForUse(
         progress: @escaping @Sendable (TranscriptionSetupProgressSnapshot) -> Void
     ) async throws {
+        guard !resetInProgress else {
+            throw RecordingTranscriptionError.operationInProgress
+        }
         idleUnloadTask?.cancel()
         idleUnloadTask = nil
         progress(.init(stage: .checking, fractionCompleted: 0))
@@ -330,6 +345,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     }
 
     func warmUpIfInstalled() async {
+        guard !resetInProgress else { return }
         guard loadedWhisper == nil else {
             scheduleIdleUnload()
             return
@@ -364,6 +380,12 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
         liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
     ) async throws -> Transcript {
+        guard activeTranscriptionCount == 0, !resetInProgress else {
+            throw RecordingTranscriptionError.operationInProgress
+        }
+        activeTranscriptionCount += 1
+        defer { activeTranscriptionCount = max(0, activeTranscriptionCount - 1) }
+
         idleUnloadTask?.cancel()
         idleUnloadTask = nil
         let cancellation = TranscriptionCancellationFlag()
