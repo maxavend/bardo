@@ -6,15 +6,15 @@ struct FloatingPlaybackBar: View {
     @ObservedObject var playback: AudioPlaybackController
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: BardoSpacing.small) {
             if let errorMessage = playback.errorMessage, !playback.isLoaded {
                 errorBanner(errorMessage)
             }
 
             playerContent
-                .frame(height: 44)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
+                .frame(height: 42)
+                .padding(.horizontal, BardoSpacing.standard)
+                .padding(.vertical, BardoSpacing.small)
                 .bardoPlaybackSurface()
                 .frame(maxWidth: BardoLayout.playbackMaxWidth)
         }
@@ -25,18 +25,18 @@ struct FloatingPlaybackBar: View {
     }
 
     private var playerContent: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: BardoSpacing.standard) {
             transportControls
 
             Image(systemName: LibraryFormatting.sourceSymbol(recording.sources))
                 .font(.title3)
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Color.accentColor)
-                .frame(width: 30, height: 30)
+                .frame(width: 28, height: 28)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: BardoSpacing.xSmall) {
+                HStack(alignment: .firstTextBaseline, spacing: BardoSpacing.compact) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(LibraryFormatting.recordingTitle(recording))
                             .font(.caption.weight(.medium))
@@ -52,7 +52,7 @@ struct FloatingPlaybackBar: View {
                     Spacer(minLength: 8)
                 }
 
-                HStack(spacing: 8) {
+                HStack(spacing: BardoSpacing.small) {
                     Text(LibraryFormatting.duration(playback.position))
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -83,7 +83,7 @@ struct FloatingPlaybackBar: View {
     }
 
     private var transportControls: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: BardoSpacing.small) {
             transportButton(
                 systemImage: "gobackward.15",
                 accessibilityLabel: String(localized: "Back 15 seconds"),
@@ -109,7 +109,7 @@ struct FloatingPlaybackBar: View {
                 systemImage: playback.isPlaying ? "pause.fill" : "play.fill"
             )
             .labelStyle(.iconOnly)
-            .frame(width: 22, height: 22)
+            .frame(width: 24, height: 24)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -139,7 +139,7 @@ struct FloatingPlaybackBar: View {
         Button(action: action) {
             Label(accessibilityLabel, systemImage: systemImage)
                 .labelStyle(.iconOnly)
-                .frame(width: 22, height: 22)
+                .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
