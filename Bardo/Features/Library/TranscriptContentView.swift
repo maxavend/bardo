@@ -203,7 +203,7 @@ struct TranscriptContentView: View {
                         }
                     }
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: BardoSpacing.small) {
                         ProgressView()
                             .controlSize(.small)
                         Text(String(localized: "Continuando la transcripción…"))
@@ -218,7 +218,7 @@ struct TranscriptContentView: View {
                             .lineSpacing(4)
                             .foregroundStyle(.secondary)
 
-                        HStack(spacing: 6) {
+                        HStack(spacing: BardoSpacing.small) {
                             ProgressView()
                                 .controlSize(.mini)
                             Text(String(localized: "Texto provisional"))
@@ -234,14 +234,14 @@ struct TranscriptContentView: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, BardoSpacing.small)
                 }
             }
         }
     }
 
     private var transcriptionLiveStatus: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: BardoSpacing.compact) {
             Label {
                 Text(transcriptionStageText(model.transcriptionProgress?.stage))
                     .font(.callout.weight(.semibold))
@@ -399,7 +399,7 @@ struct TranscriptContentView: View {
 
     @ViewBuilder
     private func speakerHeader(speakerID: Speaker.ID?, in transcript: Transcript) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: BardoSpacing.small) {
             Image(systemName: "person.crop.circle")
                 .foregroundStyle(Color.accentColor)
                 .accessibilityHidden(true)
@@ -458,7 +458,7 @@ struct TranscriptContentView: View {
 
     private var minutesNavigationGroup: some View {
         GroupBox {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: BardoSpacing.compact) {
                 Text(String(localized: "Synthesize key points, decisions, and action items from this transcript."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
