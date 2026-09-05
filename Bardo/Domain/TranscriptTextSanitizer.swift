@@ -40,7 +40,7 @@ enum TranscriptTextSanitizer {
 
         value = value
             .replacingOccurrences(of: #"\.{3,}"#, with: "…", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+([,.;:!?])"#, with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+([,.;:!?…])"#, with: "$1", options: .regularExpression)
             .replacingOccurrences(of: #"([¿¡])\s+"#, with: "$1", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
