@@ -66,13 +66,7 @@ struct LibrarySidebar: View {
     }
 
     private var activeProcessingCount: Int {
-        Set(
-            [
-                model.transcriptionRecordingID,
-                model.diarizationRecordingID,
-                model.isGeneratingMeetingMinutes ? model.selection : nil
-            ].compactMap { $0 }
-        ).count
+        Set([model.transcriptionRecordingID, model.diarizationRecordingID].compactMap { $0 }).count
     }
 
     private var activityLabel: String {
@@ -88,8 +82,6 @@ struct LibrarySidebar: View {
             return model.recordings.filter { !$0.sources.contains(.importedFile) }.count
         case .imported:
             return model.recordings.filter { $0.sources.contains(.importedFile) }.count
-        case .minutes:
-            return model.recordingIDsWithMinutes.count
         case .favorites:
             return model.recordings.filter { BardoFavoritesStore.shared.contains($0.id) }.count
         }

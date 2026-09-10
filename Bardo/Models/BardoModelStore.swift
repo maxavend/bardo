@@ -4,8 +4,6 @@ enum BardoModelStoreError: Error, Equatable, LocalizedError, Sendable {
     case invalidPrivateRoot
     case invalidModelRoot(ManagedModel)
     case modelRootIsNotDirectory(ManagedModel)
-    case invalidLegacyModelRoot
-    case legacyModelRootIsNotDirectory
 
     var errorDescription: String? {
         switch self {
@@ -15,10 +13,6 @@ enum BardoModelStoreError: Error, Equatable, LocalizedError, Sendable {
             return "The managed root for \(model.rawValue) is outside Bardo's model root."
         case .modelRootIsNotDirectory(let model):
             return "The managed root for \(model.rawValue) is not a directory."
-        case .invalidLegacyModelRoot:
-            return "The legacy Qwen folder is not a safe direct child of Bardo's private model root."
-        case .legacyModelRootIsNotDirectory:
-            return "The legacy Qwen path is not a removable model directory."
         }
     }
 }
@@ -65,46 +59,7 @@ struct BardoModelStore {
         try fileManager.removeItem(at: modelRoot)
     }
 
-    func legacyQwenRootURL() -> URL {
-        rootURL.appendingPathComponent("qwen", isDirectory: true)
-    }
-
-    func hasLegacyQwenData() -> Bool {
-        let legacyRoot = legacyQwenRootURL().standardizedFileURL
-        guard legacyRoot.deletingLastPathComponent() == rootURL.standardizedFileURL,
-              fileManager.fileExists(atPath: legacyRoot.path),
-              let values = try? legacyRoot.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
-              values.isDirectory == true,
-              values.isSymbolicLink != true
-        else {
-            return false
-        }
-        return true
-    }
-
-    /// Qwen is no longer part of Bardo's production runtime. Removal is always explicit
-    /// from Settings and never part of launch/setup migrations.
-    func removeLegacyQwenData() throws {
-        let validatedRoot = try validatePrivateRoot()
-        let legacyRoot = legacyQwenRootURL().standardizedFileURL
-        let values = try? legacyRoot.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-
-        guard legacyRoot.deletingLastPathComponent() == validatedRoot,
-              legacyRoot != validatedRoot,
-              legacyRoot.pathComponents.starts(with: validatedRoot.pathComponents),
-              values?.isSymbolicLink != true
-        else {
-            throw BardoModelStoreError.invalidLegacyModelRoot
-        }
-        guard fileManager.fileExists(atPath: legacyRoot.path) else { return }
-        guard values?.isDirectory == true else {
-            throw BardoModelStoreError.legacyModelRootIsNotDirectory
-        }
-        try fileManager.removeItem(at: legacyRoot)
-    }
-
-    /// Removes only legacy voice model directories from older Bardo releases.
-    /// Qwen and meeting-minutes data are deliberately outside this migration.
+    /// Removes only legacy voice-model directories from older Bardo releases.
     func removeLegacyVoiceModelDirectories() throws {
         _ = try validatePrivateRoot()
         for name in ["whisper-balanced", "whisper-maximum-accuracy", "parakeet"] {
@@ -121,12 +76,11 @@ struct BardoModelStore {
     private func validatedRoot(for model: ManagedModel) throws -> URL {
         let expectedRoot = root(for: model).standardizedFileURL
         let standardizedRoot = try validatePrivateRoot()
-        let resolvedRoot = standardizedRoot
         let resolvedModelRoot = expectedRoot.resolvingSymlinksInPath()
 
         guard expectedRoot.deletingLastPathComponent() == standardizedRoot,
               expectedRoot != standardizedRoot,
-              resolvedModelRoot.pathComponents.starts(with: resolvedRoot.pathComponents)
+              resolvedModelRoot.pathComponents.starts(with: standardizedRoot.pathComponents)
         else {
             throw BardoModelStoreError.invalidModelRoot(model)
         }
@@ -148,8 +102,6 @@ struct BardoModelStore {
             return "whisper-turbo"
         case .speakerKit:
             return "speaker-kit"
-        case .meetingMinutes:
-            return "meeting-minutes"
         }
     }
 }

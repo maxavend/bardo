@@ -56,7 +56,7 @@ struct LibraryView: View {
         .searchable(
             text: $globalSearchText,
             placement: .toolbar,
-            prompt: Text("Buscar conversaciones, texto, minutas o participantes")
+            prompt: Text("Buscar conversaciones, transcripciones o participantes")
         )
         .searchFocused($isSearchFocused)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
@@ -95,8 +95,7 @@ struct LibraryView: View {
             if let recording = model.selectedRecording, !navigationPath.isEmpty {
                 RecordingInspector(
                     recording: recording,
-                    transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil,
-                    meetingMinutes: model.meetingMinutes?.recordingID == recording.id ? model.meetingMinutes : nil
+                    transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil
                 )
                 .frame(minWidth: 280, idealWidth: 320)
             } else {

@@ -3,7 +3,6 @@ import Foundation
 enum ManagedModel: String, CaseIterable, Sendable {
     case whisperTurbo
     case speakerKit
-    case meetingMinutes
 }
 
 enum ManagedModelState: Equatable, Sendable {

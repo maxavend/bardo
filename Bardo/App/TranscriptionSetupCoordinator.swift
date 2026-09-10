@@ -6,7 +6,6 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     enum State: Equatable {
         case checking
         case installing(TranscriptionSetupProgressSnapshot)
-        case installingMinutes(MeetingMinutesSetupProgressSnapshot)
         case installingSpeakers(DiarizationSetupProgressSnapshot)
         case ready
         case cancelled
@@ -21,7 +20,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     private var preparationTask: Task<Void, Never>?
 
     private static var completionKey: String {
-        "Bardo.FullAISetup.v7.\(TranscriptionModelManager.modelID).\(SpeakerDiarizationService.modelID).\(MeetingMinutesModel.modelID).\(MeetingMinutesModel.modelRevision)"
+        "Bardo.TranscriptionSetup.v8.\(TranscriptionModelManager.modelID).\(SpeakerDiarizationService.modelID)"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -47,17 +46,13 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             try store.removeLegacyVoiceModelDirectories()
             let whisper = try WhisperTranscriptionService.live()
             let speakers = try SpeakerDiarizationService.live()
-            let minutes = try MeetingMinutesGenerator.live()
             let markedComplete = defaults.bool(forKey: Self.completionKey)
 
             let whisperInstalled = await whisper.hasInstalledModel()
             let speakersInstalled = await speakers.hasInstalledModels()
-            let minutesReady = MeetingMinutesRuntimeReadiness.isReady()
-            let allModelsReady = whisperInstalled && speakersInstalled && minutesReady
+            let allModelsReady = whisperInstalled && speakersInstalled
 
             if !force, markedComplete, allModelsReady {
-                // A completed setup must never pull the user back into first-run UI.
-                // Keep the app ready and warm reusable voice models in the background.
                 state = .ready
                 await whisper.warmUpIfInstalled()
                 await speakers.warmUpIfInstalled()
@@ -69,10 +64,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             state = .checking
 
             try await prepareTranscriptionModels(whisper: whisper)
-            try await prepareMinutes(minutes)
             try await prepareSpeakers(speakers)
-
-            // Keep the selected transcription path hot after the other local models finish.
             await warmSelectedTranscriptionModel()
 
             defaults.set(true, forKey: Self.completionKey)
@@ -90,14 +82,6 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     ) async throws {
         try await whisper.prepareForUse { [weak self] snapshot in
             Task { @MainActor in self?.state = .installing(snapshot) }
-        }
-    }
-
-    private func prepareMinutes(_ minutes: MeetingMinutesGenerator) async throws {
-        try await minutes.prepareForSetup { [weak self] snapshot in
-            Task { @MainActor in
-                self?.state = .installingMinutes(snapshot)
-            }
         }
     }
 
@@ -130,10 +114,6 @@ final class TranscriptionSetupCoordinator: ObservableObject {
                 try store.removeLegacyVoiceModelDirectories()
                 try await WhisperTranscriptionService.live().reset()
                 try await SpeakerDiarizationService.live().reset()
-                let minutes = try? MeetingMinutesGenerator.live()
-                await minutes?.reset()
-                MeetingMinutesRuntimeReadiness.invalidate()
-                try store.reset(.meetingMinutes)
                 defaults.set(false, forKey: Self.completionKey)
                 await prepareIfNeeded(force: true)
             } catch is CancellationError {

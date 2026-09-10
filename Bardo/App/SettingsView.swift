@@ -21,16 +21,12 @@ struct SettingsView: View {
     @ObserveInjection var redraw
     @StateObject private var model = ModelSettingsViewModel()
     @State private var pendingReset: PendingModelReset?
-    @State private var isLegacyQwenRemovalPresented = false
     @State private var isLibraryRemovalPresented = false
     @State private var storageUsage = BardoStorageUsage.empty
 
     @AppStorage("bardo.appearance") private var appearanceRaw = BardoAppearancePreference.system.rawValue
     @AppStorage("bardo.start-section") private var startSectionRaw = BardoLibrarySection.home.rawValue
     @AppStorage("bardo.default-recording-mode") private var recordingModeRaw = BardoRecordingMode.conversation.rawValue
-    @AppStorage("bardo.minutes-detail") private var minutesDetail = "balanced"
-    @AppStorage("bardo.minutes-language") private var minutesLanguage = "conversation"
-    @AppStorage("bardo.minutes-instructions") private var minutesInstructions = ""
 
     var body: some View {
         TabView {
@@ -42,9 +38,6 @@ struct SettingsView: View {
 
             transcriptionTab
                 .tabItem { Label("Transcripción", systemImage: "waveform") }
-
-            minutesTab
-                .tabItem { Label("Minutas", systemImage: "list.bullet.clipboard") }
 
             storageTab
                 .tabItem { Label("Almacenamiento", systemImage: "externaldrive") }
@@ -75,22 +68,13 @@ struct SettingsView: View {
                 secondaryButton: .cancel(Text("Cancelar"))
             )
         }
-        .alert("¿Eliminar archivos antiguos?", isPresented: $isLegacyQwenRemovalPresented) {
-            Button("Cancelar", role: .cancel) {}
-            Button("Eliminar archivos", role: .destructive) {
-                model.removeLegacyQwenData()
-                refreshStorageUsage()
-            }
-        } message: {
-            Text("Se eliminarán solamente recursos antiguos que Bardo ya no utiliza. Tus grabaciones, transcripciones y minutas no se verán afectadas.")
-        }
         .alert("¿Mover todas las conversaciones a la Papelera?", isPresented: $isLibraryRemovalPresented) {
             Button("Cancelar", role: .cancel) {}
             Button("Mover a la Papelera", role: .destructive) {
                 moveLibraryContentsToTrash()
             }
         } message: {
-            Text("Se moverán a la Papelera de macOS todas las grabaciones, transcripciones y minutas guardadas por Bardo. Podrás recuperarlas desde Finder mientras no vacíes la Papelera.")
+            Text("Se moverán a la Papelera de macOS todas las grabaciones y transcripciones guardadas por Bardo. Podrás recuperarlas desde Finder mientras no vacíes la Papelera.")
         }
         .enableInjection()
     }
@@ -101,7 +85,6 @@ struct SettingsView: View {
                 Picker("Mostrar", selection: $startSectionRaw) {
                     Text("Inicio").tag(BardoLibrarySection.home.rawValue)
                     Text("Grabaciones").tag(BardoLibrarySection.recordings.rawValue)
-                    Text("Minutas").tag(BardoLibrarySection.minutes.rawValue)
                 }
             }
 
@@ -153,7 +136,7 @@ struct SettingsView: View {
             }
 
             Section {
-                Text("Bardo conserva el audio original de cada fuente para que puedas volver a escucharlo o procesarlo más tarde.")
+                Text("Bardo conserva el audio original de cada fuente para que puedas volver a escucharlo o transcribirlo más tarde.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -202,46 +185,7 @@ struct SettingsView: View {
             } header: {
                 Text("Recursos locales")
             } footer: {
-                Text("Estos recursos se guardan en este Mac y permiten transcribir, distinguir voces y preparar minutas sin enviar tus conversaciones a servicios externos.")
-            }
-        }
-        .formStyle(.grouped)
-        .padding(.top, 8)
-    }
-
-    private var minutesTab: some View {
-        Form {
-            Section("Contenido") {
-                Picker("Nivel de detalle", selection: $minutesDetail) {
-                    Text("Breve").tag("brief")
-                    Text("Equilibrado").tag("balanced")
-                    Text("Detallado").tag("detailed")
-                }
-
-                Picker("Idioma", selection: $minutesLanguage) {
-                    Text("El de la conversación").tag("conversation")
-                    Text("Español").tag("es")
-                    Text("Inglés").tag("en")
-                }
-            }
-
-            Section("Instrucciones personalizadas") {
-                TextEditor(text: $minutesInstructions)
-                    .font(.body)
-                    .frame(minHeight: 110)
-                    .overlay(alignment: .topLeading) {
-                        if minutesInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("Ejemplo: prioriza decisiones de producto y deja los pendientes al final.")
-                                .foregroundStyle(.tertiary)
-                                .allowsHitTesting(false)
-                                .padding(.top, 6)
-                                .padding(.leading, 5)
-                        }
-                    }
-
-                Text("Estas indicaciones se aplican a las próximas minutas que generes.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("Estos recursos se guardan en este Mac y permiten transcribir y distinguir voces sin enviar tus conversaciones a servicios externos.")
             }
         }
         .formStyle(.grouped)
@@ -267,20 +211,12 @@ struct SettingsView: View {
                 }
             }
 
-            if model.hasLegacyQwenData {
-                Section("Limpieza") {
-                    Button("Eliminar archivos antiguos…", role: .destructive) {
-                        isLegacyQwenRemovalPresented = true
-                    }
-                }
-            }
-
             Section("Datos de Bardo") {
                 Button("Mover todas las conversaciones a la Papelera…", role: .destructive) {
                     isLibraryRemovalPresented = true
                 }
 
-                Text("Los recursos necesarios para transcribir y preparar minutas se conservan. Puedes eliminarlos individualmente desde Transcripción.")
+                Text("Los recursos necesarios para transcribir se conservan. Puedes eliminarlos individualmente desde Transcripción.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -296,7 +232,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Tus conversaciones se quedan en este Mac")
                             .font(.headline)
-                        Text("Bardo procesa el audio, la transcripción, los hablantes y las minutas de forma local. El contenido de tus reuniones no necesita enviarse a un servicio externo.")
+                        Text("Bardo procesa el audio, la transcripción y la identificación de hablantes de forma local. El contenido de tus conversaciones no necesita enviarse a un servicio externo.")
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -319,7 +255,7 @@ struct SettingsView: View {
             }
 
             Section("Almacenamiento") {
-                Text("Las grabaciones, transcripciones y minutas se guardan dentro de la biblioteca privada de Bardo en tu carpeta de usuario.")
+                Text("Las grabaciones y transcripciones se guardan dentro de la biblioteca privada de Bardo en tu carpeta de usuario.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -471,10 +407,7 @@ private struct ModelSettingsRow: View {
                 stateControl
             }
 
-            if row.usesIndeterminateProgress {
-                ProgressView()
-                    .progressViewStyle(LinearProgressViewStyle())
-            } else if let progress = row.progressFraction {
+            if let progress = row.progressFraction {
                 ProgressView(value: progress)
             }
 
@@ -564,32 +497,17 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
         case .notInstalled:
             return supportsInstallation ? "" : String(localized: "On demand")
         case .downloading(let fraction):
-            if id == .meetingMinutes { return String(localized: "Downloading…") }
             return String.localizedStringWithFormat(String(localized: "Downloading %@"), percentage(fraction))
         case .preparing(let fraction):
-            if id == .meetingMinutes { return String(localized: "Checking…") }
             return String.localizedStringWithFormat(String(localized: "Preparing %@"), percentage(fraction))
         case .installed:
-            return id == .meetingMinutes
-                ? String(localized: "Ready")
-                : String(localized: "Installed")
+            return String(localized: "Installed")
         case .failed:
             return String(localized: "Failed")
         }
     }
 
-    var usesIndeterminateProgress: Bool {
-        guard id == .meetingMinutes else { return false }
-        switch state {
-        case .downloading, .preparing:
-            return true
-        case .notInstalled, .installed, .failed:
-            return false
-        }
-    }
-
     var progressFraction: Double? {
-        if usesIndeterminateProgress { return nil }
         switch state {
         case .downloading(let fraction), .preparing(let fraction):
             return min(1, max(0, fraction))
@@ -626,8 +544,6 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
 private final class ModelSettingsViewModel: ObservableObject {
     @Published private(set) var rows: [ModelSettingsRowState] = []
     @Published private(set) var isRefreshing = false
-    @Published private(set) var hasLegacyQwenData = false
-    @Published private(set) var legacyQwenCleanupErrorMessage: String?
     private var didRefresh = false
     private var refreshTask: Task<Void, Never>?
     private var operationTasks: [ManagedModel: Task<Void, Never>] = [:]
@@ -699,10 +615,6 @@ private final class ModelSettingsViewModel: ObservableObject {
             try await WhisperTranscriptionService.live().reset()
         case .speakerKit:
             try await SpeakerDiarizationService.live().reset()
-        case .meetingMinutes:
-            let generator = try? MeetingMinutesGenerator.live()
-            await generator?.reset()
-            MeetingMinutesRuntimeReadiness.invalidate()
         }
         try BardoModelStore.live().reset(model)
     }
@@ -740,14 +652,6 @@ private final class ModelSettingsViewModel: ObservableObject {
                         self?.setState(state, for: model)
                     }
                 }
-            case .meetingMinutes:
-                let generator = try MeetingMinutesGenerator.live()
-                try await generator.prepareForSetup { [weak self] snapshot in
-                    let state = Self.meetingMinutesState(for: snapshot)
-                    Task { @MainActor [weak self] in
-                        self?.setState(state, for: model)
-                    }
-                }
             }
 
             try Task.checkCancellation()
@@ -778,12 +682,15 @@ private final class ModelSettingsViewModel: ObservableObject {
             }
             return
         }
+
         if operationTasks[.whisperTurbo] == nil {
             do {
                 let whisper = try WhisperTranscriptionService.live()
                 let installed = await whisper.hasInstalledModel()
                 setState(installed ? .installed : .notInstalled, for: .whisperTurbo)
-            } catch { setState(.failed(error.localizedDescription), for: .whisperTurbo) }
+            } catch {
+                setState(.failed(error.localizedDescription), for: .whisperTurbo)
+            }
         }
 
         if operationTasks[.speakerKit] == nil {
@@ -800,11 +707,6 @@ private final class ModelSettingsViewModel: ObservableObject {
                 setState(.failed(error.localizedDescription), for: .speakerKit)
             }
         }
-
-        refreshMeetingMinutesState()
-        if let store = try? BardoModelStore.live() {
-            hasLegacyQwenData = store.hasLegacyQwenData()
-        }
     }
 
     private func refreshModel(_ model: ManagedModel) async {
@@ -816,35 +718,6 @@ private final class ModelSettingsViewModel: ObservableObject {
         case .speakerKit:
             let service = try? SpeakerDiarizationService.live()
             setState(await service?.hasInstalledModels() == true ? .installed : .notInstalled, for: model)
-        case .meetingMinutes:
-            refreshMeetingMinutesState()
-        }
-    }
-
-    func removeLegacyQwenData() {
-        legacyQwenCleanupErrorMessage = nil
-        do {
-            let store = try BardoModelStore.live()
-            try store.removeLegacyQwenData()
-            hasLegacyQwenData = store.hasLegacyQwenData()
-        } catch {
-            legacyQwenCleanupErrorMessage = error.localizedDescription
-        }
-    }
-
-    private func refreshMeetingMinutesState() {
-        guard MeetingMinutesModelResourceResolver.isInstalled() else {
-            setState(.notInstalled, for: .meetingMinutes)
-            return
-        }
-
-        if MeetingMinutesRuntimeReadiness.isReady() {
-            setState(.installed, for: .meetingMinutes)
-        } else {
-            setState(
-                .failed(String(localized: "The model is downloaded but still needs a local runtime check. Retry to verify it.")),
-                for: .meetingMinutes
-            )
         }
     }
 
@@ -859,14 +732,18 @@ private final class ModelSettingsViewModel: ObservableObject {
     private func makeRow(for model: ManagedModel, state: ManagedModelState) -> ModelSettingsRowState {
         switch model {
         case .whisperTurbo:
-            return ModelSettingsRowState(id: model, title: "Transcripción", detail: "Convierte el audio en texto y conserva los tiempos necesarios para la reproducción.", supportsInstallation: true, state: state)
-        case .speakerKit:
-            return ModelSettingsRowState(id: model, title: "Identificación de hablantes", detail: "Distingue las voces para organizar la conversación por participante.", supportsInstallation: true, state: state)
-        case .meetingMinutes:
             return ModelSettingsRowState(
                 id: model,
-                title: "Minutas",
-                detail: "Organiza la conversación en un documento con temas, decisiones, acuerdos y próximos pasos.",
+                title: "Transcripción",
+                detail: "Convierte el audio en texto y conserva los tiempos necesarios para la reproducción.",
+                supportsInstallation: true,
+                state: state
+            )
+        case .speakerKit:
+            return ModelSettingsRowState(
+                id: model,
+                title: "Identificación de hablantes",
+                detail: "Distingue las voces para organizar la conversación por participante.",
                 supportsInstallation: true,
                 state: state
             )
@@ -875,28 +752,6 @@ private final class ModelSettingsViewModel: ObservableObject {
 
     private nonisolated static func runtimeDownloadState(for fraction: Double) -> ManagedModelState {
         .downloading(min(1, max(0, fraction)))
-    }
-
-    private nonisolated static func transcriptionState(for snapshot: TranscriptionSetupProgressSnapshot) -> ManagedModelState {
-        let value = min(1, max(0, snapshot.fractionCompleted))
-        switch snapshot.stage {
-        case .checking, .optimizingForMac:
-            return .preparing(value)
-        case .downloading:
-            return .downloading(value)
-        }
-    }
-
-    private nonisolated static func meetingMinutesState(
-        for snapshot: MeetingMinutesSetupProgressSnapshot
-    ) -> ManagedModelState {
-        let value = min(1, max(0, snapshot.fractionCompleted))
-        switch snapshot.stage {
-        case .downloading:
-            return .downloading(value)
-        case .loading, .checkingRuntime:
-            return .preparing(value)
-        }
     }
 
     private nonisolated static func diarizationState(for snapshot: DiarizationSetupProgressSnapshot) -> ManagedModelState {

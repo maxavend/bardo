@@ -14,21 +14,6 @@ struct RecordingDetailView: View {
     @State private var isSpeakerNamingPresented = false
     @State private var isRenamePresented = false
     @State private var isDeleteConfirmationPresented = false
-    @State private var selectedTab: DetailTab = .transcript
-
-    enum DetailTab: String, CaseIterable, Identifiable, Hashable {
-        case transcript
-        case minutes
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .transcript: "Transcripción"
-            case .minutes: "Minuta"
-            }
-        }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,33 +24,16 @@ struct RecordingDetailView: View {
                 .padding(.bottom, 12)
                 .frame(maxWidth: .infinity, alignment: .top)
 
-            Group {
-                switch selectedTab {
-                case .transcript:
-                    TranscriptContentView(
-                        recording: recording,
-                        model: model,
-                        playback: playback,
-                        searchText: $transcriptSearch,
-                        editor: $editor,
-                        isSpeakerNamingPresented: $isSpeakerNamingPresented,
-                        bottomContentInset: playbackContentInset,
-                        onSelectMinutes: { selectedTab = .minutes }
-                    )
-                    .transition(.opacity)
-
-                case .minutes:
-                    MeetingMinutesView(
-                        recording: recording,
-                        model: model,
-                        bottomContentInset: playbackContentInset,
-                        onSwitchToTranscript: { selectedTab = .transcript }
-                    )
-                    .transition(.opacity)
-                }
-            }
+            TranscriptContentView(
+                recording: recording,
+                model: model,
+                playback: playback,
+                searchText: $transcriptSearch,
+                editor: $editor,
+                isSpeakerNamingPresented: $isSpeakerNamingPresented,
+                bottomContentInset: playbackContentInset
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .animation(.easeInOut(duration: 0.15), value: selectedTab)
         }
         .searchable(
             text: $transcriptSearch,
@@ -73,10 +41,6 @@ struct RecordingDetailView: View {
             prompt: Text("Buscar en la transcripción")
         )
         .toolbar {
-            ToolbarItem(id: "bardo.detail.mode", placement: .principal) {
-                detailModePicker
-            }
-
             ToolbarItem(id: "bardo.detail.favorite", placement: .secondaryAction) {
                 Button {
                     favorites.toggle(recording.id)
@@ -108,12 +72,6 @@ struct RecordingDetailView: View {
             editor = nil
             pendingReplacementAction = nil
             isSpeakerNamingPresented = false
-            selectedTab = .transcript
-        }
-        .onChange(of: model.isGeneratingMeetingMinutes) { _, isGenerating in
-            if isGenerating {
-                selectedTab = .minutes
-            }
         }
         .onChange(of: model.shouldPresentSpeakerNamingSheet) { _, shouldPresent in
             guard shouldPresent else { return }
@@ -182,21 +140,9 @@ struct RecordingDetailView: View {
             }
             Button(String(localized: "Cancel"), role: .cancel) {}
         } message: {
-            Text(String.localizedStringWithFormat(
-                String(localized: "This moves the managed audio, transcript, and minutes for \"%@\" to the macOS Trash, where you can recover it."),
-                recordingDisplayTitle
-            ))
+            Text("El audio y la transcripción de \"\(recordingDisplayTitle)\" se moverán a la Papelera de macOS, donde podrás recuperarlos.")
         }
         .enableInjection()
-    }
-
-    private var detailModePicker: some View {
-        DetailModeSegmentedControl(
-            selection: $selectedTab,
-            titles: DetailTab.allCases.map(\.title)
-        )
-        .fixedSize()
-        .accessibilityLabel(String(localized: "Recording View"))
     }
 
     private var recordingActionsMenu: some View {
@@ -275,7 +221,7 @@ struct RecordingDetailView: View {
             } label: {
                 Label("Mover a la Papelera", systemImage: "trash")
             }
-            .disabled(model.isTranscribing || model.isDiarizing || model.isGeneratingMeetingMinutes)
+            .disabled(model.isTranscribing || model.isDiarizing)
             .keyboardShortcut(.delete, modifiers: [.command])
         } label: {
             Label("Más", systemImage: "ellipsis")
@@ -342,60 +288,3 @@ struct RecordingDocumentHeader: View {
         return "\(date) · \(LibraryFormatting.duration(recording.duration)) · \(LibraryFormatting.source(recording.sources))"
     }
 }
-
-private struct DetailModeSegmentedControl: NSViewRepresentable {
-    @Binding var selection: RecordingDetailView.DetailTab
-    let titles: [String]
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(selection: $selection)
-    }
-
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl(
-            labels: titles,
-            trackingMode: .selectOne,
-            target: context.coordinator,
-            action: #selector(Coordinator.selectionChanged(_:))
-        )
-        control.segmentStyle = .capsule
-        control.controlSize = .regular
-        control.selectedSegment = index(for: selection)
-        control.setContentHuggingPriority(.required, for: .horizontal)
-        control.setContentCompressionResistancePriority(.required, for: .horizontal)
-        return control
-    }
-
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        let expectedIndex = index(for: selection)
-        if control.selectedSegment != expectedIndex {
-            control.selectedSegment = expectedIndex
-        }
-    }
-
-    private func index(for selection: RecordingDetailView.DetailTab) -> Int {
-        switch selection {
-        case .transcript: 0
-        case .minutes: 1
-        }
-    }
-
-    @MainActor
-    final class Coordinator: NSObject {
-        var selection: Binding<RecordingDetailView.DetailTab>
-
-        init(selection: Binding<RecordingDetailView.DetailTab>) {
-            self.selection = selection
-        }
-
-        @objc func selectionChanged(_ sender: NSSegmentedControl) {
-            switch sender.selectedSegment {
-            case 1:
-                selection.wrappedValue = .minutes
-            default:
-                selection.wrappedValue = .transcript
-            }
-        }
-    }
-}
-

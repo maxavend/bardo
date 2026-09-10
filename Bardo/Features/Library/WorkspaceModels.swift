@@ -5,7 +5,6 @@ enum BardoLibrarySection: String, CaseIterable, Identifiable, Hashable {
     case home
     case recordings
     case imported
-    case minutes
     case favorites
     case trash
 
@@ -16,7 +15,6 @@ enum BardoLibrarySection: String, CaseIterable, Identifiable, Hashable {
         case .home: "Inicio"
         case .recordings: "Grabaciones"
         case .imported: "Importados"
-        case .minutes: "Minutas"
         case .favorites: "Favoritos"
         case .trash: "Papelera"
         }
@@ -27,7 +25,6 @@ enum BardoLibrarySection: String, CaseIterable, Identifiable, Hashable {
         case .home: "house"
         case .recordings: "waveform"
         case .imported: "square.and.arrow.down"
-        case .minutes: "list.bullet.clipboard"
         case .favorites: "star"
         case .trash: "trash"
         }
@@ -82,11 +79,6 @@ struct LibrarySearchDocument: Identifiable, Equatable, Sendable {
     let source: String
     let participantNames: [String]
     let transcriptText: String
-    let minutesText: String
-
-    var hasMinutes: Bool {
-        !minutesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     func match(query: String) -> LibrarySearchMatch? {
         let terms = query
@@ -99,8 +91,7 @@ struct LibrarySearchDocument: Identifiable, Equatable, Sendable {
         let haystack = [
             title,
             participantNames.joined(separator: " "),
-            transcriptText,
-            minutesText
+            transcriptText
         ].joined(separator: "\n")
 
         guard terms.allSatisfy({ haystack.localizedCaseInsensitiveContains($0) }) else {
@@ -124,15 +115,6 @@ struct LibrarySearchDocument: Identifiable, Equatable, Sendable {
                 title: title,
                 context: snippet,
                 symbol: "text.bubble"
-            )
-        }
-
-        if let snippet = Self.snippet(in: minutesText, matching: terms) {
-            return LibrarySearchMatch(
-                recordingID: id,
-                title: title,
-                context: snippet,
-                symbol: "list.bullet.clipboard"
             )
         }
 

@@ -19,16 +19,8 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var diarizationErrorMessage: String?
     @Published private(set) var diarizationProgress: DiarizationProgressSnapshot?
     @Published private(set) var diarizationRecordingID: Recording.ID?
-    @Published private(set) var meetingMinutes: MeetingMinutes?
-    @Published private(set) var meetingMinutesIsStale = false
-    @Published private(set) var meetingMinutesErrorMessage: String?
-    @Published private(set) var meetingMinutesProgress: Double?
-    @Published private(set) var meetingMinutesProgressSnapshot: MeetingMinutesProgressSnapshot?
-    @Published private(set) var streamingMeetingMinutesText: String?
-    @Published private(set) var isGeneratingMeetingMinutes = false
     @Published private(set) var shouldPresentSpeakerNamingSheet = false
     @Published private(set) var searchDocuments: [LibrarySearchDocument] = []
-    @Published private(set) var recordingIDsWithMinutes: Set<Recording.ID> = []
     @Published private(set) var isLoading = false
     @Published private(set) var isImporting = false
     @Published private(set) var isTranscribing = false
@@ -40,13 +32,10 @@ final class LibraryViewModel: ObservableObject {
     private var store: RecordingStore?
     private var importer: AudioImportService?
     private var transcriptStore: TranscriptStore?
-    private var meetingMinutesStore: MeetingMinutesStore?
     private var transcriber: (any RecordingTranscribing)?
     private var diarizer: (any RecordingDiarizing)?
-    private var meetingMinutesGenerator: (any MeetingMinutesGenerating)?
     private var transcriptionTask: Task<Void, Never>?
     private var diarizationTask: Task<Void, Never>?
-    private var meetingMinutesTask: Task<Void, Never>?
 
     init(
         store: RecordingStore? = nil,
@@ -54,9 +43,7 @@ final class LibraryViewModel: ObservableObject {
         playback: AudioPlaybackController? = nil,
         transcriptStore: TranscriptStore? = nil,
         transcriber: (any RecordingTranscribing)? = nil,
-        diarizer: (any RecordingDiarizing)? = nil,
-        meetingMinutesStore: MeetingMinutesStore? = nil,
-        meetingMinutesGenerator: (any MeetingMinutesGenerating)? = nil
+        diarizer: (any RecordingDiarizing)? = nil
     ) {
         self.store = store
         self.importer = importer
@@ -64,8 +51,6 @@ final class LibraryViewModel: ObservableObject {
         self.transcriptStore = transcriptStore
         self.transcriber = transcriber
         self.diarizer = diarizer
-        self.meetingMinutesStore = meetingMinutesStore
-        self.meetingMinutesGenerator = meetingMinutesGenerator
     }
 
     func reload() async {
@@ -165,8 +150,7 @@ final class LibraryViewModel: ObservableObject {
 
         guard recordingID != transcriptionRecordingID,
               recordingID != diarizationRecordingID,
-              !(isDiarizing && selection == recordingID),
-              !(isGeneratingMeetingMinutes && selection == recordingID)
+              !(isDiarizing && selection == recordingID)
         else {
             recordingActionErrorMessage = "Finish or cancel processing before deleting this recording."
             return
@@ -182,8 +166,6 @@ final class LibraryViewModel: ObservableObject {
             if selection == recordingID {
                 selection = nil
                 transcript = nil
-                meetingMinutes = nil
-                meetingMinutesIsStale = false
                 playback.unload()
             }
             recordingActionFeedback = "Recording moved to the Trash"
@@ -258,9 +240,6 @@ final class LibraryViewModel: ObservableObject {
             return
         }
 
-        // Keep the current player geometry/state alive while the new managed URL
-        // resolves. Unloading here made toolbar/sidebar clicks visibly disable and
-        // rebuild the player before the replacement audio was ready.
         if playback.isPlaying {
             playback.pause()
         }
@@ -322,15 +301,8 @@ final class LibraryViewModel: ObservableObject {
         transcriptErrorMessage = nil
         transcriptEditErrorMessage = nil
         diarizationErrorMessage = nil
-        meetingMinutesErrorMessage = nil
-        if !isGeneratingMeetingMinutes {
-            streamingMeetingMinutesText = nil
-            meetingMinutesProgressSnapshot = nil
-        }
         guard let recordingID = selection else {
             transcript = nil
-            meetingMinutes = nil
-            meetingMinutesIsStale = false
             liveTranscription = nil
             return
         }
@@ -344,14 +316,6 @@ final class LibraryViewModel: ObservableObject {
             let loaded = try await activeStore.read(recordingID: recordingID)
             guard selection == recordingID else { return }
             transcript = loaded
-
-            if let loaded {
-                meetingMinutes = try await resolveMeetingMinutesStore().read(recordingID: loaded.recordingID)
-                meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: loaded) ?? false
-            } else {
-                meetingMinutes = nil
-                meetingMinutesIsStale = false
-            }
 
             if loaded == nil {
                 let residues = await activeStore.temporaryArtifacts(recordingID: recordingID)
@@ -451,9 +415,9 @@ final class LibraryViewModel: ObservableObject {
             if selection == recordingID {
                 transcript = generated
                 liveTranscription = nil
-                meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: generated) ?? false
             }
             transcriptionProgress = .init(stage: .saving, fractionCompleted: 1)
+            await rebuildSearchDocuments()
         } catch is CancellationError {
             recording.processingState = .pending
             if let activeStore = try? resolveStore() {
@@ -537,11 +501,7 @@ final class LibraryViewModel: ObservableObject {
             try await resolveTranscriptStore().save(updated)
             if selection == recordingID {
                 transcript = updated
-                meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: updated) ?? false
 
-                // Speaker identification must never leave the document player unusable.
-                // If playback was unavailable before or during diarization, restore it
-                // from the authoritative managed recording before presenting naming.
                 if !playback.isLoaded {
                     _ = await preparePlayback(playback, for: recording)
                 }
@@ -551,8 +511,9 @@ final class LibraryViewModel: ObservableObject {
                 }
             }
             diarizationProgress = .init(stage: .saving, fractionCompleted: 1)
+            await rebuildSearchDocuments()
         } catch is CancellationError {
-            // The previously persisted raw/diarized transcript remains authoritative.
+            // The previously persisted transcript remains authoritative.
         } catch {
             diarizationErrorMessage = error.localizedDescription
         }
@@ -707,145 +668,6 @@ final class LibraryViewModel: ObservableObject {
         diarizationTask != nil
     }
 
-    var hasActiveMeetingMinutesTask: Bool {
-        meetingMinutesTask != nil
-    }
-
-    var canGenerateMeetingMinutes: Bool {
-        guard let recording = selectedRecording,
-              let transcript,
-              transcript.recordingID == recording.id,
-              !transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return false }
-        return !isTranscribing && !isDiarizing && !isGeneratingMeetingMinutes
-    }
-
-    func beginMeetingMinutes() {
-        guard canGenerateMeetingMinutes else { return }
-        isGeneratingMeetingMinutes = true
-        meetingMinutesErrorMessage = nil
-        meetingMinutesProgress = 0
-        meetingMinutesProgressSnapshot = MeetingMinutesProgressSnapshot(
-            stage: .preparingModel,
-            fractionCompleted: 0,
-            message: String(localized: "Preparing the conversation…")
-        )
-        streamingMeetingMinutesText = ""
-        meetingMinutesTask = Task { [weak self] in
-            await self?.performMeetingMinutes()
-        }
-    }
-
-    func cancelMeetingMinutes() {
-        meetingMinutesTask?.cancel()
-        streamingMeetingMinutesText = nil
-        meetingMinutesProgressSnapshot = nil
-    }
-
-    func clearMeetingMinutesError() {
-        meetingMinutesErrorMessage = nil
-    }
-
-    func updateMeetingMinutesText(_ proposedText: String) async {
-        guard var current = meetingMinutes,
-              current.recordingID == selection,
-              !isGeneratingMeetingMinutes else {
-            return
-        }
-
-        let text = proposedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else {
-            meetingMinutesErrorMessage = String(localized: "La minuta no puede quedar vacía.")
-            return
-        }
-
-        let updated = MeetingMinutes(
-            recordingID: current.recordingID,
-            sourceTranscriptMetadata: current.sourceTranscriptMetadata,
-            modelID: current.modelID,
-            text: text,
-            createdAt: current.createdAt,
-            analysis: current.analysis,
-            sourceTranscriptHash: current.sourceTranscriptHash,
-            modelRevision: current.modelRevision,
-            promptVersion: current.promptVersion,
-            pipelineVersion: current.pipelineVersion,
-            processingDuration: current.processingDuration
-        )
-
-        do {
-            try await resolveMeetingMinutesStore().save(updated)
-            current = updated
-            meetingMinutes = current
-            meetingMinutesErrorMessage = nil
-            await rebuildSearchDocuments()
-        } catch {
-            meetingMinutesErrorMessage = error.localizedDescription
-        }
-    }
-
-    func performMeetingMinutes(title: String? = nil, context: String? = nil) async {
-        defer {
-            isGeneratingMeetingMinutes = false
-            meetingMinutesProgress = nil
-            meetingMinutesProgressSnapshot = nil
-            meetingMinutesTask = nil
-        }
-
-        guard let transcript,
-              let recording = selectedRecording,
-              transcript.recordingID == recording.id,
-              !Task.isCancelled else { return }
-
-        do {
-            let generator = try resolveMeetingMinutesGenerator()
-            do {
-                let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let resolvedContext = context?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let generated = try await generator.generate(
-                    from: MeetingMinutesInput(
-                        transcript: transcript,
-                        title: resolvedTitle?.isEmpty == false ? resolvedTitle! : recording.title,
-                        context: resolvedContext?.isEmpty == false ? resolvedContext : nil
-                    ),
-                    progress: { [weak self] snapshot in
-                        Task { @MainActor in
-                            guard let self, self.selection == recording.id else { return }
-                            self.meetingMinutesProgress = min(1, max(0, snapshot.fractionCompleted))
-                            self.meetingMinutesProgressSnapshot = snapshot
-                        }
-                    },
-                    onStreamChunk: { [weak self] chunk in
-                        Task { @MainActor in
-                            guard let self, self.selection == recording.id else { return }
-                            self.streamingMeetingMinutesText = (self.streamingMeetingMinutesText ?? "") + chunk
-                        }
-                    }
-                )
-                try Task.checkCancellation()
-                try await resolveMeetingMinutesStore().save(generated)
-                guard selection == recording.id else { return }
-                meetingMinutes = generated
-                streamingMeetingMinutesText = nil
-                meetingMinutesProgress = 1
-                await rebuildSearchDocuments()
-            } catch {
-                await generator.reset()
-                throw error
-            }
-        } catch is CancellationError {
-            // Cancellation leaves the last persisted minutes intact.
-            if selection == recording.id {
-                streamingMeetingMinutesText = nil
-            }
-        } catch {
-            if selection == recording.id {
-                streamingMeetingMinutesText = nil
-            }
-            meetingMinutesErrorMessage = error.localizedDescription
-        }
-    }
-
     var selectedRecording: Recording? {
         guard let selection else { return nil }
         return recordings.first { $0.id == selection }
@@ -857,7 +679,6 @@ final class LibraryViewModel: ObservableObject {
             try await resolveTranscriptStore().save(updated)
             guard selection == recordingID else { return }
             transcript = updated
-            meetingMinutesIsStale = meetingMinutes?.isStale(comparedTo: updated) ?? false
             transcriptEditErrorMessage = nil
             await rebuildSearchDocuments()
         } catch {
@@ -867,11 +688,9 @@ final class LibraryViewModel: ObservableObject {
     }
 
     private func rebuildSearchDocuments() async {
-        let transcriptStore: TranscriptStore
-        let minutesStore: MeetingMinutesStore
+        let activeTranscriptStore: TranscriptStore
         do {
-            transcriptStore = try resolveTranscriptStore()
-            minutesStore = try resolveMeetingMinutesStore()
+            activeTranscriptStore = try resolveTranscriptStore()
         } catch {
             searchDocuments = recordings.map {
                 LibrarySearchDocument(
@@ -881,40 +700,28 @@ final class LibraryViewModel: ObservableObject {
                     duration: $0.duration,
                     source: LibraryFormatting.source($0.sources),
                     participantNames: [],
-                    transcriptText: "",
-                    minutesText: ""
+                    transcriptText: ""
                 )
             }
-            recordingIDsWithMinutes = []
             return
         }
 
         var documents: [LibrarySearchDocument] = []
-        var minuteIDs = Set<Recording.ID>()
 
         for recording in recordings {
             let loadedTranscript: Transcript?
             do {
-                loadedTranscript = try await transcriptStore.read(recordingID: recording.id)
+                loadedTranscript = try await activeTranscriptStore.read(recordingID: recording.id)
             } catch {
                 loadedTranscript = nil
             }
 
-            let loadedMinutes: MeetingMinutes?
-            do {
-                loadedMinutes = try await minutesStore.read(recordingID: recording.id)
-            } catch {
-                loadedMinutes = nil
-            }
-
             let names: [String] = loadedTranscript?.speakers.enumerated().map { index, speaker -> String in
                 let trimmed = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return trimmed.isEmpty ? String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1) : trimmed
+                return trimmed.isEmpty
+                    ? String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
+                    : trimmed
             } ?? []
-
-            if loadedMinutes != nil {
-                minuteIDs.insert(recording.id)
-            }
 
             documents.append(
                 LibrarySearchDocument(
@@ -924,14 +731,12 @@ final class LibraryViewModel: ObservableObject {
                     duration: recording.duration,
                     source: LibraryFormatting.source(recording.sources),
                     participantNames: names,
-                    transcriptText: loadedTranscript?.text ?? "",
-                    minutesText: loadedMinutes?.text ?? ""
+                    transcriptText: loadedTranscript?.text ?? ""
                 )
             )
         }
 
         searchDocuments = documents
-        recordingIDsWithMinutes = minuteIDs
     }
 
     private func recoverInterruptedTranscriptions(using recordingStore: RecordingStore) async throws {
@@ -944,8 +749,6 @@ final class LibraryViewModel: ObservableObject {
                 let persistedTranscript = try await activeTranscriptStore.read(recordingID: recovered.id)
                 recovered.processingState = persistedTranscript == nil ? .failed : .completed
             } catch {
-                // A corrupt or incomplete transcript cannot be trusted as completed. Preserve it
-                // on disk and make the Recording retryable rather than leaving it stuck forever.
                 recovered.processingState = .failed
             }
             try await recordingStore.update(recovered)
@@ -982,15 +785,6 @@ final class LibraryViewModel: ObservableObject {
         return store
     }
 
-    private func resolveMeetingMinutesStore() throws -> MeetingMinutesStore {
-        if let meetingMinutesStore {
-            return meetingMinutesStore
-        }
-        let store = try MeetingMinutesStore.live()
-        meetingMinutesStore = store
-        return store
-    }
-
     private func resolveTranscriber() throws -> any RecordingTranscribing {
         if let transcriber {
             return transcriber
@@ -1007,15 +801,6 @@ final class LibraryViewModel: ObservableObject {
         let service = try SpeakerDiarizationService.live()
         diarizer = service
         return service
-    }
-
-    private func resolveMeetingMinutesGenerator() throws -> any MeetingMinutesGenerating {
-        if let meetingMinutesGenerator {
-            return meetingMinutesGenerator
-        }
-        let generator = try MeetingMinutesGenerator.live()
-        meetingMinutesGenerator = generator
-        return generator
     }
 
     private func reconcileSelection() {

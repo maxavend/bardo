@@ -4,17 +4,11 @@ import XCTest
 
 private enum LifecycleFixtureError: Error, LocalizedError, Sendable {
     case failed
-
     var errorDescription: String? { "Lifecycle fixture failed." }
 }
 
 private struct LifecycleTranscriber: RecordingTranscribing {
-    enum Result: Sendable {
-        case success
-        case failure
-        case waitForCancellation
-    }
-
+    enum Result: Sendable { case success, failure, waitForCancellation }
     let result: Result
 
     func transcribe(
@@ -43,24 +37,6 @@ private struct LifecycleTranscriber: RecordingTranscribing {
     }
 }
 
-private struct LifecycleMinutesGenerator: MeetingMinutesGenerating {
-    func generate(
-        from input: MeetingMinutesInput,
-        progress: @escaping @Sendable (Double) -> Void
-    ) async throws -> MeetingMinutes {
-        progress(1)
-        return MeetingMinutes(
-            recordingID: input.transcript.recordingID,
-            sourceTranscriptMetadata: input.transcript.metadata,
-            modelID: "fixture-minutes",
-            text: "## Decisions\n- Only transcript text was provided.",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_000)
-        )
-    }
-
-    func reset() async {}
-}
-
 private struct LifecycleDiarizer: RecordingDiarizing {
     func diarize(
         recording: Recording,
@@ -75,11 +51,7 @@ private struct LifecycleDiarizer: RecordingDiarizing {
                 DiarizationInterval(speakerIndex: 1, startTime: 0.5, endTime: 1)
             ],
             to: transcript,
-            metadata: DiarizationMetadata(
-                engine: "fixture",
-                engineVersion: "1",
-                modelID: "fixture"
-            )
+            metadata: DiarizationMetadata(engine: "fixture", engineVersion: "1", modelID: "fixture")
         )
     }
 }
@@ -88,11 +60,9 @@ final class ModelTaskLifecycleTests: XCTestCase {
     @MainActor
     func testTranscriptionTaskReferenceClearsAfterSuccess() async throws {
         let (model, _) = try await makeModel(transcriber: LifecycleTranscriber(result: .success))
-
         model.beginTranscription()
         await waitUntil { model.isTranscribing }
         await waitUntil { !model.isTranscribing }
-
         XCTAssertFalse(model.hasActiveTranscriptionTask)
         XCTAssertNil(model.transcriptErrorMessage)
         XCTAssertEqual(model.selectedRecording?.processingState, .completed)
@@ -101,11 +71,9 @@ final class ModelTaskLifecycleTests: XCTestCase {
     @MainActor
     func testTranscriptionTaskReferenceClearsAfterFailureAndPublishesError() async throws {
         let (model, _) = try await makeModel(transcriber: LifecycleTranscriber(result: .failure))
-
         model.beginTranscription()
         await waitUntil { model.isTranscribing }
         await waitUntil { !model.isTranscribing }
-
         XCTAssertFalse(model.hasActiveTranscriptionTask)
         XCTAssertEqual(model.transcriptErrorMessage, LifecycleFixtureError.failed.localizedDescription)
         XCTAssertEqual(model.selectedRecording?.processingState, .failed)
@@ -114,44 +82,13 @@ final class ModelTaskLifecycleTests: XCTestCase {
     @MainActor
     func testTranscriptionTaskReferenceClearsAfterCancellationWithoutError() async throws {
         let (model, _) = try await makeModel(transcriber: LifecycleTranscriber(result: .waitForCancellation))
-
         model.beginTranscription()
         await waitUntil { model.isTranscribing }
         model.cancelTranscription()
         await waitUntil { !model.isTranscribing }
-
         XCTAssertFalse(model.hasActiveTranscriptionTask)
         XCTAssertNil(model.transcriptErrorMessage)
         XCTAssertEqual(model.selectedRecording?.processingState, .pending)
-    }
-
-    @MainActor
-    func testMeetingMinutesStartsOnlyForCompletedTranscriptAndOwnsTask() async throws {
-        let (model, transcriptStore) = try await makeModel(
-            transcriber: LifecycleTranscriber(result: .success),
-            minutesGenerator: LifecycleMinutesGenerator()
-        )
-
-        XCTAssertFalse(model.canGenerateMeetingMinutes)
-        model.beginMeetingMinutes()
-        XCTAssertFalse(model.hasActiveMeetingMinutesTask)
-
-        let transcript = Transcript(
-            recordingID: try XCTUnwrap(model.selection),
-            segments: [TranscriptSegment(startTime: 0, endTime: 1, text: "A completed transcript.")],
-            metadata: TranscriptMetadata(engine: "fixture", engineVersion: "1", modelID: "fixture")
-        )
-        try await transcriptStore.save(transcript)
-        await model.loadTranscriptForSelection()
-
-        XCTAssertTrue(model.canGenerateMeetingMinutes)
-        model.beginMeetingMinutes()
-        await waitUntil { model.hasActiveMeetingMinutesTask }
-        await waitUntil { !model.isGeneratingMeetingMinutes }
-
-        XCTAssertFalse(model.hasActiveMeetingMinutesTask)
-        XCTAssertEqual(model.meetingMinutes?.text, "## Decisions\n- Only transcript text was provided.")
-        XCTAssertNil(model.meetingMinutesErrorMessage)
     }
 
     @MainActor
@@ -183,7 +120,6 @@ final class ModelTaskLifecycleTests: XCTestCase {
     @MainActor
     private func makeModel(
         transcriber: any RecordingTranscribing,
-        minutesGenerator: (any MeetingMinutesGenerating)? = nil,
         diarizer: (any RecordingDiarizing)? = nil
     ) async throws -> (LibraryViewModel, TranscriptStore) {
         let root = FileManager.default.temporaryDirectory
@@ -204,8 +140,7 @@ final class ModelTaskLifecycleTests: XCTestCase {
             store: store,
             transcriptStore: transcriptStore,
             transcriber: transcriber,
-            diarizer: diarizer,
-            meetingMinutesGenerator: minutesGenerator
+            diarizer: diarizer
         )
         await model.reload()
         return (model, transcriptStore)

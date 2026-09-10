@@ -42,14 +42,12 @@ final class TranscriptUXTests: XCTestCase {
         }
     }
 
-    func testFirstRunProgressCopyCoversEveryPreparationPhase() {
+    func testFirstRunProgressCopyCoversTranscriptionAndSpeakerPreparation() {
         XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .listening), "Preparando el reconocimiento de voz…")
-        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .preparingMinutes), "Preparando minutas…")
         XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .welcomingVoices), "Organizando las voces…")
 
         for stage in [
             TranscriptionSetupCopy.Stage.listening,
-            .preparingMinutes,
             .welcomingVoices
         ] {
             XCTAssertGreaterThanOrEqual(TranscriptionSetupCopy.messages(for: stage).count, 3)

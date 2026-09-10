@@ -58,12 +58,6 @@ private struct BardoWelcomeView: View {
                             title: String(localized: "Identify participants"),
                             detail: String(localized: "Organize conversations by speaker so each voice has its own place.")
                         )
-
-                        WelcomeFeatureRow(
-                            systemImage: "list.bullet.clipboard",
-                            title: String(localized: "Create meeting minutes"),
-                            detail: String(localized: "Summarize decisions, tasks, and next steps on-device.")
-                        )
                     }
 
                     HStack(alignment: .top, spacing: 10) {
@@ -73,7 +67,7 @@ private struct BardoWelcomeView: View {
                             .frame(width: 34)
                             .accessibilityHidden(true)
 
-                        Text(String(localized: "Bardo processes your recordings locally on this Mac. Audio, transcripts, and minutes stay on your device."))
+                        Text(String(localized: "Bardo processes your recordings locally on this Mac. Audio and transcripts stay on your device."))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

@@ -19,7 +19,7 @@ struct BardoWorkspaceSectionView: View {
                 onNewRecording: onNewRecording,
                 onImport: onImport
             )
-        case .recordings, .imported, .minutes, .favorites:
+        case .recordings, .imported, .favorites:
             BardoCollectionView(
                 section: section,
                 model: model,
@@ -48,17 +48,7 @@ private struct BardoHomeView: View {
             recording.processingState == .processing
                 || model.transcriptionRecordingID == recording.id
                 || model.diarizationRecordingID == recording.id
-                || (model.isGeneratingMeetingMinutes && model.selection == recording.id)
         }
-    }
-
-    private var minuteRecordings: [Recording] {
-        Array(
-            model.recordings
-                .filter { model.recordingIDsWithMinutes.contains($0.id) }
-                .sorted { $0.createdAt > $1.createdAt }
-                .prefix(4)
-        )
     }
 
     private var favoriteRecordings: [Recording] {
@@ -91,7 +81,7 @@ private struct BardoHomeView: View {
                         .controlSize(.large)
                     }
 
-                    Text("Graba una reunión o importa un audio. Bardo lo procesa de forma privada en este Mac.")
+                    Text("Graba una reunión o importa un audio. Bardo lo transcribe de forma privada en este Mac.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -116,20 +106,6 @@ private struct BardoHomeView: View {
                             BardoHomeRecordingRow(
                                 recording: recording,
                                 detail: recording.createdAt.formatted(.relative(presentation: .named)),
-                                isProcessing: false
-                            ) {
-                                onOpenRecording(recording.id)
-                            }
-                        }
-                    }
-                }
-
-                if !minuteRecordings.isEmpty {
-                    homeSection("Minutas recientes") {
-                        ForEach(minuteRecordings) { recording in
-                            BardoHomeRecordingRow(
-                                recording: recording,
-                                detail: "Minuta disponible",
                                 isProcessing: false
                             ) {
                                 onOpenRecording(recording.id)
@@ -193,9 +169,6 @@ private struct BardoHomeView: View {
         }
         if model.diarizationRecordingID == recording.id {
             return "Identificando a los hablantes"
-        }
-        if model.isGeneratingMeetingMinutes && model.selection == recording.id {
-            return "Preparando la minuta"
         }
         return "Procesando"
     }
@@ -281,8 +254,6 @@ private struct BardoCollectionView: View {
                 return true
             case .imported:
                 return recording.sources.contains(.importedFile)
-            case .minutes:
-                return model.recordingIDsWithMinutes.contains(recording.id)
             case .favorites:
                 return favorites.contains(recording.id)
             case .home, .trash:
@@ -365,7 +336,7 @@ private struct BardoCollectionView: View {
                 deleteTarget = nil
             }
         } message: {
-            Text("El audio, la transcripción y la minuta se moverán a la Papelera de macOS.")
+            Text("El audio y la transcripción se moverán a la Papelera de macOS.")
         }
     }
 
@@ -447,7 +418,7 @@ private struct BardoCollectionView: View {
             } label: {
                 Label("Mover a la Papelera", systemImage: "trash")
             }
-            .disabled(model.isTranscribing || model.isDiarizing || model.isGeneratingMeetingMinutes)
+            .disabled(model.isTranscribing || model.isDiarizing)
         }
     }
 
@@ -505,7 +476,6 @@ private struct BardoCollectionView: View {
         switch section {
         case .recordings: "No hay grabaciones"
         case .imported: "No hay archivos importados"
-        case .minutes: "No hay minutas todavía"
         case .favorites: "No tienes favoritos"
         case .home, .trash: ""
         }
@@ -515,7 +485,6 @@ private struct BardoCollectionView: View {
         switch section {
         case .recordings: "Las reuniones que grabes aparecerán aquí."
         case .imported: "Importa un audio para comenzar."
-        case .minutes: "Genera una minuta desde cualquier conversación transcrita."
         case .favorites: "Marca una conversación con una estrella para tenerla siempre a mano."
         case .home, .trash: ""
         }

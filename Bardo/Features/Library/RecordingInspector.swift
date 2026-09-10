@@ -4,7 +4,6 @@ import SwiftUI
 struct RecordingInspector: View {
     let recording: Recording
     let transcript: Transcript?
-    let meetingMinutes: MeetingMinutes?
 
     @State private var showsTechnicalDetails = false
 
@@ -38,8 +37,7 @@ struct RecordingInspector: View {
                 }
 
                 if transcript.metadata.processingDuration != nil
-                    || transcript.diarizationMetadata?.processingDuration != nil
-                    || matchingMinutes?.processingDuration != nil {
+                    || transcript.diarizationMetadata?.processingDuration != nil {
                     Section("Tiempos de procesamiento") {
                         if let duration = transcript.metadata.processingDuration {
                             LabeledContent(
@@ -50,12 +48,6 @@ struct RecordingInspector: View {
                         if let duration = transcript.diarizationMetadata?.processingDuration {
                             LabeledContent(
                                 "Identificación de hablantes",
-                                value: LibraryFormatting.processingDuration(duration)
-                            )
-                        }
-                        if let duration = matchingMinutes?.processingDuration {
-                            LabeledContent(
-                                "Minuta",
                                 value: LibraryFormatting.processingDuration(duration)
                             )
                         }
@@ -103,7 +95,7 @@ struct RecordingInspector: View {
 
             Section("Privacidad") {
                 Label(
-                    "El audio, la transcripción y la minuta permanecen almacenados en este Mac.",
+                    "El audio y la transcripción permanecen almacenados en este Mac.",
                     systemImage: "lock.shield"
                 )
                 .font(.caption)
@@ -111,11 +103,6 @@ struct RecordingInspector: View {
             }
         }
         .formStyle(.grouped)
-    }
-
-    private var matchingMinutes: MeetingMinutes? {
-        guard let meetingMinutes, meetingMinutes.recordingID == recording.id else { return nil }
-        return meetingMinutes
     }
 
     private var recordingDirectory: URL? {
@@ -159,7 +146,6 @@ struct RecordingInspector: View {
 struct RecordingInformationSheet: View {
     let recording: Recording
     let transcript: Transcript?
-    let meetingMinutes: MeetingMinutes?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -189,8 +175,7 @@ struct RecordingInformationSheet: View {
 
             RecordingInspector(
                 recording: recording,
-                transcript: transcript,
-                meetingMinutes: meetingMinutes
+                transcript: transcript
             )
         }
         .frame(width: 460, height: 600)

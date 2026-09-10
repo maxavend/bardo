@@ -15,7 +15,6 @@ struct TranscriptContentView: View {
     @State private var followsLiveTranscription = true
 
     var bottomContentInset: CGFloat = 0
-    var onSelectMinutes: (() -> Void)? = nil
 
     var body: some View {
         transcriptViewport
@@ -38,11 +37,6 @@ struct TranscriptContentView: View {
 
                         transcriptHeader(for: transcript)
                         transcriptConversation(transcript)
-
-                        if !transcript.segments.isEmpty {
-                            minutesNavigationGroup
-                                .padding(.top, 8)
-                        }
                     } else {
                         emptyTranscriptView
                     }
@@ -285,7 +279,7 @@ struct TranscriptContentView: View {
         BardoEmptyState(
             systemImage: "waveform.and.mic",
             title: "Aún no hay transcripción",
-            detail: "Transcribe esta conversación para leerla, buscar dentro de ella, identificar a los hablantes y preparar una minuta.",
+            detail: "Transcribe esta conversación para leerla, buscar dentro de ella e identificar a los hablantes.",
             footnote: "Se procesa de forma privada en este Mac"
         ) {
             Button {
@@ -468,31 +462,6 @@ struct TranscriptContentView: View {
         }
         return String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
     }
-
-    private var minutesNavigationGroup: some View {
-        GroupBox {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("Convierte esta conversación en un resumen claro de temas, decisiones, acuerdos y próximos pasos.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-
-                Spacer(minLength: 16)
-
-                Button {
-                    onSelectMinutes?()
-                } label: {
-                    Label(
-                        model.meetingMinutes?.recordingID == recording.id
-                            ? "Ver minuta"
-                            : "Abrir minuta",
-                        systemImage: "arrow.right"
-                    )
-                }
-            }
-        } label: {
-            Label("Minuta", systemImage: "list.bullet.clipboard")
-        }
-    }
 }
 
 private enum LiveTranscriptAnchor {
@@ -660,7 +629,6 @@ private struct TranscriptParagraphRow: View {
         return "\(LibraryFormatting.duration(segment.startTime)) · \(compactText)"
     }
 }
-
 
 private struct KaraokeTranscriptText: View {
     let words: [TranscriptWord]

@@ -11,42 +11,46 @@ final class BardoModelStoreTests: XCTestCase {
         }
     }
 
-    func testLegacyVoiceCleanupDoesNotTouchQwenOrMeetingMinutes() throws {
+    func testResetRemovesOnlySelectedCurrentModel() throws {
         let root = FileManager.default.temporaryDirectory
             .resolvingSymlinksInPath()
             .appendingPathComponent("BardoStore-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
+
         let store = BardoModelStore(rootURL: root)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        for name in ["whisper-balanced", "whisper-maximum-accuracy", "parakeet", "qwen", "meeting-minutes"] {
-            try FileManager.default.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
-        }
-        try store.removeLegacyVoiceModelDirectories()
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("parakeet").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("qwen").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("meeting-minutes").path))
+        let whisper = store.root(for: .whisperTurbo)
+        let speakers = store.root(for: .speakerKit)
+        try FileManager.default.createDirectory(at: whisper, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: speakers, withIntermediateDirectories: true)
+        try Data("whisper".utf8).write(to: whisper.appendingPathComponent("marker"))
+        try Data("speakers".utf8).write(to: speakers.appendingPathComponent("marker"))
+
+        try store.reset(.whisperTurbo)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: whisper.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: speakers.path))
     }
-    func testLegacyQwenCleanupIsExplicitAndLeavesCurrentModelsUntouched() throws {
+
+    func testLegacyVoiceCleanupLeavesCurrentModelsUntouched() throws {
         let root = FileManager.default.temporaryDirectory
             .resolvingSymlinksInPath()
-            .appendingPathComponent("BardoStore-Qwen-\(UUID().uuidString)")
+            .appendingPathComponent("BardoStore-Legacy-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
 
         let store = BardoModelStore(rootURL: root)
-        let qwen = root.appendingPathComponent("qwen", isDirectory: true)
-        let minutes = root.appendingPathComponent("meeting-minutes", isDirectory: true)
-        try FileManager.default.createDirectory(at: qwen, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: minutes, withIntermediateDirectories: true)
-        try Data("legacy".utf8).write(to: qwen.appendingPathComponent("weights.bin"))
-        try Data("current".utf8).write(to: minutes.appendingPathComponent("config.json"))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for name in ["whisper-balanced", "whisper-maximum-accuracy", "parakeet"] {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+        try FileManager.default.createDirectory(at: store.root(for: .whisperTurbo), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: store.root(for: .speakerKit), withIntermediateDirectories: true)
 
-        XCTAssertTrue(store.hasLegacyQwenData())
+        try store.removeLegacyVoiceModelDirectories()
 
-        try store.removeLegacyQwenData()
-
-        XCTAssertFalse(store.hasLegacyQwenData())
-        XCTAssertFalse(FileManager.default.fileExists(atPath: qwen.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: minutes.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("whisper-balanced").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("whisper-maximum-accuracy").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("parakeet").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.root(for: .whisperTurbo).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.root(for: .speakerKit).path))
     }
-
 }

@@ -5,7 +5,6 @@ enum TranscriptionSetupCopy {
         case checking
         case listening
         case settling
-        case preparingMinutes
         case meetingVoices
         case welcomingVoices
         case namingVoices
@@ -19,7 +18,6 @@ enum TranscriptionSetupCopy {
         case .checking: return "Preparando Bardo"
         case .listening: return "Preparando Bardo"
         case .settling: return "Bardo está terminando de preparar la voz"
-        case .preparingMinutes: return "Preparando las minutas"
         case .meetingVoices: return "Preparando la identificación de participantes"
         case .welcomingVoices: return "Bardo está organizando las voces"
         case .namingVoices: return "Bardo está ordenando la conversación"
@@ -34,11 +32,10 @@ enum TranscriptionSetupCopy {
         case .checking: return "Estamos revisando que todo esté listo."
         case .listening: return "Estamos preparando todo para que puedas empezar."
         case .settling: return "Estamos dejando listo el reconocimiento de voz."
-        case .preparingMinutes: return "Estamos preparando las minutas para que todo funcione de forma privada en este Mac."
         case .meetingVoices: return "Estamos preparando la identificación de participantes."
         case .welcomingVoices: return "Cada voz tendrá su propio espacio."
         case .namingVoices: return "Estamos ordenando quién dijo cada cosa."
-        case .ready: return "Todo quedará procesado de forma privada en este Mac."
+        case .ready: return "La transcripción se procesa de forma privada en este Mac."
         case .paused: return "Tu progreso está guardado y podrás retomarlo después."
         case .failed: return "No pudimos terminar. Inténtalo de nuevo cuando quieras."
         }
@@ -49,7 +46,6 @@ enum TranscriptionSetupCopy {
         case .checking: return "Revisando…"
         case .listening: return "Preparando el reconocimiento de voz…"
         case .settling: return "Terminando de preparar la voz…"
-        case .preparingMinutes: return "Preparando minutas…"
         case .meetingVoices: return "Preparando participantes…"
         case .welcomingVoices: return "Organizando las voces…"
         case .namingVoices: return "Ordenando la conversación…"
@@ -82,13 +78,6 @@ enum TranscriptionSetupCopy {
                 "Un momento más y esta parte estará lista.",
                 "Ya casi terminamos con la voz.",
                 "Todo está tomando su lugar."
-            ]
-        case .preparingMinutes:
-            return [
-                "Preparando cómo Bardo organizará tus conversaciones.",
-                "Dejando listas las minutas para usarlas sin conexión.",
-                "Todo se prepara de forma privada en este Mac.",
-                "Esta parte quedará lista para los próximos usos."
             ]
         case .meetingVoices:
             return [
@@ -128,7 +117,6 @@ enum TranscriptionSetupCopy {
         }
         return stageCopy + [retryButton, resetButton, cancelButton, footer]
     }
-
 }
 
 struct TranscriptionSetupView: View {
@@ -285,7 +273,7 @@ struct TranscriptionSetupView: View {
         switch state {
         case .cancelled, .failed:
             return true
-        case .checking, .installing, .installingMinutes, .installingSpeakers, .ready:
+        case .checking, .installing, .installingSpeakers, .ready:
             return false
         }
     }
@@ -303,7 +291,7 @@ struct TranscriptionSetupView: View {
 
     private var isCancellable: Bool {
         switch state {
-        case .checking, .installing, .installingMinutes, .installingSpeakers:
+        case .checking, .installing, .installingSpeakers:
             return true
         case .ready, .cancelled, .failed:
             return false
@@ -319,17 +307,7 @@ struct TranscriptionSetupView: View {
     }
 
     private var stageLabel: String {
-        if case .installingMinutes(let progress) = state {
-            switch progress.stage {
-            case .downloading:
-                return "Descargando lo necesario para las minutas…"
-            case .loading:
-                return "Cargando las minutas en este Mac…"
-            case .checkingRuntime:
-                return "Comprobando que las minutas funcionen…"
-            }
-        }
-        return TranscriptionSetupCopy.stageLabel(for: copyStage)
+        TranscriptionSetupCopy.stageLabel(for: copyStage)
     }
 
     private var copyStage: TranscriptionSetupCopy.Stage {
@@ -342,8 +320,6 @@ struct TranscriptionSetupView: View {
             case .downloading: return .listening
             case .optimizingForMac: return .settling
             }
-        case .installingMinutes:
-            return .preparingMinutes
         case .installingSpeakers(let progress):
             switch progress.stage {
             case .checking: return .meetingVoices
@@ -365,7 +341,7 @@ struct TranscriptionSetupView: View {
             return min(1, max(0, progress.fractionCompleted))
         case .installingSpeakers(let progress) where progress.stage == .downloading:
             return min(1, max(0, progress.fractionCompleted))
-        case .checking, .installing, .installingMinutes, .installingSpeakers, .ready, .cancelled, .failed:
+        case .checking, .installing, .installingSpeakers, .ready, .cancelled, .failed:
             return nil
         }
     }
@@ -377,10 +353,8 @@ struct TranscriptionSetupView: View {
             return "Comprobando…"
         case .installing:
             step = 1
-        case .installingMinutes:
-            step = 2
         case .installingSpeakers:
-            step = 3
+            step = 2
         case .ready:
             return "Listo"
         case .cancelled:
@@ -390,8 +364,8 @@ struct TranscriptionSetupView: View {
         }
 
         if let fraction = measuredProgressFraction {
-            return "Paso \(step) de 3 · \(Int((fraction * 100).rounded()))%"
+            return "Paso \(step) de 2 · \(Int((fraction * 100).rounded()))%"
         }
-        return "Paso \(step) de 3"
+        return "Paso \(step) de 2"
     }
 }
