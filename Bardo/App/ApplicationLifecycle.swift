@@ -12,7 +12,7 @@ final class BardoAppDelegate: NSObject, NSApplicationDelegate {
             object: NSApp,
             queue: .main
         ) { [weak self] _ in
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self, !self.terminationInProgress else { return }
                 self.restoreWindowsOnAvailableScreen()
             }
