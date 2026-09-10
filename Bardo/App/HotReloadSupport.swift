@@ -48,16 +48,15 @@ public final class InjectionObserver: ObservableObject {
     }
 }
 
+@MainActor
 @propertyWrapper
 public struct ObserveInjection: DynamicProperty {
     @ObservedObject private var observer: InjectionObserver
 
-    @MainActor
     public init() {
         _observer = ObservedObject(wrappedValue: InjectionObserver.shared)
     }
 
-    @MainActor
     public var wrappedValue: Int {
         observer.injectionNumber
     }
