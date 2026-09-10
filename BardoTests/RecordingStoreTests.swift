@@ -106,6 +106,18 @@ final class RecordingStoreTests: XCTestCase {
         }
     }
 
+    func testRecordingDirectoryURLIsInsideStoreRoot() async throws {
+        let recording = makeRecording(id: UUID(), title: "Managed location")
+        let store = RecordingStore(rootURL: rootURL)
+
+        try await store.save(recording)
+
+        let directory = try await store.recordingDirectoryURL(recordingID: recording.id)
+
+        XCTAssertEqual(directory.standardizedFileURL.deletingLastPathComponent(), rootURL.standardizedFileURL)
+        XCTAssertEqual(directory.lastPathComponent, recording.id.uuidString)
+    }
+
     func testEncodingFailureDoesNotReplacePreviouslyValidManifest() async throws {
         var recording = makeRecording(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000131")!,

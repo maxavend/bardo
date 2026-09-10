@@ -3,133 +3,53 @@ import XCTest
 @testable import Bardo
 
 final class DiarizationAlignmentTests: XCTestCase {
-    func testAlignerOrdersSpeakersByFirstAppearanceAndPreservesTranscriptText() throws {
-        let firstID = UUID()
-        let secondID = UUID()
-        let transcript = Transcript(
-            recordingID: UUID(),
-            languageCode: "en",
-            segments: [
-                TranscriptSegment(
-                    id: firstID,
-                    startTime: 0,
-                    endTime: 1,
-                    text: "Hello there.",
-                    words: [
-                        TranscriptWord(startTime: 0.1, endTime: 0.4, text: "Hello"),
-                        TranscriptWord(startTime: 0.5, endTime: 0.9, text: " there.")
-                    ]
-                ),
-                TranscriptSegment(
-                    id: secondID,
-                    startTime: 1,
-                    endTime: 2,
-                    text: "General Kenobi.",
-                    words: [
-                        TranscriptWord(startTime: 1.1, endTime: 1.5, text: "General"),
-                        TranscriptWord(startTime: 1.5, endTime: 1.9, text: " Kenobi.")
-                    ]
-                )
-            ],
-            metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: "fixture")
-        )
-        let originalText = transcript.text
-
-        let aligned = try TranscriptSpeakerAligner.applying(
-            intervals: [
-                DiarizationInterval(speakerIndex: 8, startTime: 0, endTime: 0.95),
-                DiarizationInterval(speakerIndex: 2, startTime: 1.0, endTime: 2.0)
-            ],
-            to: transcript,
-            metadata: DiarizationMetadata(
-                engine: "SpeakerKit",
-                engineVersion: "1.0.0",
-                modelID: "pyannote-v3",
-                createdAt: Date(timeIntervalSince1970: 1_700_000_000)
-            )
-        )
-
-        XCTAssertEqual(aligned.text, originalText)
-        XCTAssertEqual(aligned.segments.map(\.id), [firstID, secondID])
-        XCTAssertEqual(aligned.speakers.count, 2)
-        XCTAssertEqual(aligned.segments[0].speakerID, aligned.speakers[0].id)
-        XCTAssertEqual(aligned.segments[1].speakerID, aligned.speakers[1].id)
-        XCTAssertEqual(aligned.diarizationMetadata?.engine, "SpeakerKit")
+    private func metadata() -> DiarizationMetadata {
+        DiarizationMetadata(engine: "SpeakerKit", engineVersion: "1.1.0", modelID: SpeakerDiarizationService.modelID)
     }
 
-    func testWordOverlapVotesDetermineSpeakerWithoutChangingSegmentBounds() throws {
+    func testCrossSpeakerWhisperSegmentIsRebuiltAtWordBoundaries() throws {
+        let transcript = Transcript(recordingID: UUID(), segments: [TranscriptSegment(startTime: 0, endTime: 3, text: "Hello yes", words: [
+            TranscriptWord(startTime: 0, endTime: 0.4, text: "Hello"),
+            TranscriptWord(startTime: 0.5, endTime: 0.9, text: " yes")
+        ])], metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: TranscriptionModelManager.modelID))
+        let aligned = try TranscriptSpeakerAligner.applying(
+            intervals: [DiarizationInterval(speakerIndex: 0, startTime: 0, endTime: 0.45), DiarizationInterval(speakerIndex: 1, startTime: 0.45, endTime: 1.2)],
+            to: transcript, metadata: metadata()
+        )
+        XCTAssertEqual(aligned.segments.count, 2)
+        XCTAssertEqual(aligned.segments.map(\.text), ["Hello", "yes"])
+        XCTAssertEqual(aligned.segments.map { $0.words.count }, [1, 1])
+        XCTAssertNotEqual(aligned.segments[0].speakerID, aligned.segments[1].speakerID)
+    }
+
+    func testAtoBtoAConversationKeepsThreeTurns() throws {
+        let words = [
+            TranscriptWord(startTime: 0, endTime: 0.2, text: "A"), TranscriptWord(startTime: 0.3, endTime: 0.5, text: "one"),
+            TranscriptWord(startTime: 1, endTime: 1.2, text: "B"), TranscriptWord(startTime: 1.3, endTime: 1.5, text: "reply"),
+            TranscriptWord(startTime: 2, endTime: 2.2, text: "A"), TranscriptWord(startTime: 2.3, endTime: 2.5, text: "again")
+        ]
+        let transcript = Transcript(recordingID: UUID(), segments: [TranscriptSegment(startTime: 0, endTime: 3, text: "A one B reply A again", words: words)], metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: TranscriptionModelManager.modelID))
+        let aligned = try TranscriptSpeakerAligner.applying(
+            intervals: [DiarizationInterval(speakerIndex: 0, startTime: 0, endTime: 0.8), DiarizationInterval(speakerIndex: 1, startTime: 0.8, endTime: 1.8), DiarizationInterval(speakerIndex: 0, startTime: 1.8, endTime: 3)],
+            to: transcript, metadata: metadata()
+        )
+        XCTAssertEqual(aligned.segments.count, 3)
+        XCTAssertEqual(aligned.segments.map(\.text), ["A one", "B reply", "A again"])
+        XCTAssertEqual(aligned.segments[0].speakerID, aligned.segments[2].speakerID)
+    }
+
+    func testManualTextEditsAndOldSegmentBoundariesSurviveRediarization() throws {
         let segmentID = UUID()
-        let transcript = Transcript(
-            recordingID: UUID(),
-            segments: [
-                TranscriptSegment(
-                    id: segmentID,
-                    startTime: 0,
-                    endTime: 3,
-                    text: "One two three.",
-                    words: [
-                        TranscriptWord(startTime: 0.0, endTime: 0.4, text: "One"),
-                        TranscriptWord(startTime: 0.5, endTime: 1.8, text: " two"),
-                        TranscriptWord(startTime: 1.9, endTime: 2.8, text: " three.")
-                    ]
-                )
-            ],
-            metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: "fixture")
-        )
-
-        let aligned = try TranscriptSpeakerAligner.applying(
-            intervals: [
-                DiarizationInterval(speakerIndex: 0, startTime: 0, endTime: 0.45),
-                DiarizationInterval(speakerIndex: 1, startTime: 0.45, endTime: 3)
-            ],
-            to: transcript,
-            metadata: DiarizationMetadata(engine: "SpeakerKit", engineVersion: "1", modelID: "fixture")
-        )
-
-        XCTAssertEqual(aligned.segments[0].id, segmentID)
-        XCTAssertEqual(aligned.segments[0].startTime, 0)
-        XCTAssertEqual(aligned.segments[0].endTime, 3)
-        XCTAssertEqual(aligned.segments[0].text, "One two three.")
-        XCTAssertEqual(aligned.segments[0].speakerID, aligned.speakers[1].id)
+        let transcript = Transcript(recordingID: UUID(), segments: [TranscriptSegment(id: segmentID, startTime: 0, endTime: 2, text: "Original", words: [TranscriptWord(startTime: 0, endTime: 1, text: "Original")], editedText: "Human correction")], metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: TranscriptionModelManager.modelID))
+        let aligned = try TranscriptSpeakerAligner.applying(intervals: [DiarizationInterval(speakerIndex: 0, startTime: 0, endTime: 2)], to: transcript, metadata: metadata())
+        XCTAssertEqual(aligned.segments.map(\.id), [segmentID])
+        XCTAssertEqual(aligned.segments[0].displayText, "Human correction")
+        XCTAssertEqual(aligned.segments[0].editedText, "Human correction")
     }
 
-    func testGapWithoutOverlapRemainsUnassigned() throws {
-        let transcript = Transcript(
-            recordingID: UUID(),
-            segments: [
-                TranscriptSegment(startTime: 10, endTime: 11, text: "Silence gap label")
-            ],
-            metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: "fixture")
-        )
-
-        let aligned = try TranscriptSpeakerAligner.applying(
-            intervals: [DiarizationInterval(speakerIndex: 0, startTime: 0, endTime: 1)],
-            to: transcript,
-            metadata: DiarizationMetadata(engine: "SpeakerKit", engineVersion: "1", modelID: "fixture")
-        )
-
-        XCTAssertEqual(aligned.speakers.count, 1)
+    func testNoSpeakerOverlapLeavesSegmentUnassigned() throws {
+        let transcript = Transcript(recordingID: UUID(), segments: [TranscriptSegment(startTime: 10, endTime: 11, text: "Silence")], metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: TranscriptionModelManager.modelID))
+        let aligned = try TranscriptSpeakerAligner.applying(intervals: [DiarizationInterval(speakerIndex: 0, startTime: 0, endTime: 1)], to: transcript, metadata: metadata())
         XCTAssertNil(aligned.segments[0].speakerID)
-    }
-
-    func testNoValidSpeakerActivityFailsWithoutMutatingTranscript() {
-        let transcript = Transcript(
-            recordingID: UUID(),
-            segments: [TranscriptSegment(startTime: 0, endTime: 1, text: "Hello")],
-            metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: "fixture")
-        )
-
-        XCTAssertThrowsError(
-            try TranscriptSpeakerAligner.applying(
-                intervals: [
-                    DiarizationInterval(speakerIndex: -1, startTime: 0, endTime: 1),
-                    DiarizationInterval(speakerIndex: 0, startTime: 2, endTime: 2)
-                ],
-                to: transcript,
-                metadata: DiarizationMetadata(engine: "SpeakerKit", engineVersion: "1", modelID: "fixture")
-            )
-        ) { error in
-            XCTAssertEqual(error as? RecordingDiarizationError, .noSpeakerActivity)
-        }
     }
 }

@@ -38,14 +38,16 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Verify capture and model-download build configuration
+      - name: Verify capture, transcription, and app icon build configuration
         run: |
           test -f Bardo/Bardo.entitlements
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' Bardo/Bardo.entitlements)" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' Bardo/Bardo.entitlements)" = "true"
+          test -f Bardo/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json
           BUILD_SETTINGS="$(xcodebuild -project Bardo.xcodeproj -scheme Bardo -configuration Debug -showBuildSettings)"
           grep -Fq 'CODE_SIGN_ENTITLEMENTS = Bardo/Bardo.entitlements' <<< "$BUILD_SETTINGS"
           grep -Fq 'ENABLE_HARDENED_RUNTIME = YES' <<< "$BUILD_SETTINGS"
+          grep -Fq 'ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon' <<< "$BUILD_SETTINGS"
 
       - name: Build Bardo
         run: |
@@ -55,6 +57,7 @@ jobs:
             -configuration Debug \
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath .derived-data \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             build
 
@@ -63,6 +66,7 @@ jobs:
           BUNDLE=.derived-data/Build/Products/Debug/Bardo.app
           test -f "$BUNDLE/Contents/Info.plist"
           test -x "$BUNDLE/Contents/MacOS/Bardo"
+          test -f "$BUNDLE/Contents/Resources/Assets.car"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
 
@@ -75,13 +79,23 @@ jobs:
             -configuration Debug \
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath .derived-data \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
-            test > .xcode-test.log 2>&1
+            test > xcode-test.log 2>&1
           STATUS=$?
           if [ "$STATUS" -ne 0 ]; then
             echo "---- XCTest failure summary ----"
-            grep -E "Test Case .* failed|error:|XCTAssert|failed -|\*\* TEST FAILED \*\*" .xcode-test.log || tail -n 160 .xcode-test.log
+            grep -E "Test Case .* (failed|passed)|/[A-Za-z0-9_./-]+\.swift:[0-9]+|: error:|XCTAssert|failed -|\*\* TEST FAILED \*\*" xcode-test.log || tail -n 160 xcode-test.log
           else
-            grep -E "Executed [0-9]+ tests|\*\* TEST SUCCEEDED \*\*" .xcode-test.log || true
+            grep -E "Executed [0-9]+ tests|\*\* TEST SUCCEEDED \*\*" xcode-test.log || true
           fi
           exit "$STATUS"
+
+      - name: Upload XCTest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-test-log-${{ github.run_id }}
+          path: xcode-test.log
+          if-no-files-found: warn
+          retention-days: 14

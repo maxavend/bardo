@@ -170,6 +170,12 @@ actor RecordingStore {
         return url
     }
 
+    func recordingDirectoryURL(recordingID: Recording.ID) throws -> URL {
+        // UUIDs cannot introduce path traversal. Returning a path derived only from the
+        // store root keeps Finder actions scoped to Bardo's managed library.
+        rootURL.appendingPathComponent(recordingID.uuidString, isDirectory: true)
+    }
+
     func loadLibrary() throws -> LibrarySnapshot {
         try ensureDirectoryExists(rootURL)
 
@@ -282,6 +288,23 @@ actor RecordingStore {
         } catch {
             throw RecordingStoreError.fileSystem(
                 operation: "delete",
+                entry: id.uuidString,
+                description: error.localizedDescription
+            )
+        }
+    }
+
+    func moveToTrash(id: Recording.ID) throws {
+        let directoryURL = recordingDirectoryURL(for: id)
+        guard FileManager.default.fileExists(atPath: directoryURL.path) else {
+            throw RecordingStoreError.recordingNotFound(id)
+        }
+
+        do {
+            try FileManager.default.trashItem(at: directoryURL, resultingItemURL: nil)
+        } catch {
+            throw RecordingStoreError.fileSystem(
+                operation: "move recording to Trash",
                 entry: id.uuidString,
                 description: error.localizedDescription
             )

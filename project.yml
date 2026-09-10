@@ -31,6 +31,13 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - path: Bardo
+        excludes:
+          - Models
+          - Resources
+      - path: Bardo/Models
+    resources:
+      - path: Bardo/Localization
+      - path: Bardo/Resources/Assets.xcassets
     dependencies:
       - package: ArgmaxOSS
         product: WhisperKit
@@ -49,6 +56,13 @@ targets:
         PRODUCT_NAME: Bardo
         CODE_SIGN_ENTITLEMENTS: Bardo/Bardo.entitlements
         ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Debug:
+          OTHER_LDFLAGS:
+            - $(inherited)
+            - -Xlinker
+            - -interposable
 
   BardoTests:
     type: bundle.unit-test

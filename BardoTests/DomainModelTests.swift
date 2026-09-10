@@ -41,7 +41,8 @@ final class DomainModelTests: XCTestCase {
                 engine: "WhisperKit",
                 engineVersion: "1.0.0",
                 modelID: "fixture",
-                createdAt: Date(timeIntervalSince1970: 1_700_000_100)
+                createdAt: Date(timeIntervalSince1970: 1_700_000_100),
+                processingDuration: 12.75
             )
         )
 
@@ -49,5 +50,20 @@ final class DomainModelTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Transcript.self, from: data)
 
         XCTAssertEqual(decoded, transcript)
+        XCTAssertEqual(decoded.metadata.processingDuration, 12.75)
+    }
+
+    func testLegacyTranscriptMetadataWithoutProcessingDurationStillDecodes() throws {
+        let json = """
+        {
+          "engine": "WhisperKit",
+          "engineVersion": "1.0.0",
+          "modelID": "fixture",
+          "createdAt": 721692800
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(TranscriptMetadata.self, from: Data(json.utf8))
+        XCTAssertNil(decoded.processingDuration)
     }
 }

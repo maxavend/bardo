@@ -8,6 +8,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
         case installing(TranscriptionSetupProgressSnapshot)
         case installingSpeakers(DiarizationSetupProgressSnapshot)
         case ready
+        case cancelled
         case failed(String)
     }
 
@@ -16,9 +17,10 @@ final class TranscriptionSetupCoordinator: ObservableObject {
 
     private let defaults: UserDefaults
     private var isPreparing = false
+    private var preparationTask: Task<Void, Never>?
 
     private static var completionKey: String {
-        "Bardo.FullAISetup.v3.\(TranscriptionModelManager.defaultModelID).\(SpeakerDiarizationService.modelID)"
+        "Bardo.TranscriptionSetup.v8.\(TranscriptionModelManager.modelID).\(SpeakerDiarizationService.modelID)"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -34,21 +36,26 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     func prepareIfNeeded(force: Bool = false) async {
         guard !isPreparing else { return }
         isPreparing = true
-        defer { isPreparing = false }
+        defer {
+            isPreparing = false
+            preparationTask = nil
+        }
 
         do {
-            let transcription = try WhisperTranscriptionService.live()
+            let store = try BardoModelStore.live()
+            try store.removeLegacyVoiceModelDirectories()
+            let whisper = try WhisperTranscriptionService.live()
             let speakers = try SpeakerDiarizationService.live()
             let markedComplete = defaults.bool(forKey: Self.completionKey)
 
-            let transcriptionInstalled = await transcription.hasInstalledModel()
+            let whisperInstalled = await whisper.hasInstalledModel()
             let speakersInstalled = await speakers.hasInstalledModels()
+            let allModelsReady = whisperInstalled && speakersInstalled
 
-            if !force, markedComplete, transcriptionInstalled, speakersInstalled {
+            if !force, markedComplete, allModelsReady {
                 state = .ready
-                async let transcriptionWarm: Void = transcription.warmUpIfInstalled()
-                async let speakerWarm: Void = speakers.warmUpIfInstalled()
-                _ = await (transcriptionWarm, speakerWarm)
+                await whisper.warmUpIfInstalled()
+                await speakers.warmUpIfInstalled()
                 return
             }
 
@@ -56,45 +63,81 @@ final class TranscriptionSetupCoordinator: ObservableObject {
             defaults.set(false, forKey: Self.completionKey)
             state = .checking
 
-            try await transcription.prepareForUse { [weak self] snapshot in
-                Task { @MainActor in
-                    self?.state = .installing(snapshot)
-                }
-            }
-
-            try await speakers.prepareForUse { [weak self] snapshot in
-                Task { @MainActor in
-                    self?.state = .installingSpeakers(snapshot)
-                }
-            }
-
-            // SpeakerKit setup can take long enough that Whisper's idle timer may have moved
-            // on. Touch the shared runtime once more so "Ready" really means the first
-            // transcription starts from a hot engine.
-            await transcription.warmUpIfInstalled()
+            try await prepareTranscriptionModels(whisper: whisper)
+            try await prepareSpeakers(speakers)
+            await warmSelectedTranscriptionModel()
 
             defaults.set(true, forKey: Self.completionKey)
             completedSetupThisLaunch = true
             state = .ready
         } catch is CancellationError {
-            // Closing Bardo during first-run setup is safe. Partial downloads remain in the
-            // local caches and the next launch resumes/validates them before entering Library.
+            state = .cancelled
         } catch {
             state = .failed(error.localizedDescription)
         }
     }
 
-    func retry() {
-        Task { @MainActor in
-            await prepareIfNeeded(force: true)
+    private func prepareTranscriptionModels(
+        whisper: WhisperTranscriptionService
+    ) async throws {
+        try await whisper.prepareForUse { [weak self] snapshot in
+            Task { @MainActor in self?.state = .installing(snapshot) }
         }
+    }
+
+    private func prepareSpeakers(_ speakers: SpeakerDiarizationService) async throws {
+        try await speakers.prepareForUse { [weak self] snapshot in
+            Task { @MainActor in self?.state = .installingSpeakers(snapshot) }
+        }
+    }
+
+    func startPreparation(force: Bool = false) {
+        guard preparationTask == nil, !isPreparing else { return }
+        preparationTask = Task { @MainActor [weak self] in
+            await self?.prepareIfNeeded(force: force)
+        }
+    }
+
+    func cancelPreparation() {
+        preparationTask?.cancel()
+        if isPreparing {
+            state = .cancelled
+        }
+    }
+
+    func resetAndRetry() {
+        guard preparationTask == nil, !isPreparing else { return }
+        preparationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let store = try BardoModelStore.live()
+                try store.removeLegacyVoiceModelDirectories()
+                try await WhisperTranscriptionService.live().reset()
+                try await SpeakerDiarizationService.live().reset()
+                defaults.set(false, forKey: Self.completionKey)
+                await prepareIfNeeded(force: true)
+            } catch is CancellationError {
+                state = .cancelled
+            } catch {
+                state = .failed(error.localizedDescription)
+                preparationTask = nil
+            }
+        }
+    }
+
+    func retry() {
+        startPreparation(force: true)
     }
 
     func warmForRecording() {
         guard isReady else { return }
         Task {
-            guard let service = try? WhisperTranscriptionService.live() else { return }
-            await service.warmUpIfInstalled()
+            await warmSelectedTranscriptionModel()
         }
+    }
+
+    private func warmSelectedTranscriptionModel() async {
+        guard let service = try? WhisperTranscriptionService.live() else { return }
+        await service.warmUpIfInstalled()
     }
 }

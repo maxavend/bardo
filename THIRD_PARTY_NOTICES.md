@@ -5,12 +5,10 @@ Bardo uses the following open-source software.
 ## Argmax Open-Source SDK / WhisperKit + SpeakerKit
 
 - Repository: `argmaxinc/argmax-oss-swift`
-- Version used by Bardo: `1.0.0`
+- Version used by Bardo: `1.1.0`
 - Products linked by Bardo: `WhisperKit`, `SpeakerKit`
 - License: MIT
 - Copyright: © 2024 argmax, inc.
-
-Bardo links the `WhisperKit` and `SpeakerKit` products directly. It does not link the `ArgmaxOSS` umbrella product or `TTSKit` in Phase 6.
 
 ### MIT License
 
@@ -34,6 +32,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## Runtime-downloaded model artifacts
+## Runtime model artifacts
 
-Phase 5 downloads Whisper model/tokenizer artifacts at runtime. Phase 6 additionally downloads SpeakerKit/Pyannote model artifacts at runtime. Bardo does not bundle those model files in the application. Their applicable upstream terms should be reviewed separately before any future distribution strategy that bundles or redistributes those artifacts.
+Bardo downloads `large-v3-v20240930_turbo_632MB` through WhisperKit and `pyannote-v3+plda-v4` through SpeakerKit into its private Application Support model roots. Upstream model cards, licenses, and redistribution terms remain applicable to each downloaded artifact.

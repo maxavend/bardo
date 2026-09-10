@@ -81,6 +81,21 @@ final class AudioPlaybackControllerTests: XCTestCase {
         }
     }
 
+    func testLoadedMetadataTracksTheAudioShownInThePlaybackBar() async throws {
+        let url = directoryURL.appendingPathComponent("Metadata.wav")
+        try AudioTestFixture.makeWAV(at: url, duration: 0.3)
+        let controller = await MainActor.run { AudioPlaybackController() }
+        let metadata = AudioPlaybackMetadata(title: "Daily stand-up", trackLabel: "Microphone")
+
+        await MainActor.run {
+            XCTAssertTrue(controller.load(url: url, metadata: metadata))
+            XCTAssertEqual(controller.metadata, metadata)
+
+            controller.unload()
+            XCTAssertNil(controller.metadata)
+        }
+    }
+
     func testMissingAndCorruptFilesProduceControlledPlaybackErrors() async throws {
         let missingURL = directoryURL.appendingPathComponent("Missing.wav")
         let corruptURL = directoryURL.appendingPathComponent("Corrupt.wav")

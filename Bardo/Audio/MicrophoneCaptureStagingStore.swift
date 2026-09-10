@@ -19,6 +19,11 @@ actor MicrophoneCaptureStagingStore {
         )
     }
 
+    static func liveRootURL() throws -> URL {
+        let libraryURL = try RecordingStore.defaultLibraryURL()
+        return libraryURL.deletingLastPathComponent().appendingPathComponent(Self.directoryName, isDirectory: true)
+    }
+
     func prepareCapture(
         recordingID: UUID,
         audioAssetID: UUID,
@@ -51,6 +56,20 @@ actor MicrophoneCaptureStagingStore {
         guard FileManager.default.fileExists(atPath: directory.path) else { return }
         do {
             try FileManager.default.removeItem(at: directory)
+        } catch {
+            throw MicrophoneCaptureStagingError.fileSystem(error.localizedDescription)
+        }
+    }
+
+    func moveToTrash(recordingID: UUID) throws {
+        let directory = captureDirectoryURL(for: recordingID)
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            if activeCaptureID == recordingID { activeCaptureID = nil }
+            return
+        }
+        do {
+            try FileManager.default.trashItem(at: directory, resultingItemURL: nil)
+            if activeCaptureID == recordingID { activeCaptureID = nil }
         } catch {
             throw MicrophoneCaptureStagingError.fileSystem(error.localizedDescription)
         }

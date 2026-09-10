@@ -15,11 +15,19 @@ struct BardoApp: App {
     }
 
     var body: some Scene {
-        Window("Bardo", id: "main") {
+        Window("Bardo", id: "main-v3-native-toolbar") {
             BardoLaunchView()
-                .frame(minWidth: 760, minHeight: 520)
+                .frame(minWidth: 920, minHeight: 600)
         }
-        .defaultSize(width: 1180, height: 760)
+        .defaultSize(width: 1240, height: 800)
         .windowResizability(.contentMinSize)
+        .windowToolbarStyle(.unified(showsTitle: false))
+        .commands {
+            BardoCommands()
+        }
+
+        Settings {
+            SettingsView()
+        }
     }
 }

@@ -48,6 +48,18 @@ actor SystemAudioCaptureStagingStore {
         return SystemAudioCaptureStagingStore(rootURL: root)
     }
 
+    static func liveRootURL() throws -> URL {
+        let applicationSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        return applicationSupport
+            .appendingPathComponent("Bardo", isDirectory: true)
+            .appendingPathComponent(Self.directoryName, isDirectory: true)
+    }
+
     func prepareCapture(
         recordingID: UUID,
         systemAssetID: UUID,
@@ -91,6 +103,16 @@ actor SystemAudioCaptureStagingStore {
             return
         }
         try FileManager.default.removeItem(at: directory)
+        if activeRecordingID == recordingID { activeRecordingID = nil }
+    }
+
+    func moveToTrash(recordingID: UUID) throws {
+        let directory = rootURL.appendingPathComponent(recordingID.uuidString, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            if activeRecordingID == recordingID { activeRecordingID = nil }
+            return
+        }
+        try FileManager.default.trashItem(at: directory, resultingItemURL: nil)
         if activeRecordingID == recordingID { activeRecordingID = nil }
     }
 

@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -169,6 +170,49 @@ final class SystemAudioRecordingController: ObservableObject {
         } catch {
             recoveryIssues = []
         }
+    }
+
+    func discardRecoveryIssue(_ issue: RecordingStoreIssue) async {
+        guard let recordingID = issue.recordingID else { return }
+        do {
+            try await resolveStagingStore().discardCapture(recordingID: recordingID)
+            await refreshRecoveryIssues()
+        } catch {
+            errorMessage = "Bardo could not discard \(issue.entryName): \(error.localizedDescription)"
+        }
+    }
+
+    func moveRecoveryIssueToTrash(_ issue: RecordingStoreIssue) async {
+        guard let recordingID = issue.recordingID else { return }
+        do {
+            try await resolveStagingStore().moveToTrash(recordingID: recordingID)
+            await refreshRecoveryIssues()
+        } catch {
+            errorMessage = "Bardo could not move \(issue.entryName) to the Trash: \(error.localizedDescription)"
+        }
+    }
+
+    func moveAllRecoveryIssuesToTrash() async {
+        let issuesToMove = recoveryIssues.compactMap { issue -> UUID? in
+            issue.recordingID
+        }
+        guard !issuesToMove.isEmpty else { return }
+
+        do {
+            let store = try resolveStagingStore()
+            for recordingID in issuesToMove {
+                try await store.moveToTrash(recordingID: recordingID)
+            }
+            await refreshRecoveryIssues()
+        } catch {
+            errorMessage = "Bardo could not move the recovery captures to the Trash: \(error.localizedDescription)"
+        }
+    }
+
+    @discardableResult
+    func openRecoveryFolder() -> Bool {
+        guard let root = try? SystemAudioCaptureStagingStore.liveRootURL() else { return false }
+        return NSWorkspace.shared.open(root)
     }
 
     func clearError() {

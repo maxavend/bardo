@@ -14,10 +14,32 @@ struct TranscriptionProgressSnapshot: Equatable, Sendable {
     let fractionCompleted: Double
 }
 
+struct TranscriptionLiveSnapshot: Equatable, Sendable {
+    let recordingID: Recording.ID
+    let segments: [TranscriptSegment]
+    let provisionalText: String
+    let processedAudioTime: TimeInterval
+    let audioDuration: TimeInterval
+
+    var fractionCompleted: Double {
+        guard audioDuration.isFinite, audioDuration > 0 else { return 0 }
+        return min(1, max(0, processedAudioTime / audioDuration))
+    }
+
+    static func empty(recordingID: Recording.ID, audioDuration: TimeInterval) -> TranscriptionLiveSnapshot {
+        TranscriptionLiveSnapshot(
+            recordingID: recordingID,
+            segments: [],
+            provisionalText: "",
+            processedAudioTime: 0,
+            audioDuration: audioDuration
+        )
+    }
+}
+
 enum TranscriptionSetupStage: String, Sendable {
     case checking
     case downloading
-    case preparingLanguageSupport
     case optimizingForMac
 }
 
@@ -33,10 +55,26 @@ protocol RecordingTranscribing: Sendable {
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
     ) async throws -> Transcript
 
+    func transcribe(
+        recording: Recording,
+        store: RecordingStore,
+        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
+        liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
+    ) async throws -> Transcript
+
     func warmUpIfInstalled() async
 }
 
 extension RecordingTranscribing {
+    func transcribe(
+        recording: Recording,
+        store: RecordingStore,
+        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
+        liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
+    ) async throws -> Transcript {
+        try await transcribe(recording: recording, store: store, progress: progress)
+    }
+
     func warmUpIfInstalled() async {}
 }
 
@@ -57,89 +95,6 @@ enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
         case .emptyTranscription:
             return "WhisperKit completed without producing any transcript segments."
         }
-    }
-}
-
-struct TranscriptionChunkPlan: Equatable, Sendable {
-    let startTime: TimeInterval
-    let endTime: TimeInterval
-    let acceptanceStart: TimeInterval
-    let acceptanceEnd: TimeInterval
-    let isLast: Bool
-}
-
-enum TranscriptionChunkPlanner {
-    static let defaultChunkDuration: TimeInterval = 300
-    static let defaultOverlap: TimeInterval = 1
-
-    static func plans(
-        duration: TimeInterval,
-        chunkDuration: TimeInterval = defaultChunkDuration,
-        overlap: TimeInterval = defaultOverlap
-    ) -> [TranscriptionChunkPlan] {
-        guard duration.isFinite,
-              chunkDuration.isFinite,
-              overlap.isFinite,
-              duration > 0,
-              chunkDuration > overlap,
-              overlap >= 0 else {
-            return []
-        }
-
-        var raw: [(start: TimeInterval, end: TimeInterval)] = []
-        var start: TimeInterval = 0
-        while start < duration {
-            let end = min(duration, start + chunkDuration)
-            raw.append((start, end))
-            if end >= duration { break }
-            start = end - overlap
-        }
-
-        return raw.enumerated().map { index, chunk in
-            let previousBoundary: TimeInterval
-            if index == 0 {
-                previousBoundary = 0
-            } else {
-                let previous = raw[index - 1]
-                previousBoundary = chunk.start + (previous.end - chunk.start) / 2
-            }
-
-            let isLast = index == raw.count - 1
-            let nextBoundary: TimeInterval
-            if isLast {
-                nextBoundary = duration
-            } else {
-                let next = raw[index + 1]
-                nextBoundary = next.start + (chunk.end - next.start) / 2
-            }
-
-            return TranscriptionChunkPlan(
-                startTime: chunk.start,
-                endTime: chunk.end,
-                acceptanceStart: previousBoundary,
-                acceptanceEnd: nextBoundary,
-                isLast: isLast
-            )
-        }
-    }
-}
-
-struct TranscriptionDecodingProfile: Equatable, Sendable {
-    static let shortFormThreshold: TimeInterval = 45
-
-    let usesVAD: Bool
-    let temperatureFallbackCount: Int
-
-    static func make(duration: TimeInterval, planCount: Int) -> TranscriptionDecodingProfile {
-        let isShortForm = duration.isFinite
-            && duration > 0
-            && duration <= shortFormThreshold
-            && planCount == 1
-
-        return TranscriptionDecodingProfile(
-            usesVAD: !isShortForm,
-            temperatureFallbackCount: isShortForm ? 3 : 5
-        )
     }
 }
 
@@ -171,6 +126,125 @@ private final class TranscriptionCancellationFlag: @unchecked Sendable {
     }
 }
 
+private final class TranscriptionLiveRateLimiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let minimumInterval: TimeInterval
+    private var lastEmissionUptime: TimeInterval?
+
+    init(minimumInterval: TimeInterval = 0.12) {
+        self.minimumInterval = minimumInterval
+    }
+
+    func shouldEmit(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let lastEmissionUptime else {
+            self.lastEmissionUptime = now
+            return true
+        }
+        guard now - lastEmissionUptime >= minimumInterval else {
+            return false
+        }
+        self.lastEmissionUptime = now
+        return true
+    }
+}
+
+final class TranscriptionLiveBuffer: @unchecked Sendable {
+    private struct SegmentKey: Hashable {
+        let startMilliseconds: Int
+        let endMilliseconds: Int
+
+        init(_ segment: TranscriptSegment) {
+            startMilliseconds = Int((segment.startTime * 1_000).rounded())
+            endMilliseconds = Int((segment.endTime * 1_000).rounded())
+        }
+    }
+
+    private let lock = NSLock()
+    private let recordingID: Recording.ID
+    private let audioDuration: TimeInterval
+    private var segmentsByKey: [SegmentKey: TranscriptSegment] = [:]
+    private var provisionalText = ""
+
+    init(recordingID: Recording.ID, audioDuration: TimeInterval) {
+        self.recordingID = recordingID
+        self.audioDuration = audioDuration
+    }
+
+    func updateProvisionalText(_ text: String) -> TranscriptionLiveSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+
+        provisionalText = segmentsByKey.isEmpty
+            ? TranscriptTextSanitizer.normalizeRecognizedText(text).trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+        return makeSnapshot()
+    }
+
+    func merge(_ segments: [TranscriptSegment]) -> TranscriptionLiveSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+
+        for segment in segments {
+            let key = SegmentKey(segment)
+            let existingID = segmentsByKey[key]?.id ?? segment.id
+            segmentsByKey[key] = TranscriptSegment(
+                id: existingID,
+                startTime: segment.startTime,
+                endTime: segment.endTime,
+                speakerID: segment.speakerID,
+                text: segment.text,
+                words: segment.words,
+                editedText: segment.editedText
+            )
+        }
+
+        if !segmentsByKey.isEmpty {
+            provisionalText = ""
+        }
+        return makeSnapshot()
+    }
+
+    func snapshot() -> TranscriptionLiveSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return makeSnapshot()
+    }
+
+    private func makeSnapshot() -> TranscriptionLiveSnapshot {
+        let sortedSegments = segmentsByKey.values.sorted {
+            if $0.startTime == $1.startTime {
+                return $0.endTime < $1.endTime
+            }
+            return $0.startTime < $1.startTime
+        }
+        let processedAudioTime = sortedSegments.map(\.endTime).max() ?? 0
+
+        return TranscriptionLiveSnapshot(
+            recordingID: recordingID,
+            segments: sortedSegments,
+            provisionalText: provisionalText,
+            processedAudioTime: processedAudioTime,
+            audioDuration: audioDuration
+        )
+    }
+}
+
+struct WhisperTranscriptionMetrics: Equatable, Sendable {
+    let audioSeconds: TimeInterval
+    let asrSeconds: TimeInterval
+    let asrRealTimeFactor: Double
+    let segmentCount: Int
+    let wordCount: Int
+    let incrementalChunkDurationSeconds: Double
+    let maxBufferedChunks: Int
+    let workerCount: Int
+    let fallbackCount: Int
+    let vadWindowCount: Int
+}
+
 actor WhisperTranscriptionService: RecordingTranscribing {
     static let engineVersion = "1.1.0"
     static let defaultIdleUnloadNanoseconds: UInt64 = 30 * 60 * 1_000_000_000
@@ -180,27 +254,32 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         category: "transcription.performance"
     )
 
+    /// Short decoder context for product-design vocabulary commonly used in meetings.
+    /// It improves lexical recognition without forcing a language or paraphrasing speech.
+    private static let transcriptionVocabulary = """
+    Figma, UX, UI, design system, empty state, supporting text, breadcrumb, breadcrumbs, handoff, layout, mobile, desktop,
+    modal, chip, release, sprint, weekly, prototype, prototipo, Chrome, Discord, roaming, LDI.
+    """
+
     private static let sharedServiceResult: Result<WhisperTranscriptionService, Error> = Result {
         WhisperTranscriptionService(modelManager: try TranscriptionModelManager.live())
     }
 
     private let modelManager: TranscriptionModelManager
-    private let chunkDuration: TimeInterval
-    private let overlap: TimeInterval
+    private let performanceProfile: WhisperPerformanceProfile
     private let idleUnloadNanoseconds: UInt64
 
     private var loadedWhisper: WhisperKit?
     private var idleUnloadTask: Task<Void, Never>?
+    private(set) var lastMetrics: WhisperTranscriptionMetrics?
 
     init(
         modelManager: TranscriptionModelManager,
-        chunkDuration: TimeInterval = TranscriptionChunkPlanner.defaultChunkDuration,
-        overlap: TimeInterval = TranscriptionChunkPlanner.defaultOverlap,
+        performanceProfile: WhisperPerformanceProfile = WhisperPerformanceProfile(),
         idleUnloadNanoseconds: UInt64 = WhisperTranscriptionService.defaultIdleUnloadNanoseconds
     ) {
         self.modelManager = modelManager
-        self.chunkDuration = chunkDuration
-        self.overlap = overlap
+        self.performanceProfile = performanceProfile
         self.idleUnloadNanoseconds = idleUnloadNanoseconds
     }
 
@@ -212,36 +291,40 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         (try? await modelManager.hasInstalledModel()) == true
     }
 
+    func reset() async throws {
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
+        if let loadedWhisper {
+            self.loadedWhisper = nil
+            await loadedWhisper.unloadModels()
+        }
+        try await modelManager.reset()
+    }
+
     func prepareForUse(
         progress: @escaping @Sendable (TranscriptionSetupProgressSnapshot) -> Void
     ) async throws {
         idleUnloadTask?.cancel()
         idleUnloadTask = nil
-
         progress(.init(stage: .checking, fractionCompleted: 0))
-        let wasInstalled = try await modelManager.hasInstalledModel()
-
-        let resources = try await modelManager.ensureResourcesAvailable { fraction in
-            let clamped = Self.clamped(fraction)
-            if !wasInstalled, clamped < 0.9 {
-                progress(
-                    .init(
-                        stage: .downloading,
-                        fractionCompleted: Self.clamped(clamped / 0.9)
-                    )
-                )
-            } else {
-                progress(
-                    .init(
-                        stage: .preparingLanguageSupport,
-                        fractionCompleted: Self.clamped((clamped - 0.9) / 0.1)
-                    )
-                )
-            }
+        progress(.init(stage: .downloading, fractionCompleted: 0))
+        var resources = try await modelManager.ensureResourcesAvailable { fraction in
+            progress(.init(stage: .downloading, fractionCompleted: Self.clamped(fraction)))
         }
-
         progress(.init(stage: .optimizingForMac, fractionCompleted: 0))
-        _ = try await engine(resources: resources, progress: { _ in })
+        do {
+            _ = try await engine(resources: resources, progress: { _ in })
+        } catch {
+            // A complete-looking Core ML cache can still be stale or corrupted after an
+            // interrupted update. Repair only that private root and retry once.
+            loadedWhisper = nil
+            try await modelManager.reset()
+            progress(.init(stage: .downloading, fractionCompleted: 0))
+            resources = try await modelManager.ensureResourcesAvailable { fraction in
+                progress(.init(stage: .downloading, fractionCompleted: Self.clamped(fraction)))
+            }
+            _ = try await engine(resources: resources, progress: { _ in })
+        }
         progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
         scheduleIdleUnload()
     }
@@ -267,9 +350,22 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         store: RecordingStore,
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
     ) async throws -> Transcript {
+        try await transcribe(
+            recording: recording,
+            store: store,
+            progress: progress,
+            liveUpdate: { _ in }
+        )
+    }
+
+    func transcribe(
+        recording: Recording,
+        store: RecordingStore,
+        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
+        liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
+    ) async throws -> Transcript {
         idleUnloadTask?.cancel()
         idleUnloadTask = nil
-
         let cancellation = TranscriptionCancellationFlag()
         return try await withTaskCancellationHandler {
             do {
@@ -277,7 +373,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                     recording: recording,
                     store: store,
                     cancellation: cancellation,
-                    progress: progress
+                    progress: progress,
+                    liveUpdate: liveUpdate
                 )
                 scheduleIdleUnload()
                 return transcript
@@ -294,43 +391,173 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         recording: Recording,
         store: RecordingStore,
         cancellation: TranscriptionCancellationFlag,
-        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
+        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
+        liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
     ) async throws -> Transcript {
         try checkCancellation(cancellation)
-
         let overallStart = ProcessInfo.processInfo.systemUptime
         let (audioURL, duration) = try await resolveAudio(recording: recording, store: store)
-        let plans = TranscriptionChunkPlanner.plans(
-            duration: duration,
-            chunkDuration: chunkDuration,
-            overlap: overlap
-        )
-        guard !plans.isEmpty else { throw RecordingTranscriptionError.invalidDuration }
+        guard duration.isFinite, duration > 0 else {
+            throw RecordingTranscriptionError.invalidDuration
+        }
 
         progress(.init(stage: .preparingModel, fractionCompleted: 0))
         let resources = try await modelManager.ensureResourcesAvailable { fraction in
-            progress(.init(stage: .preparingModel, fractionCompleted: fraction))
+            progress(.init(stage: .preparingModel, fractionCompleted: Self.clamped(fraction)))
         }
         try checkCancellation(cancellation)
 
-        let whisper = try await engine(resources: resources, progress: progress)
+        let whisper: WhisperKit
+        do {
+            whisper = try await engine(resources: resources, progress: progress)
+        } catch {
+            loadedWhisper = nil
+            try await modelManager.reset()
+            let repairedResources = try await modelManager.ensureResourcesAvailable { fraction in
+                progress(.init(stage: .preparingModel, fractionCompleted: Self.clamped(fraction)))
+            }
+            whisper = try await engine(resources: repairedResources, progress: progress)
+        }
         try checkCancellation(cancellation)
+        progress(.init(stage: .transcribing, fractionCompleted: 0))
 
-        let transcript = try await transcribeChunks(
+        let vocabularyTokens = whisper.tokenizer?.encode(text: Self.transcriptionVocabulary)
+        let options = DecodingOptions(
+            temperatureFallbackCount: performanceProfile.temperatureFallbackCount,
+            usePrefillPrompt: true,
+            detectLanguage: true,
+            skipSpecialTokens: true,
+            wordTimestamps: true,
+            promptTokens: vocabularyTokens,
+            concurrentWorkerCount: performanceProfile.concurrentWorkerCount,
+            chunkingStrategy: performanceProfile.usesVAD ? .vad : nil
+        )
+        let audioInputOptions = AudioInputOptions(
+            channelMode: .sumChannels(nil),
+            audioLoadingMode: .incremental(
+                chunkDurationSeconds: performanceProfile.incrementalChunkDurationSeconds,
+                maxBufferedChunks: performanceProfile.maxBufferedChunks
+            )
+        )
+        let liveBuffer = TranscriptionLiveBuffer(
             recordingID: recording.id,
-            audioURL: audioURL,
-            recordingDuration: duration,
-            plans: plans,
-            whisper: whisper,
-            modelID: await modelManager.selectedModelID(),
-            cancellation: cancellation,
-            progress: progress
+            audioDuration: duration
+        )
+        let provisionalRateLimiter = TranscriptionLiveRateLimiter()
+        liveUpdate(liveBuffer.snapshot())
+
+        let previousSegmentDiscoveryCallback = whisper.segmentDiscoveryCallback
+        whisper.segmentDiscoveryCallback = { discoveredSegments in
+            let converted = discoveredSegments.compactMap { segment -> TranscriptSegment? in
+                let text = TranscriptTextSanitizer.normalizeRecognizedText(segment.text)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { return nil }
+
+                let words = (segment.words ?? []).map {
+                    TranscriptWord(
+                        startTime: TimeInterval($0.start),
+                        endTime: TimeInterval($0.end),
+                        text: $0.word,
+                        probability: $0.probability
+                    )
+                }
+
+                return TranscriptSegment(
+                    startTime: TimeInterval(segment.start),
+                    endTime: TimeInterval(segment.end),
+                    text: text,
+                    words: words
+                )
+            }
+
+            guard !converted.isEmpty else { return }
+            let snapshot = liveBuffer.merge(converted)
+            liveUpdate(snapshot)
+            progress(.init(stage: .transcribing, fractionCompleted: snapshot.fractionCompleted))
+        }
+        defer {
+            whisper.segmentDiscoveryCallback = previousSegmentDiscoveryCallback
+        }
+
+        let results = try await whisper.transcribe(
+            audioPath: audioURL.path,
+            audioInputOptions: audioInputOptions,
+            decodeOptions: options,
+            callback: { update in
+                if cancellation.isCancelled {
+                    return false
+                }
+
+                let snapshot = liveBuffer.updateProvisionalText(update.text)
+                if snapshot.segments.isEmpty,
+                   !snapshot.provisionalText.isEmpty,
+                   provisionalRateLimiter.shouldEmit() {
+                    liveUpdate(snapshot)
+                }
+                return true
+            }
+        )
+        try checkCancellation(cancellation)
+        progress(.init(stage: .transcribing, fractionCompleted: 1))
+
+        let segments = results.flatMap { result in
+            result.segments.compactMap { segment -> TranscriptSegment? in
+                let words = (segment.words ?? []).map {
+                    TranscriptWord(
+                        startTime: TimeInterval($0.start),
+                        endTime: TimeInterval($0.end),
+                        text: $0.word,
+                        probability: $0.probability
+                    )
+                }
+                let text = TranscriptTextSanitizer.normalizeRecognizedText(segment.text)
+                guard !text.isEmpty else { return nil }
+                return TranscriptSegment(
+                    startTime: TimeInterval(segment.start),
+                    endTime: TimeInterval(segment.end),
+                    text: text,
+                    words: words
+                )
+            }
+        }.sorted {
+            if $0.startTime == $1.startTime { return $0.id.uuidString < $1.id.uuidString }
+            return $0.startTime < $1.startTime
+        }
+        guard !segments.isEmpty else { throw RecordingTranscriptionError.emptyTranscription }
+
+        let language = results.lazy.map(\.language).first { !$0.isEmpty }
+        let selection = await modelManager.selectedSelection()
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
+        let transcript = Transcript(
+            recordingID: recording.id,
+            languageCode: language,
+            segments: segments,
+            metadata: TranscriptMetadata(
+                engine: "WhisperKit",
+                engineVersion: Self.engineVersion,
+                modelID: selection.modelID,
+                selection: selection,
+                processingDuration: elapsed
+            )
         )
 
-        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
-        let realTimeFactor = duration > 0 ? elapsed / duration : 0
+        let timings = results.map(\.timings)
+        let fallbackCount = Int(timings.reduce(0) { $0 + $1.totalDecodingFallbacks })
+        let windowCount = Int(timings.reduce(0) { $0 + $1.totalDecodingWindows })
+        lastMetrics = WhisperTranscriptionMetrics(
+            audioSeconds: duration,
+            asrSeconds: elapsed,
+            asrRealTimeFactor: elapsed / duration,
+            segmentCount: transcript.segments.count,
+            wordCount: transcript.segments.reduce(0) { $0 + $1.words.count },
+            incrementalChunkDurationSeconds: performanceProfile.incrementalChunkDurationSeconds,
+            maxBufferedChunks: performanceProfile.maxBufferedChunks,
+            workerCount: performanceProfile.concurrentWorkerCount,
+            fallbackCount: fallbackCount,
+            vadWindowCount: windowCount
+        )
         Self.logger.info(
-            "Whisper finished audioSeconds=\(duration) elapsedSeconds=\(elapsed) rtf=\(realTimeFactor) segments=\(transcript.segments.count)"
+            "Whisper metrics audioSeconds=\(duration) ASRSeconds=\(elapsed) ASR_RTF=\(elapsed / duration) segments=\(transcript.segments.count) words=\(transcript.segments.reduce(0) { $0 + $1.words.count }) workers=\(self.performanceProfile.concurrentWorkerCount) incrementalChunkSeconds=\(self.performanceProfile.incrementalChunkDurationSeconds) bufferedChunks=\(self.performanceProfile.maxBufferedChunks) fallbackCount=\(fallbackCount) vadWindows=\(windowCount)"
         )
         return transcript
     }
@@ -345,126 +572,19 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         }
 
         progress(.init(stage: .loadingModel, fractionCompleted: 0))
-        let loadStart = ProcessInfo.processInfo.systemUptime
         let config = WhisperKitConfig(
             model: nil,
             modelFolder: resources.modelFolder.path,
             tokenizerFolder: resources.tokenizerFolder,
             verbose: false,
-            prewarm: false,
+            prewarm: true,
             load: true,
             download: false
         )
         let whisper = try await WhisperKit(config)
         loadedWhisper = whisper
         progress(.init(stage: .loadingModel, fractionCompleted: 1))
-
-        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - loadStart)
-        Self.logger.info("Whisper Core ML load finished elapsedSeconds=\(elapsed)")
         return whisper
-    }
-
-    private func transcribeChunks(
-        recordingID: Recording.ID,
-        audioURL: URL,
-        recordingDuration: TimeInterval,
-        plans: [TranscriptionChunkPlan],
-        whisper: WhisperKit,
-        modelID: String,
-        cancellation: TranscriptionCancellationFlag,
-        progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
-    ) async throws -> Transcript {
-        var segments: [TranscriptSegment] = []
-        var detectedLanguage: String?
-        let profile = TranscriptionDecodingProfile.make(
-            duration: recordingDuration,
-            planCount: plans.count
-        )
-
-        for (index, plan) in plans.enumerated() {
-            try checkCancellation(cancellation)
-
-            let samples = try BoundedWhisperAudioLoader.loadSamples(
-                from: audioURL,
-                startTime: plan.startTime,
-                endTime: plan.endTime
-            )
-            guard !samples.isEmpty else { continue }
-
-            let shouldDetectLanguage = detectedLanguage == nil
-            let options = DecodingOptions(
-                language: detectedLanguage,
-                temperatureFallbackCount: profile.temperatureFallbackCount,
-                usePrefillPrompt: true,
-                detectLanguage: shouldDetectLanguage,
-                skipSpecialTokens: true,
-                wordTimestamps: true,
-                chunkingStrategy: profile.usesVAD ? .vad : nil
-            )
-            let results = try await whisper.transcribe(
-                audioArray: samples,
-                decodeOptions: options,
-                callback: { _ in
-                    !cancellation.isCancelled
-                }
-            )
-            try checkCancellation(cancellation)
-
-            for result in results {
-                if detectedLanguage == nil, !result.language.isEmpty {
-                    detectedLanguage = result.language
-                }
-                for segment in result.segments {
-                    let globalStart = plan.startTime + TimeInterval(segment.start)
-                    let globalEnd = plan.startTime + TimeInterval(segment.end)
-                    let midpoint = globalStart + (globalEnd - globalStart) / 2
-                    let accepted = midpoint >= plan.acceptanceStart
-                        && (plan.isLast ? midpoint <= plan.acceptanceEnd : midpoint < plan.acceptanceEnd)
-                    guard accepted else { continue }
-
-                    let words = (segment.words ?? []).map { word in
-                        TranscriptWord(
-                            startTime: plan.startTime + TimeInterval(word.start),
-                            endTime: plan.startTime + TimeInterval(word.end),
-                            text: word.word,
-                            probability: word.probability
-                        )
-                    }
-                    let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty else { continue }
-                    segments.append(
-                        TranscriptSegment(
-                            startTime: globalStart,
-                            endTime: globalEnd,
-                            text: text,
-                            words: words
-                        )
-                    )
-                }
-            }
-
-            progress(.init(
-                stage: .transcribing,
-                fractionCompleted: Double(index + 1) / Double(plans.count)
-            ))
-        }
-
-        segments.sort {
-            if $0.startTime == $1.startTime { return $0.id.uuidString < $1.id.uuidString }
-            return $0.startTime < $1.startTime
-        }
-        guard !segments.isEmpty else { throw RecordingTranscriptionError.emptyTranscription }
-
-        return Transcript(
-            recordingID: recordingID,
-            languageCode: detectedLanguage,
-            segments: segments,
-            metadata: TranscriptMetadata(
-                engine: "WhisperKit",
-                engineVersion: Self.engineVersion,
-                modelID: modelID
-            )
-        )
     }
 
     private func resolveAudio(
@@ -474,29 +594,21 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         let candidates = TranscriptionAudioSelection.candidates(for: recording)
         let isDualCapture = recording.sources.contains(.systemAudio)
             && recording.sources.contains(.microphone)
-
         guard !isDualCapture || !candidates.isEmpty else {
             throw RecordingTranscriptionError.combinedAudioUnavailable(recording.id)
         }
 
         for asset in candidates {
             do {
-                let url = try await store.managedAudioURL(
-                    recordingID: recording.id,
-                    audioAssetID: asset.id
-                )
+                let url = try await store.managedAudioURL(recordingID: recording.id, audioAssetID: asset.id)
                 let duration = asset.metadata.duration
-                if duration.isFinite, duration > 0 {
-                    return (url, duration)
-                }
+                if duration.isFinite, duration > 0 { return (url, duration) }
             } catch {
                 continue
             }
         }
 
-        if isDualCapture {
-            throw RecordingTranscriptionError.combinedAudioUnavailable(recording.id)
-        }
+        if isDualCapture { throw RecordingTranscriptionError.combinedAudioUnavailable(recording.id) }
         throw RecordingTranscriptionError.noManagedAudio(recording.id)
     }
 
@@ -504,11 +616,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         idleUnloadTask?.cancel()
         let delay = idleUnloadNanoseconds
         idleUnloadTask = Task { [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: delay)
-            } catch {
-                return
-            }
+            do { try await Task.sleep(nanoseconds: delay) } catch { return }
             await self?.unloadEngineAfterIdleTimeout()
         }
     }
@@ -521,9 +629,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     }
 
     private func checkCancellation(_ cancellation: TranscriptionCancellationFlag) throws {
-        if cancellation.isCancelled || Task.isCancelled {
-            throw CancellationError()
-        }
+        if cancellation.isCancelled || Task.isCancelled { throw CancellationError() }
     }
 
     nonisolated private static func clamped(_ value: Double) -> Double {

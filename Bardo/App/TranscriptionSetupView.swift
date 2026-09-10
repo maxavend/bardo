@@ -1,309 +1,371 @@
 import SwiftUI
 
+enum TranscriptionSetupCopy {
+    enum Stage: CaseIterable, Hashable, Sendable {
+        case checking
+        case listening
+        case settling
+        case meetingVoices
+        case welcomingVoices
+        case namingVoices
+        case ready
+        case paused
+        case failed
+    }
+
+    static func title(for stage: Stage) -> String {
+        switch stage {
+        case .checking: return "Preparando Bardo"
+        case .listening: return "Preparando Bardo"
+        case .settling: return "Bardo está terminando de preparar la voz"
+        case .meetingVoices: return "Preparando la identificación de participantes"
+        case .welcomingVoices: return "Bardo está organizando las voces"
+        case .namingVoices: return "Bardo está ordenando la conversación"
+        case .ready: return "Bardo está listo"
+        case .paused: return "Puedes continuar después"
+        case .failed: return "Algo salió mal"
+        }
+    }
+
+    static func detail(for stage: Stage) -> String {
+        switch stage {
+        case .checking: return "Estamos revisando que todo esté listo."
+        case .listening: return "Estamos preparando todo para que puedas empezar."
+        case .settling: return "Estamos dejando listo el reconocimiento de voz."
+        case .meetingVoices: return "Estamos preparando la identificación de participantes."
+        case .welcomingVoices: return "Cada voz tendrá su propio espacio."
+        case .namingVoices: return "Estamos ordenando quién dijo cada cosa."
+        case .ready: return "La transcripción se procesa de forma privada en este Mac."
+        case .paused: return "Tu progreso está guardado y podrás retomarlo después."
+        case .failed: return "No pudimos terminar. Inténtalo de nuevo cuando quieras."
+        }
+    }
+
+    static func stageLabel(for stage: Stage) -> String {
+        switch stage {
+        case .checking: return "Revisando…"
+        case .listening: return "Preparando el reconocimiento de voz…"
+        case .settling: return "Terminando de preparar la voz…"
+        case .meetingVoices: return "Preparando participantes…"
+        case .welcomingVoices: return "Organizando las voces…"
+        case .namingVoices: return "Ordenando la conversación…"
+        case .ready: return "Listo"
+        case .paused: return "En pausa"
+        case .failed: return "Necesita otro intento"
+        }
+    }
+
+    static func messages(for stage: Stage) -> [String] {
+        switch stage {
+        case .checking:
+            return [
+                "Comprobando que todo esté en su sitio.",
+                "Buscando lo necesario para empezar.",
+                "Dejando listo lo importante para después."
+            ]
+        case .listening:
+            return [
+                "Preparando el reconocimiento de voz.",
+                "Dejando todo listo para escuchar.",
+                "Bardo está aprendiendo a reconocer voces.",
+                "La parte silenciosa está avanzando.",
+                "Ya falta menos para empezar."
+            ]
+        case .settling:
+            return [
+                "Terminando de preparar el reconocimiento de voz.",
+                "Bardo está ajustando los últimos detalles.",
+                "Un momento más y esta parte estará lista.",
+                "Ya casi terminamos con la voz.",
+                "Todo está tomando su lugar."
+            ]
+        case .meetingVoices:
+            return [
+                "Preparando un lugar para cada participante.",
+                "Nos aseguramos de incluir todas las voces.",
+                "Bardo está identificando quién participa."
+            ]
+        case .welcomingVoices:
+            return [
+                "Organizando cada voz de la conversación.",
+                "Dando a cada participante su propio espacio.",
+                "Todo se procesa de forma privada en este Mac."
+            ]
+        case .namingVoices:
+            return [
+                "Ordenando quién dijo cada cosa.",
+                "Colocando cada voz en el lugar correcto.",
+                "Terminando de organizar la conversación."
+            ]
+        case .ready:
+            return ["Listo cuando tú quieras.", "Todo está preparado.", "Bardo ya puede empezar."]
+        case .paused:
+            return ["Tu progreso está guardado.", "Podrás continuar cuando quieras.", "Bardo estará aquí."]
+        case .failed:
+            return ["No se perdió nada.", "Puedes intentarlo otra vez.", "Volveremos a empezar desde aquí."]
+        }
+    }
+
+    static let retryButton = "Intentar de nuevo"
+    static let resetButton = "Empezar de nuevo"
+    static let cancelButton = "Pausar"
+    static let footer = "Esto solo ocurre una vez. Después, Bardo estará listo para ti."
+
+    static var allVisibleCopy: [String] {
+        let stageCopy = Stage.allCases.flatMap { stage in
+            [title(for: stage), detail(for: stage), stageLabel(for: stage)] + messages(for: stage)
+        }
+        return stageCopy + [retryButton, resetButton, cancelButton, footer]
+    }
+}
+
 struct TranscriptionSetupView: View {
+    @ObserveInjection var redraw
+
     let state: TranscriptionSetupCoordinator.State
     let retry: () -> Void
+    let cancel: () -> Void
+    let resetAndRetry: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var messageIndex = 0
+    init(
+        state: TranscriptionSetupCoordinator.State,
+        retry: @escaping () -> Void,
+        cancel: @escaping () -> Void = {},
+        resetAndRetry: @escaping () -> Void = {}
+    ) {
+        self.state = state
+        self.retry = retry
+        self.cancel = cancel
+        self.resetAndRetry = resetAndRetry
+    }
 
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(.background)
-                .ignoresSafeArea()
+        VStack(spacing: 24) {
+            Spacer(minLength: 24)
 
-            VStack(spacing: 26) {
-                Image(systemName: "waveform.badge.mic")
-                    .font(.system(size: 48, weight: .medium))
-                    .symbolRenderingMode(.hierarchical)
-                    .accessibilityHidden(true)
+            Image(systemName: "waveform.badge.mic")
+                .font(.largeTitle)
+                .symbolRenderingMode(.hierarchical)
+                .accessibilityHidden(true)
 
-                VStack(spacing: 8) {
-                    Text(title)
-                        .font(.largeTitle.weight(.semibold))
-                        .multilineTextAlignment(.center)
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.title2.weight(.semibold))
+                    .multilineTextAlignment(.center)
 
-                    Text(detail)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 520)
-                }
+                Text(detail)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: 520)
 
-                VStack(spacing: 14) {
-                    if case .failed = state {
-                        Button("Try Again", action: retry)
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
+            GroupBox {
+                VStack(alignment: .leading, spacing: 14) {
+                    if isTerminalState {
+                        terminalStateContent
                     } else {
-                        HStack(spacing: 12) {
-                            ProgressView(value: progressValue)
-                                .progressViewStyle(.linear)
-
-                            Text(percentText)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .frame(width: 34, alignment: .trailing)
-                        }
-
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text(stageLabel)
-                                .font(.callout.weight(.medium))
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Text(currentAside)
-                            .id(currentAside)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: 410, minHeight: 34)
-                            .transition(.opacity)
+                        activeSetupContent
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 20)
-                .frame(width: 500)
-                .bardoGlassSurface(cornerRadius: 22)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: 520)
 
-                VStack(spacing: 5) {
-                    Text("This setup only happens once.")
-                    Text("After it finishes, transcription and speaker detection run privately on this Mac.")
-                }
+            Text(TranscriptionSetupCopy.footer)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
-            }
-            .padding(48)
-        }
-        .frame(minWidth: 700, minHeight: 520)
-        .task(id: messageGroup) {
-            messageIndex = 0
-            guard !reduceMotion else { return }
+                .frame(maxWidth: 520)
 
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: 3_800_000_000)
-                } catch {
-                    return
+            Spacer(minLength: 24)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .enableInjection()
+    }
+
+    private var activeSetupContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            setupProgressIndicator
+
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Label {
+                    Text(stageLabel)
+                } icon: {
+                    ProgressView()
+                        .controlSize(.small)
                 }
-                guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: 0.24)) {
-                    messageIndex = (messageIndex + 1) % messages.count
+
+                Spacer(minLength: 12)
+
+                Text(stepLabel)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            rotatingProgressMessage
+                .frame(minHeight: 18, alignment: .leading)
+
+            if isCancellable {
+                HStack {
+                    Spacer()
+                    Button(TranscriptionSetupCopy.cancelButton, role: .cancel, action: cancel)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var setupProgressIndicator: some View {
+        if let fraction = measuredProgressFraction {
+            ProgressView(value: fraction)
+                .animation(.easeOut(duration: 0.2), value: fraction)
+                .accessibilityValue("\(Int((fraction * 100).rounded()))%")
+        } else {
+            ProgressView()
+                .progressViewStyle(LinearProgressViewStyle())
+                .accessibilityLabel(stageLabel)
+        }
+    }
+
+    private var rotatingProgressMessage: some View {
+        TimelineView(.periodic(from: .now, by: 4)) { context in
+            let messages = TranscriptionSetupCopy.messages(for: copyStage)
+            let tick = Int(context.date.timeIntervalSinceReferenceDate / 4)
+            let message = messages[tick % messages.count]
+
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .contentTransition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: message)
+        }
+    }
+
+    private var terminalStateContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label(stageLabel, systemImage: terminalStateSymbol)
+                .font(.headline)
+
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            setupActions
+        }
+    }
+
+    private var setupActions: some View {
+        HStack(spacing: 10) {
+            Button(TranscriptionSetupCopy.retryButton, action: retry)
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+
+            Button(TranscriptionSetupCopy.resetButton, action: resetAndRetry)
+
+            Spacer()
+        }
+    }
+
+    private var isTerminalState: Bool {
+        switch state {
+        case .cancelled, .failed:
+            return true
+        case .checking, .installing, .installingSpeakers, .ready:
+            return false
+        }
+    }
+
+    private var terminalStateSymbol: String {
+        switch state {
+        case .failed:
+            return "exclamationmark.triangle"
+        case .cancelled:
+            return "pause.circle"
+        default:
+            return "checkmark.circle"
+        }
+    }
+
+    private var isCancellable: Bool {
+        switch state {
+        case .checking, .installing, .installingSpeakers:
+            return true
+        case .ready, .cancelled, .failed:
+            return false
         }
     }
 
     private var title: String {
-        switch state {
-        case .checking:
-            return "Getting Bardo Ready"
-        case .installing(let progress):
-            switch progress.stage {
-            case .checking:
-                return "Getting Bardo Ready"
-            case .downloading:
-                return "Giving Bardo Its Ears"
-            case .preparingLanguageSupport:
-                return "Getting Languages in Order"
-            case .optimizingForMac:
-                return "Tuning It for This Mac"
-            }
-        case .installingSpeakers(let progress):
-            switch progress.stage {
-            case .downloading:
-                return "Learning Who Said What"
-            case .optimizingForMac:
-                return "Finishing the Voice Setup"
-            }
-        case .ready:
-            return "Bardo Is Ready"
-        case .failed:
-            return "Setup Couldn’t Finish"
-        }
+        TranscriptionSetupCopy.title(for: copyStage)
     }
 
     private var detail: String {
-        switch state {
-        case .checking:
-            return "A little one-time backstage work, then the app is yours."
-        case .installing(let progress):
-            switch progress.stage {
-            case .checking:
-                return "Checking what’s already here so Bardo only installs what it needs."
-            case .downloading:
-                return "Downloading the local transcription engine. Your audio won’t need to leave this Mac."
-            case .preparingLanguageSupport:
-                return "Preparing multilingual transcription so Bardo can keep up when the conversation switches gears."
-            case .optimizingForMac:
-                return "Making the transcription engine comfortable on this Mac before you ask it to work."
-            }
-        case .installingSpeakers(let progress):
-            switch progress.stage {
-            case .downloading:
-                return "Adding local speaker detection now, so there’s no surprise download later."
-            case .optimizingForMac:
-                return "Warming up the voice models so speaker-aware transcripts are ready too."
-            }
-        case .ready:
-            return "Everything is installed, warmed up, and ready to stay local."
-        case .failed(let message):
-            return message
-        }
+        TranscriptionSetupCopy.detail(for: copyStage)
     }
 
     private var stageLabel: String {
-        switch state {
-        case .checking:
-            return "Checking the setup…"
-        case .installing(let progress):
-            switch progress.stage {
-            case .checking:
-                return "Checking the setup…"
-            case .downloading:
-                return "Installing transcription…"
-            case .preparingLanguageSupport:
-                return "Preparing languages…"
-            case .optimizingForMac:
-                return "Optimizing transcription…"
-            }
-        case .installingSpeakers(let progress):
-            switch progress.stage {
-            case .downloading:
-                return "Installing speaker detection…"
-            case .optimizingForMac:
-                return "Optimizing speaker detection…"
-            }
-        case .ready:
-            return "Ready"
-        case .failed:
-            return "Setup needs attention"
-        }
+        TranscriptionSetupCopy.stageLabel(for: copyStage)
     }
 
-    private var messageGroup: MessageGroup {
+    private var copyStage: TranscriptionSetupCopy.Stage {
         switch state {
         case .checking:
             return .checking
         case .installing(let progress):
             switch progress.stage {
             case .checking: return .checking
-            case .downloading: return .transcriptionDownload
-            case .preparingLanguageSupport: return .languages
-            case .optimizingForMac: return .transcriptionOptimize
+            case .downloading: return .listening
+            case .optimizingForMac: return .settling
             }
         case .installingSpeakers(let progress):
             switch progress.stage {
-            case .downloading: return .speakerDownload
-            case .optimizingForMac: return .speakerOptimize
+            case .checking: return .meetingVoices
+            case .downloading: return .welcomingVoices
+            case .optimizingForMac: return .namingVoices
             }
         case .ready:
             return .ready
+        case .cancelled:
+            return .paused
         case .failed:
             return .failed
         }
     }
 
-    private var messages: [String] {
-        switch messageGroup {
-        case .checking:
-            return [
-                "Checking the toolbox before we make any noise.",
-                "Looking for anything we can reuse. Waste not, wait not.",
-                "Doing the boring part now so you don’t have to later."
-            ]
-        case .transcriptionDownload:
-            return [
-                "Bringing Bardo its ears. They’re a little chunky.",
-                "One download now. A lot less staring at spinners later.",
-                "Teaching the app to listen without phoning home.",
-                "The good news: this is the slowest part, and it only happens once."
-            ]
-        case .languages:
-            return [
-                "Sorting out words, accents, and the occasional dramatic pause.",
-                "Making room for more than one language. Ambitious, but fair.",
-                "Putting the tiny dictionary shelves where they belong."
-            ]
-        case .transcriptionOptimize:
-            return [
-                "Introducing the transcription engine to this Mac. They’re getting along.",
-                "Letting Core ML pick the comfy seats.",
-                "Warming up the fast path. Future-you says thanks.",
-                "Almost there. The silicon is stretching."
-            ]
-        case .speakerDownload:
-            return [
-                "Adding the part that knows who said what.",
-                "Handing everyone invisible name tags.",
-                "No cloud meeting bot has been invited to this conversation."
-            ]
-        case .speakerOptimize:
-            return [
-                "Teaching Bardo to tell voices apart without starting arguments.",
-                "Putting the speaker detector on its best behavior.",
-                "Final warm-up. Then you can transcribe to your heart’s content."
-            ]
-        case .ready:
-            return ["Ready when you are."]
-        case .failed:
-            return ["Nothing was thrown away. Try again and Bardo will pick up where it can."]
+    private var measuredProgressFraction: Double? {
+        switch state {
+        case .installing(let progress) where progress.stage == .downloading:
+            return min(1, max(0, progress.fractionCompleted))
+        case .installingSpeakers(let progress) where progress.stage == .downloading:
+            return min(1, max(0, progress.fractionCompleted))
+        case .checking, .installing, .installingSpeakers, .ready, .cancelled, .failed:
+            return nil
         }
     }
 
-    private var currentAside: String {
-        let available = messages
-        guard !available.isEmpty else { return "" }
-        return available[min(messageIndex, available.count - 1)]
-    }
-
-    private var progressValue: Double {
+    private var stepLabel: String {
+        let step: Int
         switch state {
         case .checking:
-            return 0.02
-        case .installing(let progress):
-            let fraction = min(1, max(0, progress.fractionCompleted))
-            switch progress.stage {
-            case .checking:
-                return 0.03
-            case .downloading:
-                return 0.05 + (0.60 * fraction)
-            case .preparingLanguageSupport:
-                return 0.66 + (0.06 * fraction)
-            case .optimizingForMac:
-                return 0.73 + (0.10 * fraction)
-            }
-        case .installingSpeakers(let progress):
-            let fraction = min(1, max(0, progress.fractionCompleted))
-            switch progress.stage {
-            case .downloading:
-                return 0.84 + (0.10 * fraction)
-            case .optimizingForMac:
-                return 0.95 + (0.05 * fraction)
-            }
+            return "Comprobando…"
+        case .installing:
+            step = 1
+        case .installingSpeakers:
+            step = 2
         case .ready:
-            return 1
+            return "Listo"
+        case .cancelled:
+            return "En pausa"
         case .failed:
-            return 0
+            return "Necesita otro intento"
         }
-    }
 
-    private var percentText: String {
-        "\(Int((progressValue * 100).rounded()))%"
-    }
-
-    private enum MessageGroup: Hashable {
-        case checking
-        case transcriptionDownload
-        case languages
-        case transcriptionOptimize
-        case speakerDownload
-        case speakerOptimize
-        case ready
-        case failed
+        if let fraction = measuredProgressFraction {
+            return "Paso \(step) de 2 · \(Int((fraction * 100).rounded()))%"
+        }
+        return "Paso \(step) de 2"
     }
 }

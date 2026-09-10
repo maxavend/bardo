@@ -1,147 +1,89 @@
 import SwiftUI
 
 struct LibrarySidebar: View {
+    @ObserveInjection var redraw
     @ObservedObject var model: LibraryViewModel
-    let onImport: () -> Void
+    @Binding var selection: BardoLibrarySection
 
     var body: some View {
-        content
-            .navigationTitle("Bardo")
-            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if model.isLoading && model.recordings.isEmpty {
-            ProgressView("Loading Recordings…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if model.isImporting && model.recordings.isEmpty {
-            ProgressView("Importing Audio…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let errorMessage = model.errorMessage, model.recordings.isEmpty {
-            ContentUnavailableView {
-                Label("Library Unavailable", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(errorMessage)
-            } actions: {
-                Button("Try Again") {
-                    Task { await model.reload() }
-                }
-            }
-        } else if model.recordings.isEmpty && !model.issues.isEmpty {
-            ContentUnavailableView {
-                Label("Library Needs Recovery", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text("\(model.issues.count) stored item\(model.issues.count == 1 ? "" : "s") could not be loaded. Bardo left them untouched.")
-            } actions: {
-                Button("Reload") {
-                    Task { await model.reload() }
-                }
-            }
-        } else if model.recordings.isEmpty {
-            ContentUnavailableView {
-                Label("No Recordings", systemImage: "waveform")
-            } description: {
-                Text("Record something, import an audio file, or drop audio into this window.")
-            } actions: {
-                Button("Import Audio", action: onImport)
-            }
-        } else {
-            List(selection: $model.selection) {
-                statusSections
-
-                Section("Recordings") {
-                    ForEach(model.recordings) { recording in
-                        RecordingRowView(recording: recording)
-                            .tag(recording.id)
-                    }
-                }
-            }
-            .listStyle(.sidebar)
-        }
-    }
-
-    @ViewBuilder
-    private var statusSections: some View {
-        if model.isImporting {
+        List(selection: $selection) {
             Section {
-                Label {
-                    Text("Importing audio…")
-                } icon: {
-                    ProgressView()
-                        .controlSize(.small)
+                ForEach(BardoLibrarySection.allCases) { section in
+                    Label {
+                        HStack(spacing: 8) {
+                            Text(section.title)
+                            Spacer(minLength: 4)
+                            if let count = count(for: section), count > 0 {
+                                Text("\(count)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } icon: {
+                        Image(systemName: section.symbol)
+                    }
+                    .tag(section)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
-        }
 
-        if let errorMessage = model.errorMessage {
-            Section("Library") {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+            if activeProcessingCount > 0 {
+                Section("Actividad") {
+                    Label {
+                        HStack {
+                            Text(activityLabel)
+                            Spacer()
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
+                    } icon: {
+                        Image(systemName: "clock.arrow.circlepath")
+                    }
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            if !model.issues.isEmpty {
+                Section {
+                    Label(
+                        model.issues.count == 1
+                            ? "1 elemento necesita revisión"
+                            : "\(model.issues.count) elementos necesitan revisión",
+                        systemImage: "exclamationmark.triangle"
+                    )
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-        }
-
-        if !model.issues.isEmpty {
-            Section("Recovery") {
-                ForEach(model.issues) { issue in
-                    Label(issue.message, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
         }
-    }
-}
-
-private struct RecordingRowView: View {
-    let recording: Recording
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: LibraryFormatting.sourceSymbol(recording.sources))
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 22, height: 22)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(recording.title)
-                        .font(.headline)
-                        .lineLimit(1)
-
-                    Spacer(minLength: 4)
-
-                    Image(systemName: LibraryFormatting.stateSymbol(recording.processingState))
-                        .font(.caption)
-                        .foregroundStyle(recording.processingState == .failed ? .primary : .secondary)
-                        .accessibilityLabel(LibraryFormatting.state(recording.processingState))
-                }
-
-                Text(recording.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                HStack(spacing: 5) {
-                    Text(LibraryFormatting.duration(recording.duration))
-                        .monospacedDigit()
-                    Text("·")
-                    Text(LibraryFormatting.source(recording.sources))
-                        .lineLimit(1)
-                }
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(recording.title), \(LibraryFormatting.source(recording.sources)), \(LibraryFormatting.duration(recording.duration)), \(LibraryFormatting.state(recording.processingState))"
+        .listStyle(.sidebar)
+        .navigationTitle("Bardo")
+        .navigationSplitViewColumnWidth(
+            min: BardoLayout.librarySidebarMinWidth,
+            ideal: BardoLayout.librarySidebarIdealWidth,
+            max: BardoLayout.librarySidebarMaxWidth
         )
+        .enableInjection()
+    }
+
+    private var activeProcessingCount: Int {
+        Set([model.transcriptionRecordingID, model.diarizationRecordingID].compactMap { $0 }).count
+    }
+
+    private var activityLabel: String {
+        if activeProcessingCount == 1 { return "1 conversación en proceso" }
+        return "\(activeProcessingCount) conversaciones en proceso"
+    }
+
+    private func count(for section: BardoLibrarySection) -> Int? {
+        switch section {
+        case .home, .trash:
+            return nil
+        case .recordings:
+            return model.recordings.filter { !$0.sources.contains(.importedFile) }.count
+        case .imported:
+            return model.recordings.filter { $0.sources.contains(.importedFile) }.count
+        case .favorites:
+            return model.recordings.filter { BardoFavoritesStore.shared.contains($0.id) }.count
+        }
     }
 }
