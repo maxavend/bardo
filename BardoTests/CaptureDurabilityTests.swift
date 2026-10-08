@@ -310,3 +310,59 @@ enum SyntheticAudio {
         return sampleBuffer!
     }
 }
+
+final class PrivatePersistenceTests: XCTestCase {
+    func testManifestsTranscriptsAndFoldersArePrivateToTheUser() async throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BardoPrivacy-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let libraryURL = base.appendingPathComponent("Library", isDirectory: true)
+        let source = base.appendingPathComponent("source.wav")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        try AudioTestFixture.makeWAV(at: source)
+
+        let store = RecordingStore(rootURL: libraryURL)
+        let recording = try await AudioImportService(store: store).importFile(at: source)
+        try await TranscriptStore(rootURL: libraryURL).save(Transcript(
+            recordingID: recording.id,
+            segments: [TranscriptSegment(startTime: 0, endTime: 0.5, text: "Privado")],
+            metadata: TranscriptMetadata(engine: "fixture", engineVersion: "1", modelID: "fixture")
+        ))
+
+        let recordingDirectory = libraryURL.appendingPathComponent(recording.id.uuidString, isDirectory: true)
+        for (url, expected) in [
+            (libraryURL, DurableFile.privateDirectoryPermissions),
+            (recordingDirectory, DurableFile.privateDirectoryPermissions),
+            (recordingDirectory.appendingPathComponent(RecordingStore.manifestFileName), DurableFile.privateFilePermissions),
+            (recordingDirectory.appendingPathComponent(TranscriptStore.transcriptFileName), DurableFile.privateFilePermissions)
+        ] {
+            let permissions = try XCTUnwrap(
+                FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber
+            )
+            XCTAssertEqual(permissions.int16Value & 0o777, expected, url.lastPathComponent)
+        }
+    }
+
+    func testLoadingTheLibraryTightensFoldersFromEarlierBuilds() async throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BardoPrivacyMigration-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let libraryURL = base.appendingPathComponent("Library", isDirectory: true)
+        let legacyRecording = libraryURL.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: legacyRecording,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o755]
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: libraryURL.path)
+
+        _ = try await RecordingStore(rootURL: libraryURL).loadLibrary()
+
+        for url in [libraryURL, legacyRecording] {
+            let permissions = try XCTUnwrap(
+                FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber
+            )
+            XCTAssertEqual(permissions.int16Value & 0o077, 0, url.lastPathComponent)
+        }
+    }
+}

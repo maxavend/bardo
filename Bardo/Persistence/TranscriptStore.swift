@@ -1,8 +1,3 @@
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 import Foundation
 
 struct TranscriptDocumentV1: Codable, Equatable, Sendable {
@@ -72,17 +67,11 @@ actor TranscriptStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(TranscriptDocumentV1(transcript: transcript))
         let destination = recordingDirectory.appendingPathComponent(Self.transcriptFileName)
-        let temporary = recordingDirectory
-            .appendingPathComponent(".transcript-\(UUID().uuidString).tmp")
 
         do {
-            try data.write(to: temporary, options: [])
-            try atomicallyMove(from: temporary, to: destination)
-        } catch let error as TranscriptStoreError {
-            try? FileManager.default.removeItem(at: temporary)
-            throw error
+            // Flushed before it replaces the previous transcript, and private to the user.
+            try DurableFile.write(data, to: destination, temporaryPrefix: ".transcript")
         } catch {
-            try? FileManager.default.removeItem(at: temporary)
             throw TranscriptStoreError.fileSystem(
                 operation: "write transcript",
                 entry: transcript.recordingID.uuidString,
@@ -151,19 +140,4 @@ actor TranscriptStore {
             .appendingPathComponent(Self.transcriptFileName)
     }
 
-    private func atomicallyMove(from sourceURL: URL, to destinationURL: URL) throws {
-        let result = sourceURL.path.withCString { sourcePath in
-            destinationURL.path.withCString { destinationPath in
-                rename(sourcePath, destinationPath)
-            }
-        }
-        guard result == 0 else {
-            let code = errno
-            throw TranscriptStoreError.fileSystem(
-                operation: "atomically replace transcript",
-                entry: destinationURL.lastPathComponent,
-                description: String(cString: strerror(code))
-            )
-        }
-    }
 }

@@ -205,6 +205,8 @@ actor RecordingStore {
 
     func loadLibrary() throws -> LibrarySnapshot {
         try ensureDirectoryExists(rootURL)
+        // Recordings are private. Tighten folders created by earlier builds (0755).
+        DurableFile.restrictToOwner(rootURL.deletingLastPathComponent(), permissions: DurableFile.privateDirectoryPermissions)
 
         let entries: [URL]
         do {
@@ -248,6 +250,7 @@ actor RecordingStore {
                 ))
                 continue
             }
+            DurableFile.restrictToOwner(entry, permissions: DurableFile.privateDirectoryPermissions)
 
             issues.append(contentsOf: temporaryManifestArtifactIssues(in: entry, recordingID: id))
             issues.append(contentsOf: temporaryAudioArtifactIssues(in: entry, recordingID: id))
@@ -391,10 +394,7 @@ actor RecordingStore {
 
     private func ensureDirectoryExists(_ url: URL) throws {
         do {
-            try FileManager.default.createDirectory(
-                at: url,
-                withIntermediateDirectories: true
-            )
+            try DurableFile.createPrivateDirectory(at: url)
         } catch {
             throw RecordingStoreError.fileSystem(
                 operation: "create directory for",
@@ -404,28 +404,17 @@ actor RecordingStore {
         }
     }
 
+    /// Flushes the manifest to disk before it replaces the previous one, so a power
+    /// loss leaves either the old or the new manifest, never an empty file.
     private func atomicallyWrite(_ data: Data, to destinationURL: URL, in directoryURL: URL) throws {
-        let temporaryURL = directoryURL.appendingPathComponent(".manifest-\(UUID().uuidString).tmp")
-
         do {
-            try data.write(to: temporaryURL, options: [])
+            try DurableFile.write(data, to: destinationURL, temporaryPrefix: ".manifest")
         } catch {
             throw RecordingStoreError.fileSystem(
-                operation: "write temporary manifest",
+                operation: "atomically replace manifest",
                 entry: destinationURL.lastPathComponent,
                 description: error.localizedDescription
             )
-        }
-
-        do {
-            try atomicallyMove(
-                from: temporaryURL,
-                to: destinationURL,
-                operation: "atomically replace manifest"
-            )
-        } catch {
-            try? FileManager.default.removeItem(at: temporaryURL)
-            throw error
         }
     }
 
