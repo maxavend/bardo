@@ -46,4 +46,12 @@ final class WhisperDecodingOptionsTests: XCTestCase {
         XCTAssertTrue(options.wordTimestamps, "Seeking and karaoke need word timings")
     }
 
+    func testRepetitiveConversationDoesNotTriggerTheLossyFallback() {
+        let options = WhisperTranscriptionService.decodingOptions(for: WhisperPerformanceProfile())
+
+        let threshold = try? XCTUnwrap(options.compressionRatioThreshold)
+        XCTAssertEqual(threshold, 3.5, "Whisper's 2.4 default made the fallback drop whole turns")
+        XCTAssertNotNil(options.logProbThreshold, "Low-confidence windows still fall back")
+        XCTAssertGreaterThan(options.temperatureFallbackCount, 0)
+    }
 }

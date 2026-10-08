@@ -597,6 +597,12 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         return transcript
     }
 
+    /// A window whose text compresses this well is a repetition loop. Whisper's default
+    /// (2.4) also flags ordinary conversation that repeats a phrase; the temperature
+    /// fallback it then triggers dropped whole turns at random (2–13 of 24 turns in a
+    /// 187 s test dialogue). Real loops compress far beyond 3.5.
+    static let repetitionCompressionRatioThreshold: Float = 3.5
+
     /// Decoding settings for every transcription.
     ///
     /// No prompt tokens: conditioning the decoder on a vocabulary prompt made Whisper
@@ -604,7 +610,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     /// conversation lost its first 13 s). Product terms are normalized after recognition
     /// by `TranscriptTextSanitizer` instead.
     nonisolated static func decodingOptions(for profile: WhisperPerformanceProfile) -> DecodingOptions {
-        DecodingOptions(
+        var options = DecodingOptions(
             temperatureFallbackCount: profile.temperatureFallbackCount,
             usePrefillPrompt: true,
             detectLanguage: true,
@@ -613,6 +619,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             concurrentWorkerCount: profile.concurrentWorkerCount,
             chunkingStrategy: profile.usesVAD ? .vad : nil
         )
+        options.compressionRatioThreshold = repetitionCompressionRatioThreshold
+        return options
     }
 
     nonisolated static func audioInputOptions(for profile: WhisperPerformanceProfile) -> AudioInputOptions {
