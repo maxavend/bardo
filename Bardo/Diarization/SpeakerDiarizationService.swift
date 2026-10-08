@@ -217,6 +217,7 @@ actor SpeakerDiarizationService: RecordingDiarizing {
     /// One download/load at a time, shared by setup, Settings, warm-up and diarization.
     private var preparation: Task<Void, Error>?
     private var preparationAllowsDownload = false
+    private var preparationWaiters = 0
     private let preparationProgress = ProgressFanOut<DiarizationSetupProgressSnapshot>()
     /// SpeakerKit cannot stop a running inference promptly. A cancelled run keeps
     /// finishing in the background, and the next one waits for it to free its memory.
@@ -368,12 +369,10 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         }
 
         while let current = preparation, current.isCancelled {
-            _ = try? await current.value
+            _ = try? await CancellableAwait.value(of: current, cancelUnderlyingTask: false)
+            try Task.checkCancellation()
             if preparation == current { preparation = nil }
         }
-
-        let observer = preparationProgress.add(progress)
-        defer { preparationProgress.remove(observer) }
 
         let task: Task<Void, Error>
         let joinedWithoutDownload: Bool
@@ -381,6 +380,7 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             task = current
             joinedWithoutDownload = allowDownload && !preparationAllowsDownload
         } else {
+            preparationProgress.reset()
             let fanOut = preparationProgress
             task = Task { try await self.performPreparation(allowDownload: allowDownload, progress: { fanOut.send($0) }) }
             preparation = task
@@ -392,8 +392,19 @@ actor SpeakerDiarizationService: RecordingDiarizing {
             }
         }
 
+        let observer = preparationProgress.add(progress)
+        preparationWaiters += 1
+        defer {
+            preparationProgress.remove(observer)
+            preparationWaiters -= 1
+            // Stop a shared preparation only when the last caller gave up.
+            if Task.isCancelled, preparationWaiters == 0, preparation == task {
+                task.cancel()
+            }
+        }
+
         do {
-            try await CancellableAwait.value(of: task)
+            try await CancellableAwait.value(of: task, cancelUnderlyingTask: false)
         } catch where joinedWithoutDownload && !(error is CancellationError) {
             // A warm-up that could only load failed; this caller may download.
             try await ensureLoaded(allowDownload: true, progress: progress)

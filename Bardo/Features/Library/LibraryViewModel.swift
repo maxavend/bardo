@@ -457,6 +457,8 @@ final class LibraryViewModel: ObservableObject {
             try await activeTranscriptStore.save(generated)
 
             try await updateRecording(recordingID) { $0.processingState = .completed }
+            // The models may have been downloaded on demand for this transcription.
+            NotificationCenter.default.post(name: .bardoModelsChanged, object: nil)
             if selection == recordingID {
                 transcript = generated
                 liveTranscription = nil
@@ -538,6 +540,7 @@ final class LibraryViewModel: ObservableObject {
 
             diarizationProgress = .init(stage: .saving, fractionCompleted: 0)
             try await resolveTranscriptStore().save(updated)
+            NotificationCenter.default.post(name: .bardoModelsChanged, object: nil)
             if selection == recordingID {
                 transcript = updated
 

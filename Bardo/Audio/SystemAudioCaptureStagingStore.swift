@@ -117,6 +117,30 @@ actor SystemAudioCaptureStagingStore {
         if activeRecordingID == recordingID { activeRecordingID = nil }
     }
 
+    /// Removes what is left of a capture after a recovery published part of it. Readable
+    /// audio that was not published stays for another recovery; unreadable leftovers go
+    /// to the Trash instead of being deleted.
+    func finishRecovery(recordingID: UUID, reader: AudioMetadataReader) throws {
+        let directory = rootURL.appendingPathComponent(recordingID.uuidString, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        let remaining = StagedCaptureContents.load(recordingID: recordingID, directoryURL: directory)
+        if !remaining.readableAudioFiles(using: reader).isEmpty { return }
+        if remaining.audioFiles.isEmpty {
+            try FileManager.default.removeItem(at: directory)
+        } else {
+            try FileManager.default.trashItem(at: directory, resultingItemURL: nil)
+        }
+    }
+
+    /// Records where each source starts on the recording timeline.
+    func recordTimeline(recordingID: UUID, systemOffset: TimeInterval?, microphoneOffset: TimeInterval?) {
+        let directory = rootURL.appendingPathComponent(recordingID.uuidString, isDirectory: true)
+        guard var manifest = CaptureStagingManifest.read(from: directory) else { return }
+        manifest.systemTimelineOffset = systemOffset
+        manifest.microphoneTimelineOffset = microphoneOffset
+        try? manifest.write(into: directory)
+    }
+
     /// The staged files of a capture that is not currently recording.
     func contents(recordingID: UUID) -> StagedCaptureContents? {
         guard activeRecordingID != recordingID else { return nil }

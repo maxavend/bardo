@@ -26,6 +26,8 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
     private let channelCount: Int
     private let bitRate: Int
     private let maximumPendingBuffers: Int
+    /// Tests replace the encoder's readiness to exercise the backlog deterministically.
+    private let isReadyForMoreData: @Sendable (AVAssetWriterInput) -> Bool
     private let lock = NSLock()
 
     // Mutable state is only touched while holding `lock`.
@@ -42,12 +44,14 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
         outputURL: URL,
         channelCount: Int,
         bitRate: Int = 128_000,
-        maximumPendingBuffers: Int = CMSampleBufferAudioWriter.defaultMaximumPendingBuffers
+        maximumPendingBuffers: Int = CMSampleBufferAudioWriter.defaultMaximumPendingBuffers,
+        isReadyForMoreData: @escaping @Sendable (AVAssetWriterInput) -> Bool = { $0.isReadyForMoreMediaData }
     ) {
         self.outputURL = outputURL
         self.channelCount = channelCount
         self.bitRate = bitRate
         self.maximumPendingBuffers = max(1, maximumPendingBuffers)
+        self.isReadyForMoreData = isReadyForMoreData
     }
 
     var elapsedTime: TimeInterval {
@@ -86,7 +90,7 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
                 }
 
                 try drainPendingLocked(input: input, writer: writer)
-                if pending.isEmpty, input.isReadyForMoreMediaData {
+                if pending.isEmpty, isReadyForMoreData(input) {
                     try appendLocked(sampleBuffer, input: input, writer: writer)
                 } else if pending.count < maximumPendingBuffers {
                     pending.append(sampleBuffer)
@@ -116,6 +120,10 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
         var finalizationError = state.2
         if finalizationError == nil, writer.status == .writing {
             await drainPendingForFinalization(input: input, writer: writer)
+            // Draining can fail the writer; finishing a failed writer raises an exception.
+            finalizationError = lock.bardoWithLock { failure }
+        }
+        if finalizationError == nil, writer.status == .writing {
             input.markAsFinished()
             await withCheckedContinuation { continuation in
                 writer.finishWriting {
@@ -180,7 +188,7 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
     }
 
     private func drainPendingLocked(input: AVAssetWriterInput, writer: AVAssetWriter) throws {
-        while !pending.isEmpty, input.isReadyForMoreMediaData {
+        while !pending.isEmpty, isReadyForMoreData(input) {
             let next = pending.removeFirst()
             try appendLocked(next, input: input, writer: writer)
         }

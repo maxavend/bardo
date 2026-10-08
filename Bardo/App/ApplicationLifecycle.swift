@@ -56,28 +56,43 @@ final class BardoAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if let microphone = MicrophoneRecordingController.activeForApplicationTermination,
            microphone.requiresTerminationFinalization {
-            return deferTermination(sender) {
+            return deferTermination(sender, timeout: Self.finalizationTimeout(forRecordingDuration: microphone.elapsedTime)) {
                 await microphone.prepareForApplicationTermination()
             }
         }
 
         if let systemAudio = SystemAudioRecordingController.activeForApplicationTermination,
            systemAudio.requiresTerminationFinalization {
-            return deferTermination(sender) {
+            return deferTermination(sender, timeout: Self.finalizationTimeout(forRecordingDuration: systemAudio.elapsedTime)) {
                 await systemAudio.prepareForApplicationTermination()
+            }
+        }
+
+        if CaptureRecoveryActivity.isActive {
+            return deferTermination(sender, timeout: Self.recoveryTimeout) {
+                while CaptureRecoveryActivity.isActive {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
             }
         }
 
         return .terminateNow
     }
 
-    /// Saving a recording on quit normally takes seconds. If ScreenCaptureKit or the
-    /// encoder never answers, quit anyway: staged audio is crash-safe and is offered
-    /// for recovery on the next launch.
-    static let finalizationTimeout: Duration = .seconds(45)
+    /// Saving a recording on quit compresses the microphone and builds the conversation
+    /// mix, which grows with the recording: allow 45 s plus 3 minutes per hour of audio,
+    /// up to 20 minutes. If ScreenCaptureKit or the encoder never answers, quit anyway:
+    /// staged audio is crash-safe and is offered for recovery on the next launch.
+    static func finalizationTimeout(forRecordingDuration duration: TimeInterval) -> Duration {
+        let hours = max(0, duration.isFinite ? duration : 0) / 3_600
+        return .seconds(min(45 + hours * 180, 20 * 60))
+    }
+
+    static let recoveryTimeout: Duration = .seconds(300)
 
     private func deferTermination(
         _ sender: NSApplication,
+        timeout: Duration,
         operation: @escaping @MainActor () async -> Void
     ) -> NSApplication.TerminateReply {
         if terminationInProgress {
@@ -91,7 +106,7 @@ final class BardoAppDelegate: NSObject, NSApplicationDelegate {
             reply.send()
         }
         Task { @MainActor in
-            try? await Task.sleep(for: Self.finalizationTimeout)
+            try? await Task.sleep(for: timeout)
             reply.send()
         }
         return .terminateLater

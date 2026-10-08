@@ -144,14 +144,77 @@ actor RecordingStore {
                 in: recordingDirectory
             )
         } catch {
+            var everySourceReturned = true
             for file in transferred.reversed() {
-                try? FileManager.default.moveItem(at: file.current, to: file.source)
+                do {
+                    try FileManager.default.moveItem(at: file.current, to: file.source)
+                } catch {
+                    everySourceReturned = false
+                }
             }
             // This directory was created exclusively for this failed publication. Removing
-            // it cannot affect an existing recording; transferred sources were returned above.
-            try? FileManager.default.removeItem(at: recordingDirectory)
+            // it cannot affect an existing recording; transferred sources were returned
+            // above. If any could not be returned, keep the directory so no audio is lost:
+            // `reclaimIncompletePublication` hands it back to recovery later.
+            if everySourceReturned {
+                try? FileManager.default.removeItem(at: recordingDirectory)
+            }
             throw error
         }
+    }
+
+    /// Returns audio from a publication that never wrote its manifest (Bardo quit or
+    /// crashed halfway) to the capture's staging directory, so recovery sees every source
+    /// again. Returns true when an incomplete publication was reclaimed.
+    @discardableResult
+    func reclaimIncompletePublication(recordingID: Recording.ID, into stagingDirectory: URL) throws -> Bool {
+        let directory = recordingDirectoryURL(for: recordingID)
+        guard FileManager.default.fileExists(atPath: directory.path),
+              !FileManager.default.fileExists(atPath: manifestURL(for: recordingID).path) else {
+            return false
+        }
+
+        let audioDirectory = audioDirectoryURL(for: recordingID)
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: audioDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )) ?? []
+
+        for entry in entries {
+            let name = entry.lastPathComponent
+            let assetName: String
+            let fileExtension: String
+            if name.hasPrefix(".audio-"), entry.pathExtension == "tmp" {
+                assetName = String(name.dropFirst(".audio-".count).dropLast(".tmp".count))
+                fileExtension = Self.detectedAudioExtension(of: entry)
+            } else {
+                assetName = entry.deletingPathExtension().lastPathComponent
+                fileExtension = entry.pathExtension
+            }
+            guard UUID(uuidString: assetName) != nil, !fileExtension.isEmpty else { continue }
+
+            let destination = stagingDirectory.appendingPathComponent("\(assetName).\(fileExtension)")
+            guard !FileManager.default.fileExists(atPath: destination.path) else { continue }
+            try FileManager.default.moveItem(at: entry, to: destination)
+        }
+
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: audioDirectory.path)) ?? []
+        if leftovers.isEmpty {
+            try FileManager.default.removeItem(at: directory)
+        }
+        return true
+    }
+
+    /// Identifies a staged audio container from its header.
+    private static func detectedAudioExtension(of url: URL) -> String {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "m4a" }
+        defer { try? handle.close() }
+        let header = (try? handle.read(upToCount: 12)) ?? Data()
+        if header.starts(with: Data("caff".utf8)) { return "caf" }
+        if header.starts(with: Data("RIFF".utf8)) { return "wav" }
+        if header.starts(with: Data("FORM".utf8)) { return "aiff" }
+        return "m4a"
     }
 
     func read(id: Recording.ID) throws -> Recording {
@@ -195,6 +258,11 @@ actor RecordingStore {
             )
         }
         return url
+    }
+
+    /// Whether anything, complete or not, already occupies this recording's folder.
+    func recordingDirectoryExists(recordingID: Recording.ID) -> Bool {
+        FileManager.default.fileExists(atPath: recordingDirectoryURL(for: recordingID).path)
     }
 
     func recordingDirectoryURL(recordingID: Recording.ID) throws -> URL {

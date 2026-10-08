@@ -72,6 +72,7 @@ actor TranscriptionModelManager {
     private var modelState: ManagedModelState = .notInstalled
     /// One download/preparation at a time, shared by setup, Settings and transcription.
     private var inFlightPreparation: Task<TranscriptionModelResources, Error>?
+    private var preparationWaiters = 0
     private let preparationProgress = ProgressFanOut<Double>()
 
     private static let sharedManagerResult: Result<TranscriptionModelManager, Error> = Result {
@@ -165,13 +166,11 @@ actor TranscriptionModelManager {
             return cachedResources
         }
 
-        let observer = preparationProgress.add(progress)
-        defer { preparationProgress.remove(observer) }
-
         // A cancelled download may still be unwinding; never start a second one into
-        // the same folder until it has stopped.
+        // the same folder until it has stopped. Waiting honours this caller's own cancel.
         while let current = inFlightPreparation, current.isCancelled {
-            _ = try? await current.value
+            _ = try? await CancellableAwait.value(of: current, cancelUnderlyingTask: false)
+            try Task.checkCancellation()
             if inFlightPreparation == current { inFlightPreparation = nil }
         }
 
@@ -179,6 +178,7 @@ actor TranscriptionModelManager {
         if let inFlightPreparation {
             preparation = inFlightPreparation
         } else {
+            preparationProgress.reset()
             let fanOut = preparationProgress
             preparation = Task { try await self.prepareResources(progress: { fanOut.send($0) }) }
             inFlightPreparation = preparation
@@ -188,9 +188,18 @@ actor TranscriptionModelManager {
             }
         }
 
-        // Cancelling any caller (setup "Pause", transcription "Cancel") stops the shared
-        // download; every caller then sees the cancellation.
-        return try await CancellableAwait.value(of: preparation)
+        let observer = preparationProgress.add(progress)
+        preparationWaiters += 1
+        defer {
+            preparationProgress.remove(observer)
+            preparationWaiters -= 1
+            // Setup, Settings and a transcription can share one download. Stop it only
+            // when the last of them gave up.
+            if Task.isCancelled, preparationWaiters == 0, inFlightPreparation == preparation {
+                preparation.cancel()
+            }
+        }
+        return try await CancellableAwait.value(of: preparation, cancelUnderlyingTask: false)
     }
 
     private func preparationFinished(_ preparation: Task<TranscriptionModelResources, Error>) {

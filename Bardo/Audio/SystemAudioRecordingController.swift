@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import OSLog
 
 @MainActor
 final class SystemAudioRecordingController: ObservableObject {
@@ -63,6 +64,7 @@ final class SystemAudioRecordingController: ObservableObject {
     }
 
     private static weak var activeController: SystemAudioRecordingController?
+    private static let logger = Logger(subsystem: "com.maxavend.bardo", category: "capture.recovery")
 
     private var store: RecordingStore?
     private var stagingStore: SystemAudioCaptureStagingStore?
@@ -234,49 +236,71 @@ final class SystemAudioRecordingController: ObservableObject {
         }
     }
 
-    /// Publishes the readable audio of an interrupted capture into the Library. Sources
-    /// are aligned at their start because the interruption lost their exact timing.
+    /// Publishes the readable audio of an interrupted capture into the Library.
+    ///
+    /// Nothing that was not published is deleted: readable audio left over (for example
+    /// several files from a capture without bookkeeping) stays for another recovery, and
+    /// unreadable leftovers go to the Trash. Sources are aligned with the offsets saved
+    /// when the capture stopped, or at their start if it never stopped cleanly.
     @discardableResult
     func recoverRecoveryIssue(_ issue: RecordingStoreIssue) async -> Recording? {
-        guard let recordingID = issue.recordingID, !isBusy, !isRecovering else { return nil }
+        guard let stagingID = issue.recordingID, !isBusy, !isRecovering else { return nil }
         isRecovering = true
-        defer { isRecovering = false }
+        CaptureRecoveryActivity.begin()
+        defer {
+            isRecovering = false
+            CaptureRecoveryActivity.end()
+        }
 
         do {
             let stagingStore = try resolveStagingStore()
-            guard let contents = await stagingStore.contents(recordingID: recordingID) else {
+            let store = try resolveStore()
+            guard let staged = await stagingStore.contents(recordingID: stagingID) else {
+                await refreshRecoveryIssues()
+                return nil
+            }
+            // A save that stopped halfway left some sources in the Library folder.
+            if try await store.reclaimIncompletePublication(recordingID: stagingID, into: staged.directoryURL) {
+                Self.logger.info("Reclaimed an incomplete publication for recovery")
+            }
+            guard let contents = await stagingStore.contents(recordingID: stagingID) else {
                 await refreshRecoveryIssues()
                 return nil
             }
 
-            if (try? await resolveStore().read(id: recordingID)) != nil {
-                try? await stagingStore.discardCapture(recordingID: recordingID)
-                await refreshRecoveryIssues()
-                errorMessage = CapturePublicationError.alreadyInLibrary.localizedDescription
-                return nil
-            }
-
-            let readable = contents.audioFiles.filter { (try? metadataReader.read(from: $0)) != nil }
             let manifest = contents.manifest
             var tracks: [StagedTrack] = []
-            for url in readable {
+            for url in contents.readableAudioFiles(using: metadataReader) {
                 let fileID = UUID(uuidString: url.deletingPathExtension().lastPathComponent)
                 if let manifest {
-                    // Only original sources are recovered; a stale mix is derived again.
+                    // Only original sources are recovered; the mix is derived again.
                     if let fileID, fileID == manifest.systemAssetID {
-                        tracks.append(StagedTrack(role: .systemOriginal, assetID: fileID, url: url, firstPresentationTime: nil))
+                        tracks.append(StagedTrack(role: .systemOriginal, assetID: fileID, url: url,
+                                                  firstPresentationTime: manifest.systemTimelineOffset))
                     } else if let fileID, fileID == manifest.microphoneAssetID {
-                        tracks.append(StagedTrack(role: .microphoneOriginal, assetID: fileID, url: url, firstPresentationTime: nil))
+                        tracks.append(StagedTrack(role: .microphoneOriginal, assetID: fileID, url: url,
+                                                  firstPresentationTime: manifest.microphoneTimelineOffset))
                     }
                 } else if tracks.isEmpty {
-                    // Without bookkeeping the source is unknown; keep the system role.
-                    tracks.append(StagedTrack(role: .systemOriginal, assetID: fileID ?? UUID(), url: url, firstPresentationTime: nil))
+                    // Without bookkeeping the source is unknown: recover one file at a time
+                    // so every readable file becomes its own recording.
+                    tracks.append(StagedTrack(role: .systemOriginal, assetID: UUID(), url: url, firstPresentationTime: nil))
                 }
             }
             guard !tracks.isEmpty else { throw CapturePublicationError.noAudioCaptured }
             tracks.sort { $0.role == .systemOriginal && $1.role != .systemOriginal }
+            if tracks.contains(where: { $0.firstPresentationTime == nil }) {
+                tracks = tracks.map {
+                    StagedTrack(role: $0.role, assetID: $0.assetID, url: $0.url, firstPresentationTime: nil)
+                }
+            }
 
-            let mixAssetID = manifest?.mixAssetID ?? UUID()
+            // The staging ID may already name a published recording (part of the capture
+            // was saved before); never overwrite or discard it.
+            let recordingID = await store.recordingDirectoryExists(recordingID: stagingID)
+                ? UUID()
+                : stagingID
+            let mixAssetID = UUID()
             let (recording, _) = try await assembleAndPublish(
                 recordingID: recordingID,
                 tracks: tracks,
@@ -285,7 +309,7 @@ final class SystemAudioRecordingController: ObservableObject {
                 title: manifest?.title,
                 startedAt: contents.startedAt
             )
-            try? await stagingStore.discardCapture(recordingID: recordingID)
+            try? await stagingStore.finishRecovery(recordingID: stagingID, reader: metadataReader)
             await refreshRecoveryIssues()
             onRecordingPublished?(recording)
             return recording
@@ -456,6 +480,18 @@ final class SystemAudioRecordingController: ObservableObject {
             } else if let error = result.microphoneError {
                 warnings.append(error)
             }
+        }
+
+        // Save the alignment first: if publishing is interrupted, recovery keeps it.
+        let firstSampleTimes = [result.systemTrack?.firstPresentationTime, result.microphoneTrack?.firstPresentationTime]
+            .compactMap { $0 }
+            .filter(\.isFinite)
+        if let origin = firstSampleTimes.min() {
+            await stagingStore?.recordTimeline(
+                recordingID: prepared.recordingID,
+                systemOffset: result.systemTrack.map { max(0, $0.firstPresentationTime - origin) },
+                microphoneOffset: result.microphoneTrack.map { max(0, $0.firstPresentationTime - origin) }
+            )
         }
 
         if let stopError = result.streamStopError {

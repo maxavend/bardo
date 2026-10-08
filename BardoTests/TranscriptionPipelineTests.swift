@@ -45,4 +45,5 @@ final class WhisperDecodingOptionsTests: XCTestCase {
         XCTAssertTrue(options.detectLanguage)
         XCTAssertTrue(options.wordTimestamps, "Seeking and karaoke need word timings")
     }
+
 }

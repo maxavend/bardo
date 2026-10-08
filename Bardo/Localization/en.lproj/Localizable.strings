@@ -323,7 +323,7 @@
 "Add the audio captured before the interruption to your library" = "Add the audio captured before the interruption to your library";
 "Stop recording (⌘.)" = "Stop recording (⌘.)";
 "The capture does not contain any readable audio." = "The capture does not contain any readable audio.";
-"This capture is already in your library." = "This capture is already in your library.";
+"This capture is already in your library. Its leftover copy was moved to the Trash." = "This capture is already in your library. Its leftover copy was moved to the Trash.";
 "A microphone recording is already active or changing state." = "A microphone recording is already active or changing state.";
 "Another Bardo recording is already active." = "Another Bardo recording is already active.";
 "Bardo could not discard %@: %@" = "Bardo could not discard %@: %@";

@@ -473,6 +473,97 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testCaptureWithoutBookkeepingRecoversEveryFileWithoutDeletingAny() async throws {
+        // Staging left by an earlier build: two readable files and no capture.json.
+        let directory = stagingURL.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try AudioTestFixture.makeM4A(at: directory.appendingPathComponent("\(UUID().uuidString).m4a"), channelCount: 2, duration: 0.6)
+        try AudioTestFixture.makeM4A(at: directory.appendingPathComponent("\(UUID().uuidString).m4a"), channelCount: 1, duration: 0.4)
+        let store = RecordingStore(rootURL: libraryURL)
+        let controller = makeController(store: store, picker: FakeSystemContentPicker(), backend: FakeSystemAudioCaptureBackend())
+
+        await controller.refreshRecoveryIssues()
+        let first = try XCTUnwrap(controller.recoveryIssues.first)
+        let firstRecovery = await controller.recoverRecoveryIssue(first)
+        XCTAssertNotNil(firstRecovery)
+        XCTAssertEqual(controller.recoveryIssues.count, 1, "The other readable file must stay recoverable")
+
+        let second = try XCTUnwrap(controller.recoveryIssues.first)
+        let secondRecovery = await controller.recoverRecoveryIssue(second)
+        XCTAssertNotNil(secondRecovery)
+        XCTAssertNotEqual(firstRecovery?.id, secondRecovery?.id)
+        XCTAssertTrue(controller.recoveryIssues.isEmpty)
+        let library = try await store.loadLibrary()
+        XCTAssertEqual(library.recordings.count, 2)
+    }
+
+    @MainActor
+    func testSaveInterruptedHalfwayIsRecoveredWithEverySourceAndItsAlignment() async throws {
+        let staging = SystemAudioCaptureStagingStore(rootURL: stagingURL)
+        let recordingID = UUID()
+        let prepared = try await staging.prepareCapture(
+            recordingID: recordingID,
+            systemAssetID: UUID(),
+            microphoneAssetID: UUID(),
+            mixAssetID: UUID(),
+            title: "Entrevista"
+        )
+        try AudioTestFixture.makeM4A(at: prepared.systemURL, channelCount: 2, duration: 0.6)
+        try AudioTestFixture.makeM4A(at: try XCTUnwrap(prepared.microphoneURL), channelCount: 1, duration: 0.5)
+        await staging.recordTimeline(recordingID: recordingID, systemOffset: 0, microphoneOffset: 0.075)
+        await staging.finishActiveCapture(recordingID: recordingID)
+
+        // Bardo quit after moving the system track into the Library, before its manifest.
+        let audioFolder = libraryURL
+            .appendingPathComponent(recordingID.uuidString, isDirectory: true)
+            .appendingPathComponent(RecordingStore.audioDirectoryName, isDirectory: true)
+        try FileManager.default.createDirectory(at: audioFolder, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(
+            at: prepared.systemURL,
+            to: audioFolder.appendingPathComponent(".audio-\(prepared.systemAssetID.uuidString).tmp")
+        )
+
+        let store = RecordingStore(rootURL: libraryURL)
+        let controller = makeController(store: store, picker: FakeSystemContentPicker(), backend: FakeSystemAudioCaptureBackend())
+        await controller.refreshRecoveryIssues()
+        let issue = try XCTUnwrap(controller.recoveryIssues.first)
+        let recoveredResult = await controller.recoverRecoveryIssue(issue)
+        let recovered = try XCTUnwrap(recoveredResult, controller.errorMessage ?? "")
+
+        XCTAssertEqual(Set(recovered.audioAssets.map(\.role)), [.systemOriginal, .microphoneOriginal, .conversationMix])
+        let microphone = try XCTUnwrap(recovered.audioAssets.first { $0.role == .microphoneOriginal })
+        XCTAssertEqual(microphone.timelineOffset, 0.075, accuracy: 0.0001)
+        let library = try await store.loadLibrary()
+        XCTAssertEqual(library.recordings.map(\.id), [recovered.id])
+        XCTAssertTrue(library.issues.isEmpty, "The half-written folder must be absorbed by the recovery")
+    }
+
+    @MainActor
+    func testRecoveringTheLeftoverOfAPartialSaveKeepsThePublishedRecording() async throws {
+        let picker = FakeSystemContentPicker()
+        let backend = FakeSystemAudioCaptureBackend()
+        backend.microphoneError = "Input route disappeared"
+        let store = RecordingStore(rootURL: libraryURL)
+        let controller = makeController(store: store, picker: picker, backend: backend)
+
+        await controller.start(includeMicrophone: true)
+        picker.selectInitial()
+        await waitUntil { controller.phase == .recording }
+        let publishedResult = await controller.stop()
+        let published = try XCTUnwrap(publishedResult)
+        let leftover = try XCTUnwrap(controller.recoveryIssues.first)
+
+        let recoveredResult = await controller.recoverRecoveryIssue(leftover)
+        let recovered = try XCTUnwrap(recoveredResult, controller.errorMessage ?? "")
+
+        XCTAssertNotEqual(recovered.id, published.id)
+        let library = try await store.loadLibrary()
+        XCTAssertEqual(Set(library.recordings.map(\.id)), [published.id, recovered.id])
+        let stillPublished = try await store.read(id: published.id)
+        XCTAssertRecordingPersistenceEqual(stillPublished, published)
+    }
+
+    @MainActor
     private func makeController(
         store: RecordingStore,
         picker: FakeSystemContentPicker,

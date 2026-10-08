@@ -15,3 +15,20 @@ enum RecordingCaptureLease {
         self.ownerID = nil
     }
 }
+
+/// Recoveries in progress. Quitting waits for them, because a recovery moves audio into
+/// the Library and should not stop halfway.
+@MainActor
+enum CaptureRecoveryActivity {
+    private(set) static var activeCount = 0
+
+    static var isActive: Bool { activeCount > 0 }
+
+    static func begin() {
+        activeCount += 1
+    }
+
+    static func end() {
+        activeCount = max(0, activeCount - 1)
+    }
+}

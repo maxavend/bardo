@@ -39,12 +39,14 @@ final class WordSpeakerAlignmentTests: XCTestCase {
             AttributedTranscriptWord(word: TranscriptWord(startTime: 18.2, endTime: 18.9, text: "sprint."), speakerID: first),
             AttributedTranscriptWord(word: TranscriptWord(startTime: 19.8, endTime: 19.9, text: "Me"), speakerID: first),
             AttributedTranscriptWord(word: TranscriptWord(startTime: 19.9, endTime: 20.2, text: " parece"), speakerID: second),
-            AttributedTranscriptWord(word: TranscriptWord(startTime: 20.2, endTime: 20.5, text: " bien."), speakerID: second)
+            AttributedTranscriptWord(word: TranscriptWord(startTime: 20.2, endTime: 20.5, text: " bien."), speakerID: second),
+            AttributedTranscriptWord(word: TranscriptWord(startTime: 20.6, endTime: 20.8, text: " Yo"), speakerID: second),
+            AttributedTranscriptWord(word: TranscriptWord(startTime: 20.8, endTime: 21.4, text: " me encargo."), speakerID: second)
         ]
 
         let smoothed = BardoWordSpeakerAligner.smoothingBoundaryWords(words)
 
-        XCTAssertEqual(smoothed.map(\.speakerID), [first, second, second, second])
+        XCTAssertEqual(smoothed.map(\.speakerID), [first, second, second, second, second, second])
     }
 
     func testTrailingWordJoinsThePreviousTurn() {
@@ -89,5 +91,20 @@ final class WordSpeakerAlignmentTests: XCTestCase {
         let smoothed = BardoWordSpeakerAligner.smoothingBoundaryWords(words)
 
         XCTAssertEqual(smoothed.map(\.speakerID), [first, second, first])
+    }
+
+    func testQuickExchangeOfShortPhrasesKeepsBothSpeakers() {
+        let first = Speaker.ID()
+        let second = Speaker.ID()
+        let words = [
+            AttributedTranscriptWord(word: TranscriptWord(startTime: 0.0, endTime: 1.0, text: "…el plan."), speakerID: first),
+            AttributedTranscriptWord(word: TranscriptWord(startTime: 1.5, endTime: 1.8, text: "¿Vale?"), speakerID: first),
+            AttributedTranscriptWord(word: TranscriptWord(startTime: 1.85, endTime: 2.2, text: "Vale."), speakerID: second),
+            AttributedTranscriptWord(word: TranscriptWord(startTime: 2.8, endTime: 3.6, text: "Entonces…"), speakerID: second)
+        ]
+
+        let smoothed = BardoWordSpeakerAligner.smoothingBoundaryWords(words)
+
+        XCTAssertEqual(smoothed.map(\.speakerID), [first, first, second, second])
     }
 }

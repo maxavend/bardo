@@ -98,6 +98,21 @@ actor MicrophoneCaptureStagingStore {
         }
     }
 
+    /// Removes what is left of a capture after a recovery published part of it. Readable
+    /// audio that was not published stays for another recovery; unreadable leftovers go
+    /// to the Trash instead of being deleted.
+    func finishRecovery(recordingID: UUID, reader: AudioMetadataReader) throws {
+        let directory = rootURL.appendingPathComponent(recordingID.uuidString, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        let remaining = StagedCaptureContents.load(recordingID: recordingID, directoryURL: directory)
+        if !remaining.readableAudioFiles(using: reader).isEmpty { return }
+        if remaining.audioFiles.isEmpty {
+            try FileManager.default.removeItem(at: directory)
+        } else {
+            try FileManager.default.trashItem(at: directory, resultingItemURL: nil)
+        }
+    }
+
     /// The staged files of a capture that is not currently recording.
     func contents(recordingID: UUID) -> StagedCaptureContents? {
         guard activeCaptureID != recordingID else { return nil }

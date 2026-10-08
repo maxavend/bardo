@@ -22,6 +22,11 @@ final class ProgressFanOut<Value: Sendable>: @unchecked Sendable {
         lock.bardoWithLock { _ = observers.removeValue(forKey: id) }
     }
 
+    /// Forgets the last value so a new operation does not start from the previous one's.
+    func reset() {
+        lock.bardoWithLock { latest = nil }
+    }
+
     func send(_ value: Value) {
         let snapshot = lock.bardoWithLock {
             latest = value

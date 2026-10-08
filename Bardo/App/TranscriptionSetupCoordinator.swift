@@ -76,6 +76,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     private let services: any TranscriptionSetupServices
     private var isPreparing = false
     private var preparationTask: Task<Void, Never>?
+    private var modelChangeObserver: AnyCancellable?
 
     private static var completionKey: String {
         "Bardo.TranscriptionSetup.v8.\(TranscriptionModelManager.modelID).\(SpeakerDiarizationService.modelID)"
@@ -92,6 +93,26 @@ final class TranscriptionSetupCoordinator: ObservableObject {
         let completed = defaults.bool(forKey: Self.completionKey)
         self.state = completed ? .ready : .checking
         self.isLibraryUnlocked = completed || defaults.bool(forKey: Self.libraryUnlockedKey)
+        modelChangeObserver = NotificationCenter.default.publisher(for: .bardoModelsChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { @MainActor in await self?.refreshAfterExternalChange() }
+            }
+    }
+
+    /// Re-checks the models after Settings or a transcription installed or removed them,
+    /// without starting a download.
+    func refreshAfterExternalChange() async {
+        guard !isPreparing else { return }
+        let transcriptionInstalled = await services.isTranscriptionInstalled()
+        let speakersInstalled = await services.areSpeakersInstalled()
+        guard !isPreparing else { return }
+        if transcriptionInstalled, speakersInstalled {
+            markCompleted()
+            state = .ready
+        } else if state == .ready {
+            state = .needsInstall
+        }
     }
 
     var isReady: Bool {
@@ -195,7 +216,21 @@ final class TranscriptionSetupCoordinator: ObservableObject {
     /// setup already finished, failed or was paused.
     private func publishProgress(_ progress: State) {
         guard isPreparing, preparationTask?.isCancelled != true else { return }
+        // Downloaders report many times per second; republish only visible changes so
+        // the whole window does not redraw for every byte.
+        guard Self.visibleProgress(progress) != Self.visibleProgress(state) else { return }
         state = progress
+    }
+
+    private static func visibleProgress(_ state: State) -> String {
+        switch state {
+        case .installing(let progress):
+            return "whisper.\(progress.stage.rawValue).\(Int((progress.fractionCompleted * 100).rounded()))"
+        case .installingSpeakers(let progress):
+            return "speakers.\(progress.stage.rawValue).\(Int((progress.fractionCompleted * 100).rounded()))"
+        default:
+            return String(describing: state)
+        }
     }
 
     func startPreparation(force: Bool = false) {

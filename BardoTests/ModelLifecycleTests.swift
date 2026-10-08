@@ -229,6 +229,46 @@ final class ModelOperationSupportTests: XCTestCase {
         XCTAssertFalse(isPreparing)
     }
 
+    func testOneCallerCancellingDoesNotStopADownloadAnotherCallerNeeds() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BardoWhisperSharedCancel-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let downloads = Counter()
+        let manager = TranscriptionModelManager(
+            downloadRoot: root,
+            availableCapacity: { _ in Int64.max },
+            prepareTokenizer: { root in
+                try Data("{}".utf8).write(to: root.appendingPathComponent("tokenizer.json"))
+            },
+            downloadModel: { variant, root, _ in
+                downloads.increment()
+                try await Task.sleep(for: .milliseconds(300))
+                let folder = root.appendingPathComponent("models/\(variant)", isDirectory: true)
+                for name in ["MelSpectrogram", "AudioEncoder", "TextDecoder"] {
+                    try FileManager.default.createDirectory(
+                        at: folder.appendingPathComponent("\(name).mlmodelc"),
+                        withIntermediateDirectories: true
+                    )
+                }
+                return folder
+            }
+        )
+
+        // Setup pauses while a transcription keeps waiting for the same download.
+        let setup = Task { try await manager.ensureResourcesAvailable() }
+        let transcription = Task { try await manager.ensureResourcesAvailable() }
+        try await Task.sleep(for: .milliseconds(80))
+        setup.cancel()
+
+        do {
+            _ = try await setup.value
+            XCTFail("The paused caller must see its cancellation")
+        } catch is CancellationError {}
+        let resources = try await transcription.value
+        XCTAssertTrue(resources.modelFolder.path.hasSuffix(TranscriptionModelManager.modelID))
+        XCTAssertEqual(downloads.value, 1)
+    }
+
     func testCancellingAWhisperDownloadLetsTheNextRequestStartCleanly() async throws {
         let root = FileManager.default.temporaryDirectory
             .resolvingSymlinksInPath()
@@ -320,11 +360,15 @@ final class SpeakerDiarizationLifecycleTests: XCTestCase {
             }
         )
         try await service.prepareForUse { _ in }
+        let inferencesBefore = SlowSpeakerEngine.inferencesStarted.value
 
         let diarization = Task {
             try await service.diarize(recording: recording, transcript: transcript, store: store) { _ in }
         }
-        try await Task.sleep(for: .milliseconds(300))
+        for _ in 0..<500 where SlowSpeakerEngine.inferencesStarted.value == inferencesBefore {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertGreaterThan(SlowSpeakerEngine.inferencesStarted.value, inferencesBefore, "Inference must be running")
         let cancelledAt = ContinuousClock.now
         diarization.cancel()
         do {
@@ -350,6 +394,7 @@ final class SpeakerDiarizationLifecycleTests: XCTestCase {
 /// A speaker engine whose download is slow and whose inference ignores cancellation,
 /// like SpeakerKit's internal pipeline.
 private final class SlowSpeakerEngine: SpeakerDiarizationEngine, @unchecked Sendable {
+    static let inferencesStarted = Counter()
     private let root: URL
     private let allowsDownload: Bool
     private let downloads: Counter
@@ -385,9 +430,9 @@ private final class SlowSpeakerEngine: SpeakerDiarizationEngine, @unchecked Send
         options: (any DiarizationOptions)?,
         progressCallback: (@Sendable (Progress) -> Void)?
     ) async throws -> DiarizationResult {
-        // Busy work that never checks for cancellation.
-        let deadline = Date().addingTimeInterval(2)
-        while Date() < deadline { usleep(10_000) }
+        Self.inferencesStarted.increment()
+        // Work that ignores cancellation, without blocking a cooperative thread.
+        await Task.detached { try? await Task.sleep(for: .milliseconds(1_500)) }.value
         throw RecordingDiarizationError.noSpeakerActivity
     }
 }

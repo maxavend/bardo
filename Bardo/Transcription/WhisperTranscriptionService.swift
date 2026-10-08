@@ -284,6 +284,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     private var isTranscribing = false
     private var transcriptionWaiters: [CheckedContinuation<Void, Never>] = []
     private var idleUnloadTask: Task<Void, Never>?
+    /// Set for the whole reset, so work cannot start while the files are being removed.
+    private var isResetting = false
     private(set) var lastMetrics: WhisperTranscriptionMetrics?
 
     init(
@@ -305,11 +307,13 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     }
 
     var isInUse: Bool {
-        activeOperations > 0 || engineLoad != nil || isTranscribing
+        activeOperations > 0 || engineLoad != nil || isTranscribing || isResetting
     }
 
     func reset() async throws {
         guard !isInUse else { throw ModelOperationError.inUse }
+        isResetting = true
+        defer { isResetting = false }
         idleUnloadTask?.cancel()
         idleUnloadTask = nil
         if let loadedWhisper {
@@ -322,6 +326,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     func prepareForUse(
         progress: @escaping @Sendable (TranscriptionSetupProgressSnapshot) -> Void
     ) async throws {
+        guard !isResetting else { throw ModelOperationError.inUse }
         beginOperation()
         defer { endOperation() }
         progress(.init(stage: .checking, fractionCompleted: 0))
@@ -348,6 +353,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     }
 
     func warmUpIfInstalled() async {
+        guard !isResetting else { return }
         beginOperation()
         defer { endOperation() }
         guard loadedWhisper == nil else { return }
@@ -380,6 +386,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
         liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
     ) async throws -> Transcript {
+        guard !isResetting else { throw ModelOperationError.inUse }
         beginOperation()
         defer { endOperation() }
         await acquireTranscriptionTurn()

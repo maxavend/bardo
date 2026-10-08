@@ -73,27 +73,35 @@ enum BardoWordSpeakerAligner {
         }
         guard runs.count > 2 else { return words }
 
+        func isShort(_ run: Range<Int>) -> Bool {
+            run.count <= boundaryRunMaximumWords
+                && words[run.upperBound - 1].word.endTime - words[run.lowerBound].word.startTime
+                    <= boundaryRunMaximumDuration
+        }
+
+        // Decisions read the already smoothed speakers, and a leftover only joins a
+        // substantial turn: two short phrases in a quick exchange ("¿Vale?" "Vale.")
+        // must not trade speakers.
         var smoothed = words
         for position in 1..<(runs.count - 1) {
             let run = runs[position]
             let previous = runs[position - 1]
             let next = runs[position + 1]
+            guard isShort(run) else { continue }
+
             let first = words[run.lowerBound].word
             let last = words[run.upperBound - 1].word
-            guard run.count <= boundaryRunMaximumWords,
-                  last.endTime - first.startTime <= boundaryRunMaximumDuration else { continue }
-
-            let speaker = words[run.lowerBound].speakerID
-            let previousSpeaker = words[previous.upperBound - 1].speakerID
-            let nextSpeaker = words[next.lowerBound].speakerID
+            let speaker = smoothed[run.lowerBound].speakerID
+            let previousSpeaker = smoothed[previous.upperBound - 1].speakerID
+            let nextSpeaker = smoothed[next.lowerBound].speakerID
             let gapBefore = first.startTime - words[previous.upperBound - 1].word.endTime
             let gapAfter = words[next.lowerBound].word.startTime - last.endTime
 
             let target: Speaker.ID?
-            if gapAfter <= contiguousSpeechGap, gapBefore >= clearPause,
+            if gapAfter <= contiguousSpeechGap, gapBefore >= clearPause, !isShort(next),
                previousSpeaker == speaker, nextSpeaker != speaker {
                 target = nextSpeaker
-            } else if gapBefore <= contiguousSpeechGap, gapAfter >= clearPause,
+            } else if gapBefore <= contiguousSpeechGap, gapAfter >= clearPause, !isShort(previous),
                       nextSpeaker == speaker, previousSpeaker != speaker {
                 target = previousSpeaker
             } else {

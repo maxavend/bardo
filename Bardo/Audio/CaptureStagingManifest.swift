@@ -18,6 +18,10 @@ struct CaptureStagingManifest: Codable, Equatable, Sendable {
     let systemAssetID: UUID?
     let microphoneAssetID: UUID?
     let mixAssetID: UUID?
+    /// Each source's start on the shared recording timeline, written when the capture
+    /// stops so a recovery after an interrupted save keeps the sources aligned.
+    var systemTimelineOffset: TimeInterval?
+    var microphoneTimelineOffset: TimeInterval?
 
     init(
         recordingID: UUID,
@@ -26,7 +30,9 @@ struct CaptureStagingManifest: Codable, Equatable, Sendable {
         startedAt: Date,
         systemAssetID: UUID? = nil,
         microphoneAssetID: UUID? = nil,
-        mixAssetID: UUID? = nil
+        mixAssetID: UUID? = nil,
+        systemTimelineOffset: TimeInterval? = nil,
+        microphoneTimelineOffset: TimeInterval? = nil
     ) {
         self.recordingID = recordingID
         self.kind = kind
@@ -36,6 +42,8 @@ struct CaptureStagingManifest: Codable, Equatable, Sendable {
         self.systemAssetID = systemAssetID
         self.microphoneAssetID = microphoneAssetID
         self.mixAssetID = mixAssetID
+        self.systemTimelineOffset = systemTimelineOffset
+        self.microphoneTimelineOffset = microphoneTimelineOffset
     }
 
     func write(into directory: URL) throws {
@@ -90,6 +98,11 @@ struct StagedCaptureContents: Equatable, Sendable {
 
     var startedAt: Date {
         manifest?.startedAt ?? createdAt ?? Date()
+    }
+
+    /// Staged audio files that can be read, keeping their staging order.
+    func readableAudioFiles(using reader: AudioMetadataReader) -> [URL] {
+        audioFiles.filter { (try? reader.read(from: $0)) != nil }
     }
 
     /// The name shown when reviewing interrupted captures.

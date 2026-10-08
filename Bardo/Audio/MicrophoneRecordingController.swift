@@ -11,7 +11,7 @@ enum CapturePublicationError: Error, LocalizedError, Equatable, Sendable {
         case .noAudioCaptured:
             return String(localized: "The capture does not contain any readable audio.")
         case .alreadyInLibrary:
-            return String(localized: "This capture is already in your library.")
+            return String(localized: "This capture is already in your library. Its leftover copy was moved to the Trash.")
         }
     }
 }
@@ -238,32 +238,42 @@ final class MicrophoneRecordingController: ObservableObject {
     /// Publishes the readable audio of an interrupted capture into the Library.
     @discardableResult
     func recoverRecoveryIssue(_ issue: RecordingStoreIssue) async -> Recording? {
-        guard let recordingID = issue.recordingID, !isBusy, !isRecovering else { return nil }
+        guard let stagingID = issue.recordingID, !isBusy, !isRecovering else { return nil }
         isRecovering = true
-        defer { isRecovering = false }
+        CaptureRecoveryActivity.begin()
+        defer {
+            isRecovering = false
+            CaptureRecoveryActivity.end()
+        }
 
         do {
             let stagingStore = try resolveStagingStore()
-            guard let contents = await stagingStore.contents(recordingID: recordingID) else {
+            let store = try resolveStore()
+            guard let staged = await stagingStore.contents(recordingID: stagingID) else {
                 await refreshRecoveryIssues()
                 return nil
             }
+            // A save that stopped halfway left the compressed audio in the Library folder.
+            try await store.reclaimIncompletePublication(recordingID: stagingID, into: staged.directoryURL)
 
-            if (try? await resolveStore().read(id: recordingID)) != nil {
-                // Published before the interruption; only the staging copy was left behind.
-                try? await stagingStore.discardCapture(recordingID: recordingID)
+            if (try? await store.read(id: stagingID)) != nil {
+                // The recording was saved; what remains is the lossless copy it was made
+                // from. Keep it reachable in the Trash rather than deleting it.
+                try? await stagingStore.moveToTrash(recordingID: stagingID)
                 await refreshRecoveryIssues()
                 errorMessage = CapturePublicationError.alreadyInLibrary.localizedDescription
                 return nil
             }
 
-            guard let audioURL = preferredRecoverableAudio(in: contents) else {
+            guard let contents = await stagingStore.contents(recordingID: stagingID),
+                  let audioURL = preferredRecoverableAudio(in: contents) else {
                 throw CapturePublicationError.noAudioCaptured
             }
             let audioAssetID = contents.manifest?.microphoneAssetID
                 ?? UUID(uuidString: audioURL.deletingPathExtension().lastPathComponent)
                 ?? UUID()
 
+            let recordingID = await store.recordingDirectoryExists(recordingID: stagingID) ? UUID() : stagingID
             let recording = try await publishStagedAudio(
                 recordingID: recordingID,
                 audioAssetID: audioAssetID,
@@ -271,7 +281,12 @@ final class MicrophoneRecordingController: ObservableObject {
                 title: contents.manifest?.title,
                 startedAt: contents.startedAt
             )
-            try? await stagingStore.discardCapture(recordingID: recordingID)
+            // When the staged PCM was compressed, the published file is the compressed
+            // copy and the PCM source is no longer needed.
+            if FileManager.default.fileExists(atPath: audioURL.path) {
+                try? FileManager.default.removeItem(at: audioURL)
+            }
+            try? await stagingStore.finishRecovery(recordingID: stagingID, reader: metadataReader)
             await refreshRecoveryIssues()
             onRecordingPublished?(recording)
             return recording

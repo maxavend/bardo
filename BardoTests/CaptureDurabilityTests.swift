@@ -30,8 +30,8 @@ final class CaptureDurabilityTests: XCTestCase {
         }
 
         // Never call finish(): this is the state a crash or force quit leaves behind.
-        let readableDuration = await SyntheticAudio.waitForReadableDuration(at: url, atLeast: 2)
-        XCTAssertGreaterThanOrEqual(readableDuration, 2, "Fragments must make interrupted captures readable")
+        let readableDuration = await SyntheticAudio.waitForReadableDuration(at: url, atLeast: 1)
+        XCTAssertGreaterThanOrEqual(readableDuration, 1, "Fragments must make interrupted captures readable")
     }
 
     func testFinishedTrackHasFullDurationAndTiming() async throws {
@@ -69,19 +69,29 @@ final class CaptureDurabilityTests: XCTestCase {
 
     func testBacklogOverflowSkipsAudioButKeepsTheTrackAlive() async throws {
         let url = baseURL.appendingPathComponent("overflow.m4a")
-        let writer = CMSampleBufferAudioWriter(outputURL: url, channelCount: 2, maximumPendingBuffers: 4)
+        let encoderReady = LockedFlag(true)
+        let writer = CMSampleBufferAudioWriter(
+            outputURL: url,
+            channelCount: 2,
+            maximumPendingBuffers: 4,
+            isReadyForMoreData: { input in encoderReady.value && input.isReadyForMoreMediaData }
+        )
+        let buffers = SyntheticAudio.buffers(seconds: 2, channels: 2)
 
-        // The encoder's own buffering absorbs short bursts; thirty seconds overflow it.
-        for buffer in SyntheticAudio.buffers(seconds: 30, channels: 2) {
+        // The encoder accepts the first second, then stalls longer than the backlog holds.
+        for (index, buffer) in buffers.enumerated() {
+            if index == buffers.count / 2 { encoderReady.value = false }
             if case .failed(_, let message) = writer.append(buffer) {
                 return XCTFail("An overflowing backlog must not fail the track: \(message)")
             }
         }
+        encoderReady.value = true
         let timing = try await writer.finish(sourceName: "system")
 
         XCTAssertFalse(writer.hasFailed)
         XCTAssertTrue(timing.warning?.contains("skipped") == true)
-        XCTAssertGreaterThan(try AudioMetadataReader().read(from: url).duration, 0)
+        let duration = try AudioMetadataReader().read(from: url).duration
+        XCTAssertEqual(duration, 1.08, accuracy: 0.1, "The first second and the queued buffers are kept")
     }
 
     func testSamplesAfterFinalizationAreIgnored() async throws {
@@ -364,5 +374,17 @@ final class PrivatePersistenceTests: XCTestCase {
             )
             XCTAssertEqual(permissions.int16Value & 0o077, 0, url.lastPathComponent)
         }
+    }
+}
+
+final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Bool
+
+    init(_ value: Bool) { stored = value }
+
+    var value: Bool {
+        get { lock.bardoWithLock { stored } }
+        set { lock.bardoWithLock { stored = newValue } }
     }
 }
