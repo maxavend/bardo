@@ -5,13 +5,17 @@ import Foundation
 
 @MainActor
 final class AVAudioRecorderCaptureBackend: NSObject, AudioCapturing {
-    static let recordingFileExtension = "m4a"
+    /// Linear PCM in CAF stays readable up to the last written sample if Bardo crashes,
+    /// is force quit or loses power. The controller compresses it to AAC after stopping.
+    static let recordingFileExtension = "caf"
     static let recordingSettings: [String: Any] = [
-        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+        AVFormatIDKey: Int(kAudioFormatLinearPCM),
         AVSampleRateKey: 48_000,
         AVNumberOfChannelsKey: 1,
-        AVEncoderBitRateKey: 96_000,
-        AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMIsNonInterleaved: false
     ]
 
     var eventHandler: ((AudioCaptureBackendEvent) -> Void)?

@@ -71,6 +71,11 @@ final class BardoAppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 
+    /// Saving a recording on quit normally takes seconds. If ScreenCaptureKit or the
+    /// encoder never answers, quit anyway: staged audio is crash-safe and is offered
+    /// for recovery on the next launch.
+    static let finalizationTimeout: Duration = .seconds(45)
+
     private func deferTermination(
         _ sender: NSApplication,
         operation: @escaping @MainActor () async -> Void
@@ -80,10 +85,31 @@ final class BardoAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         terminationInProgress = true
+        let reply = TerminationReply(sender)
         Task { @MainActor in
             await operation()
-            sender.reply(toApplicationShouldTerminate: true)
+            reply.send()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: Self.finalizationTimeout)
+            reply.send()
         }
         return .terminateLater
+    }
+}
+
+@MainActor
+private final class TerminationReply {
+    private let application: NSApplication
+    private var sent = false
+
+    init(_ application: NSApplication) {
+        self.application = application
+    }
+
+    func send() {
+        guard !sent else { return }
+        sent = true
+        application.reply(toApplicationShouldTerminate: true)
     }
 }

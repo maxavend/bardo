@@ -116,13 +116,17 @@ final class ScreenCaptureKitAudioBackend: NSObject, SystemAudioCapturing, SCStre
         of type: SCStreamOutputType
     ) {
         guard type == .audio || type == .microphone else { return }
-        do {
-            try processor.append(sampleBuffer, type: type)
-        } catch {
-            let message = error.localizedDescription
-            Task { @MainActor [weak self] in
-                self?.eventHandler?(.interrupted(message))
-            }
+        let event: SystemAudioCaptureBackendEvent
+        switch processor.append(sampleBuffer, type: type) {
+        case .recording:
+            return
+        case .trackFailed(let message):
+            event = .trackFailed(message)
+        case .allTracksFailed(let message):
+            event = .interrupted(message)
+        }
+        Task { @MainActor [weak self] in
+            self?.eventHandler?(event)
         }
     }
 
@@ -181,17 +185,22 @@ enum ScreenCaptureKitCompletionBridge {
     }
 }
 
-private final class SystemAudioSampleProcessor: @unchecked Sendable {
+final class SystemAudioSampleProcessor: @unchecked Sendable {
+    enum AppendResult: Equatable, Sendable {
+        case recording
+        /// One track stopped; the other configured track keeps recording.
+        case trackFailed(String)
+        /// No configured track can record anymore.
+        case allTracksFailed(String)
+    }
+
     private let lock = NSLock()
     private var systemWriter: CMSampleBufferAudioWriter?
     private var microphoneWriter: CMSampleBufferAudioWriter?
-    private var systemFailure: String?
-    private var microphoneFailure: String?
 
     var elapsedTime: TimeInterval {
-        lock.bardoWithLock {
-            max(systemWriter?.elapsedTime ?? 0, microphoneWriter?.elapsedTime ?? 0)
-        }
+        let writers = lock.bardoWithLock { (systemWriter, microphoneWriter) }
+        return max(writers.0?.elapsedTime ?? 0, writers.1?.elapsedTime ?? 0)
     }
 
     func configure(systemURL: URL, microphoneURL: URL?) {
@@ -200,49 +209,44 @@ private final class SystemAudioSampleProcessor: @unchecked Sendable {
             microphoneWriter = microphoneURL.map {
                 CMSampleBufferAudioWriter(outputURL: $0, channelCount: 1, bitRate: 96_000)
             }
-            systemFailure = nil
-            microphoneFailure = nil
         }
     }
 
-    func append(_ sampleBuffer: CMSampleBuffer, type: SCStreamOutputType) throws {
+    func append(_ sampleBuffer: CMSampleBuffer, type: SCStreamOutputType) -> AppendResult {
+        let writers = lock.bardoWithLock { (systemWriter, microphoneWriter) }
         let writer: CMSampleBufferAudioWriter?
-        lock.lock()
-        if type == .audio {
-            writer = systemWriter
-        } else if type == .microphone {
-            writer = microphoneWriter
-        } else {
-            writer = nil
+        let sourceName: String
+        switch type {
+        case .audio:
+            writer = writers.0
+            sourceName = "System audio"
+        case .microphone:
+            writer = writers.1
+            sourceName = "Microphone"
+        default:
+            return .recording
         }
-        lock.unlock()
 
-        guard let writer else { return }
-        do {
-            try writer.append(sampleBuffer)
-        } catch {
-            lock.bardoWithLock {
-                if type == .audio {
-                    systemFailure = error.localizedDescription
-                } else if type == .microphone {
-                    microphoneFailure = error.localizedDescription
-                }
-            }
-            throw error
+        guard let writer,
+              case .failed(let newlyFailed, let message) = writer.append(sampleBuffer),
+              newlyFailed else {
+            return .recording
         }
+
+        let detail = "\(sourceName) stopped recording: \(message)"
+        let configured = [writers.0, writers.1].compactMap { $0 }
+        return configured.allSatisfy(\.hasFailed) ? .allTracksFailed(detail) : .trackFailed(detail)
     }
 
     func finish(streamStopError: String?) async -> SystemAudioCaptureResult {
-        let snapshot = lock.bardoWithLock {
-            (systemWriter, microphoneWriter, systemFailure, microphoneFailure)
-        }
+        let writers = lock.bardoWithLock { (systemWriter, microphoneWriter) }
 
         var systemTrack: CapturedAudioTrackTiming?
         var microphoneTrack: CapturedAudioTrackTiming?
-        var systemError = snapshot.2
-        var microphoneError = snapshot.3
+        var systemError: String?
+        var microphoneError: String?
 
-        if systemError == nil, let writer = snapshot.0 {
+        if let writer = writers.0 {
             do {
                 systemTrack = try await writer.finish(sourceName: "system")
             } catch {
@@ -250,7 +254,7 @@ private final class SystemAudioSampleProcessor: @unchecked Sendable {
             }
         }
 
-        if microphoneError == nil, let writer = snapshot.1 {
+        if let writer = writers.1 {
             do {
                 microphoneTrack = try await writer.finish(sourceName: "microphone")
             } catch {
@@ -271,8 +275,6 @@ private final class SystemAudioSampleProcessor: @unchecked Sendable {
         lock.bardoWithLock {
             systemWriter = nil
             microphoneWriter = nil
-            systemFailure = nil
-            microphoneFailure = nil
         }
     }
 }

@@ -49,14 +49,26 @@ actor RecordingStore {
     func importRecording(
         _ recording: Recording,
         audioAsset: AudioAsset,
-        from sourceURL: URL
+        from sourceURL: URL,
+        transferringOwnership: Bool = false
     ) throws {
-        try importRecording(recording, audioFiles: [audioAsset.id: sourceURL])
+        try importRecording(
+            recording,
+            audioFiles: [audioAsset.id: sourceURL],
+            transferringOwnership: transferringOwnership
+        )
     }
 
+    /// Publishes a recording with its managed audio.
+    ///
+    /// With `transferringOwnership`, source files are moved instead of copied. Bardo uses
+    /// this for its own capture staging, which lives on the same volume: publication is
+    /// then instant and needs no extra disk space. If publication fails, moved files are
+    /// returned to their original locations before the partial recording is removed.
     func importRecording(
         _ recording: Recording,
-        audioFiles: [AudioAsset.ID: URL]
+        audioFiles: [AudioAsset.ID: URL],
+        transferringOwnership: Bool = false
     ) throws {
         let expectedIDs = Set(recording.audioAssets.map(\.id))
         let suppliedIDs = Set(audioFiles.keys)
@@ -75,6 +87,9 @@ actor RecordingStore {
         guard !FileManager.default.fileExists(atPath: recordingDirectory.path) else {
             throw RecordingStoreError.recordingAlreadyExists(recording.id)
         }
+
+        // Moved sources and where they currently are, so a failure can return them.
+        var transferred: [(source: URL, current: URL)] = []
 
         do {
             try ensureDirectoryExists(recordingDirectory)
@@ -97,20 +112,29 @@ actor RecordingStore {
                 )
 
                 do {
-                    try FileManager.default.copyItem(at: sourceURL, to: temporaryAudioURL)
+                    if transferringOwnership {
+                        try FileManager.default.moveItem(at: sourceURL, to: temporaryAudioURL)
+                        transferred.append((sourceURL, temporaryAudioURL))
+                    } else {
+                        try FileManager.default.copyItem(at: sourceURL, to: temporaryAudioURL)
+                    }
                 } catch {
                     throw RecordingStoreError.fileSystem(
-                        operation: "copy managed audio",
+                        operation: transferringOwnership ? "move managed audio" : "copy managed audio",
                         entry: sourceURL.lastPathComponent,
                         description: error.localizedDescription
                     )
                 }
+                DurableFile.restrictToOwner(temporaryAudioURL)
 
                 try atomicallyMove(
                     from: temporaryAudioURL,
                     to: destinationAudioURL,
                     operation: "finalize managed audio"
                 )
+                if transferringOwnership, let index = transferred.lastIndex(where: { $0.current == temporaryAudioURL }) {
+                    transferred[index].current = destinationAudioURL
+                }
             }
 
             // All managed audio files are final before the manifest becomes visible.
@@ -120,8 +144,11 @@ actor RecordingStore {
                 in: recordingDirectory
             )
         } catch {
+            for file in transferred.reversed() {
+                try? FileManager.default.moveItem(at: file.current, to: file.source)
+            }
             // This directory was created exclusively for this failed publication. Removing
-            // it cannot affect an existing recording or the caller-owned staging sources.
+            // it cannot affect an existing recording; transferred sources were returned above.
             try? FileManager.default.removeItem(at: recordingDirectory)
             throw error
         }

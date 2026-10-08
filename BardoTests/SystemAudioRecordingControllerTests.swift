@@ -332,6 +332,147 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testStopDuringSelectionChangeDoesNotResurrectTheRecording() async throws {
+        let picker = FakeSystemContentPicker()
+        let backend = FakeSystemAudioCaptureBackend()
+        backend.suspendsUpdates = true
+        let store = RecordingStore(rootURL: libraryURL)
+        let controller = makeController(store: store, picker: picker, backend: backend)
+
+        await controller.start(includeMicrophone: false)
+        picker.selectInitial()
+        await waitUntil { controller.phase == .recording }
+
+        controller.changeSelection()
+        picker.updateSelection()
+        await waitUntil { backend.hasSuspendedUpdate }
+        XCTAssertEqual(controller.phase, .changingSelection)
+
+        let stopped = await controller.stop()
+        XCTAssertNotNil(stopped)
+        XCTAssertEqual(controller.phase, .idle)
+
+        backend.resumeSuspendedUpdate()
+        for _ in 0..<10 { await Task.yield() }
+
+        XCTAssertEqual(controller.phase, .idle, "A late selection update must not reopen a finished capture")
+        XCTAssertFalse(controller.requiresTerminationFinalization)
+        let second = await controller.stop()
+        XCTAssertNil(second)
+        XCTAssertEqual(backend.stopCount, 1)
+    }
+
+    @MainActor
+    func testCancellingContentSelectionReleasesTheCaptureLease() async throws {
+        let picker = FakeSystemContentPicker()
+        let backend = FakeSystemAudioCaptureBackend()
+        let store = RecordingStore(rootURL: libraryURL)
+        let controller = makeController(store: store, picker: picker, backend: backend)
+
+        await controller.start(includeMicrophone: false)
+        XCTAssertEqual(controller.phase, .selectingContent)
+        controller.cancelContentSelection()
+
+        XCTAssertEqual(controller.phase, .idle)
+        XCTAssertEqual(picker.deactivateCount, 1)
+        await controller.start(includeMicrophone: false)
+        XCTAssertEqual(controller.phase, .selectingContent)
+        controller.cancelContentSelection()
+    }
+
+    @MainActor
+    func testTitleTrackWarningsAndPublicationCallback() async throws {
+        let picker = FakeSystemContentPicker()
+        let backend = FakeSystemAudioCaptureBackend()
+        backend.systemWarning = "The system track skipped 3 short audio buffers while the Mac was busy."
+        let store = RecordingStore(rootURL: libraryURL)
+        let controller = makeController(store: store, picker: picker, backend: backend)
+        var published: [Recording.ID] = []
+        controller.onRecordingPublished = { published.append($0.id) }
+
+        await controller.start(includeMicrophone: false, title: "Clase de historia")
+        picker.selectInitial()
+        await waitUntil { controller.phase == .recording }
+        backend.failTrack("Microphone stopped recording: device removed")
+        await waitUntil { controller.captureWarning != nil }
+        XCTAssertEqual(controller.phase, .recording)
+
+        let recordingResult = await controller.stop()
+
+
+        let recording = try XCTUnwrap(recordingResult)
+        XCTAssertEqual(recording.title, "Clase de historia")
+        XCTAssertEqual(published, [recording.id])
+        XCTAssertTrue(controller.errorMessage?.contains("skipped 3 short audio buffers") == true)
+        XCTAssertNil(controller.captureWarning)
+    }
+
+    @MainActor
+    func testDualCaptureLeftBehindByACrashIsRecoveredWithBothSourcesAndMix() async throws {
+        let crashedStaging = SystemAudioCaptureStagingStore(rootURL: stagingURL)
+        let prepared = try await crashedStaging.prepareCapture(
+            recordingID: UUID(),
+            systemAssetID: UUID(),
+            microphoneAssetID: UUID(),
+            mixAssetID: UUID(),
+            title: "Llamada con cliente"
+        )
+        try AudioTestFixture.makeM4A(at: prepared.systemURL, channelCount: 2, duration: 0.6)
+        try AudioTestFixture.makeM4A(at: try XCTUnwrap(prepared.microphoneURL), channelCount: 1, duration: 0.5)
+
+        let store = RecordingStore(rootURL: libraryURL)
+        let controller = makeController(
+            store: store,
+            picker: FakeSystemContentPicker(),
+            backend: FakeSystemAudioCaptureBackend()
+        )
+        await controller.refreshRecoveryIssues()
+        let issue = try XCTUnwrap(controller.recoveryIssues.first)
+        XCTAssertEqual(issue.entryName, "Llamada con cliente")
+
+        let recoveredResult = await controller.recoverRecoveryIssue(issue)
+
+
+        let recovered = try XCTUnwrap(recoveredResult)
+        XCTAssertEqual(recovered.title, "Llamada con cliente")
+        XCTAssertEqual(recovered.sources, [.systemAudio, .microphone])
+        XCTAssertEqual(Set(recovered.audioAssets.map(\.role)), [.systemOriginal, .microphoneOriginal, .conversationMix])
+        XCTAssertTrue(controller.recoveryIssues.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: prepared.directoryURL.path))
+
+        let model = LibraryViewModel(store: RecordingStore(rootURL: libraryURL))
+        await model.reload()
+        XCTAssertEqual(model.recordings.map(\.id), [recovered.id])
+        XCTAssertTrue(model.playback.isLoaded)
+    }
+
+    @MainActor
+    func testUnreadableCaptureCannotBeRecoveredButStaysAvailableForReview() async throws {
+        let crashedStaging = SystemAudioCaptureStagingStore(rootURL: stagingURL)
+        let prepared = try await crashedStaging.prepareCapture(
+            recordingID: UUID(),
+            systemAssetID: UUID(),
+            microphoneAssetID: nil,
+            mixAssetID: nil
+        )
+        try Data("index-less audio from an old Bardo build".utf8).write(to: prepared.systemURL)
+
+        let controller = makeController(
+            store: RecordingStore(rootURL: libraryURL),
+            picker: FakeSystemContentPicker(),
+            backend: FakeSystemAudioCaptureBackend()
+        )
+        await controller.refreshRecoveryIssues()
+        let issue = try XCTUnwrap(controller.recoveryIssues.first)
+
+        let recovered = await controller.recoverRecoveryIssue(issue)
+        XCTAssertNil(recovered)
+        XCTAssertNotNil(controller.errorMessage)
+        XCTAssertEqual(controller.recoveryIssues.count, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: prepared.systemURL.path))
+    }
+
+    @MainActor
     private func makeController(
         store: RecordingStore,
         picker: FakeSystemContentPicker,

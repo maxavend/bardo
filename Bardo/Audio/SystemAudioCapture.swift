@@ -32,6 +32,8 @@ protocol SystemContentSelecting: AnyObject {
 struct CapturedAudioTrackTiming: Equatable, Sendable {
     let firstPresentationTime: TimeInterval
     let lastPresentationTime: TimeInterval
+    /// Set when the track ended early or skipped audio but still produced a readable file.
+    var warning: String? = nil
 }
 
 struct SystemAudioCaptureResult: Equatable, Sendable {
@@ -43,7 +45,10 @@ struct SystemAudioCaptureResult: Equatable, Sendable {
 }
 
 enum SystemAudioCaptureBackendEvent: Equatable, Sendable {
+    /// Every active track stopped; the capture must be finalized.
     case interrupted(String)
+    /// One track stopped while another keeps recording.
+    case trackFailed(String)
 }
 
 @MainActor

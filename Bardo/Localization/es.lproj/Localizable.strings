@@ -134,7 +134,7 @@
 "Record" = "Grabar";
 "Start a new recording" = "Iniciar una nueva grabación";
 "Interrupted recordings" = "Grabaciones interrumpidas";
-"Bardo found incomplete recordings after an interruption. They are still safe on your Mac. Review them in Finder or move the ones you do not need to the Trash." = "Bardo encontró grabaciones incompletas después de una interrupción. Siguen a salvo en tu Mac. Revísalas en Finder o mueve a la Papelera las que no necesites.";
+"Bardo found recordings that were interrupted before they could be saved. Recover them to add the audio captured until the interruption to your library, or move the ones you do not need to the Trash." = "Bardo encontró grabaciones que se interrumpieron antes de guardarse. Recupéralas para agregar a tu biblioteca el audio grabado hasta la interrupción, o mueve a la Papelera las que no necesites.";
 "Review recordings…" = "Revisar grabaciones…";
 "1 interrupted recording needs review" = "1 grabación interrumpida requiere revisión";
 "%lld interrupted recordings need review" = "%lld grabaciones interrumpidas requieren revisión";
@@ -317,3 +317,8 @@
 "Turn this conversation into a clear record of decisions, agreements, pending items, and next steps." = "Convierte esta conversación en una minuta clara con decisiones, acuerdos, pendientes y próximos pasos.";
 "Create the transcript first, then Bardo can prepare the meeting minutes." = "Primero crea la transcripción; después Bardo podrá preparar la minuta.";
 "Everything stays on this Mac" = "Todo permanece en este Mac";
+"Recover" = "Recuperar";
+"Recover All" = "Recuperar todo";
+"Recovering…" = "Recuperando…";
+"Add the audio captured before the interruption to your library" = "Agrega a tu biblioteca el audio grabado antes de la interrupción";
+"Stop recording (⌘.)" = "Finalizar grabación (⌘.)";

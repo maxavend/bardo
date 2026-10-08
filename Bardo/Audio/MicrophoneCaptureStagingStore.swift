@@ -11,12 +11,7 @@ actor MicrophoneCaptureStagingStore {
     }
 
     static func live() throws -> MicrophoneCaptureStagingStore {
-        let libraryURL = try RecordingStore.defaultLibraryURL()
-        return MicrophoneCaptureStagingStore(
-            rootURL: libraryURL
-                .deletingLastPathComponent()
-                .appendingPathComponent(Self.directoryName, isDirectory: true)
-        )
+        MicrophoneCaptureStagingStore(rootURL: try liveRootURL())
     }
 
     static func liveRootURL() throws -> URL {
@@ -27,7 +22,9 @@ actor MicrophoneCaptureStagingStore {
     func prepareCapture(
         recordingID: UUID,
         audioAssetID: UUID,
-        fileExtension: String
+        fileExtension: String,
+        title: String? = nil,
+        startedAt: Date = Date()
     ) throws -> URL {
         if let activeCaptureID {
             throw MicrophoneCaptureStagingError.captureAlreadyActive(activeCaptureID)
@@ -40,6 +37,19 @@ actor MicrophoneCaptureStagingStore {
         }
 
         try ensureDirectoryExists(directory)
+        do {
+            try CaptureStagingManifest(
+                recordingID: recordingID,
+                kind: .microphone,
+                title: title,
+                startedAt: startedAt,
+                microphoneAssetID: audioAssetID
+            ).write(into: directory)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw MicrophoneCaptureStagingError.fileSystem(error.localizedDescription)
+        }
+
         activeCaptureID = recordingID
         return directory.appendingPathComponent(
             "\(audioAssetID.uuidString).\(fileExtension.lowercased())"
@@ -50,7 +60,14 @@ actor MicrophoneCaptureStagingStore {
         guard activeCaptureID == recordingID else {
             throw MicrophoneCaptureStagingError.captureNotActive(recordingID)
         }
-        activeCaptureID = nil
+        try discardCapture(recordingID: recordingID)
+    }
+
+    /// Removes a capture's staging directory whether it is active or left behind.
+    func discardCapture(recordingID: UUID) throws {
+        if activeCaptureID == recordingID {
+            activeCaptureID = nil
+        }
 
         let directory = captureDirectoryURL(for: recordingID)
         guard FileManager.default.fileExists(atPath: directory.path) else { return }
@@ -81,6 +98,14 @@ actor MicrophoneCaptureStagingStore {
         }
     }
 
+    /// The staged files of a capture that is not currently recording.
+    func contents(recordingID: UUID) -> StagedCaptureContents? {
+        guard activeCaptureID != recordingID else { return nil }
+        let directory = captureDirectoryURL(for: recordingID)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
+        return StagedCaptureContents.load(recordingID: recordingID, directoryURL: directory)
+    }
+
     func recoveryIssues() -> [RecordingStoreIssue] {
         let directories = (try? FileManager.default.contentsOfDirectory(
             at: rootURL,
@@ -88,43 +113,29 @@ actor MicrophoneCaptureStagingStore {
             options: [.skipsHiddenFiles]
         )) ?? []
 
-        return directories.flatMap { directory -> [RecordingStoreIssue] in
+        return directories.compactMap { directory -> RecordingStoreIssue? in
             guard let recordingID = UUID(uuidString: directory.lastPathComponent) else {
-                return [RecordingStoreIssue(
+                return RecordingStoreIssue(
                     kind: .temporaryAudioArtifact,
                     recordingID: nil,
                     entryName: directory.lastPathComponent,
                     message: "An unrecognized microphone capture residue was preserved."
-                )]
+                )
             }
 
             if activeCaptureID == recordingID {
-                return []
+                return nil
             }
 
-            let files = (try? FileManager.default.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: nil,
-                options: []
-            )) ?? []
-
-            if files.isEmpty {
-                return [RecordingStoreIssue(
-                    kind: .temporaryAudioArtifact,
-                    recordingID: recordingID,
-                    entryName: recordingID.uuidString,
-                    message: "An incomplete microphone capture directory was detected and preserved."
-                )]
-            }
-
-            return files.map { file in
-                RecordingStoreIssue(
-                    kind: .temporaryAudioArtifact,
-                    recordingID: recordingID,
-                    entryName: file.lastPathComponent,
-                    message: "An incomplete microphone capture was detected and preserved."
-                )
-            }
+            let contents = StagedCaptureContents.load(recordingID: recordingID, directoryURL: directory)
+            return RecordingStoreIssue(
+                kind: .temporaryAudioArtifact,
+                recordingID: recordingID,
+                entryName: contents.displayName,
+                message: contents.audioFiles.isEmpty
+                    ? "An incomplete microphone capture directory was detected and preserved."
+                    : "An incomplete microphone capture was detected and preserved."
+            )
         }
     }
 
@@ -134,7 +145,7 @@ actor MicrophoneCaptureStagingStore {
 
     private func ensureDirectoryExists(_ url: URL) throws {
         do {
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            try DurableFile.createPrivateDirectory(at: url)
         } catch {
             throw MicrophoneCaptureStagingError.fileSystem(error.localizedDescription)
         }

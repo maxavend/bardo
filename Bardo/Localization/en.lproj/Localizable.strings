@@ -213,7 +213,7 @@
 "Record" = "Record";
 "Start a new recording" = "Start a new recording";
 "Interrupted recordings" = "Interrupted recordings";
-"Bardo found incomplete recordings after an interruption. They are still safe on your Mac. Review them in Finder or move the ones you do not need to the Trash." = "Bardo found incomplete recordings after an interruption. They are still safe on your Mac. Review them in Finder or move the ones you do not need to the Trash.";
+"Bardo found recordings that were interrupted before they could be saved. Recover them to add the audio captured until the interruption to your library, or move the ones you do not need to the Trash." = "Bardo found recordings that were interrupted before they could be saved. Recover them to add the audio captured until the interruption to your library, or move the ones you do not need to the Trash.";
 "Review recordings…" = "Review recordings…";
 "1 interrupted recording needs review" = "1 interrupted recording needs review";
 "%lld interrupted recordings need review" = "%lld interrupted recordings need review";
@@ -317,3 +317,8 @@
 "Turn this conversation into a clear record of decisions, agreements, pending items, and next steps." = "Turn this conversation into clear meeting minutes with decisions, agreements, pending items, and next steps.";
 "Create the transcript first, then Bardo can prepare the meeting minutes." = "Create the transcript first, then Bardo can prepare the meeting minutes.";
 "Everything stays on this Mac" = "Everything stays on this Mac";
+"Recover" = "Recover";
+"Recover All" = "Recover All";
+"Recovering…" = "Recovering…";
+"Add the audio captured before the interruption to your library" = "Add the audio captured before the interruption to your library";
+"Stop recording (⌘.)" = "Stop recording (⌘.)";
