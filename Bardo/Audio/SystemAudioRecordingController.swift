@@ -113,11 +113,11 @@ final class SystemAudioRecordingController: ObservableObject {
         errorMessage = nil
         captureWarning = nil
         guard !isBusy, !isRecovering else {
-            errorMessage = "A system-audio recording is already active or changing state."
+            errorMessage = String(localized: "A system-audio recording is already active or changing state.")
             return
         }
         guard RecordingCaptureLease.acquire(ownerID: captureLeaseID) else {
-            errorMessage = "Another Bardo recording is already active."
+            errorMessage = String(localized: "Another Bardo recording is already active.")
             return
         }
 
@@ -203,7 +203,7 @@ final class SystemAudioRecordingController: ObservableObject {
             try await resolveStagingStore().discardCapture(recordingID: recordingID)
             await refreshRecoveryIssues()
         } catch {
-            errorMessage = "Bardo could not discard \(issue.entryName): \(error.localizedDescription)"
+            errorMessage = String(localized: "Bardo could not discard \(issue.entryName): \(error.localizedDescription)")
         }
     }
 
@@ -213,7 +213,7 @@ final class SystemAudioRecordingController: ObservableObject {
             try await resolveStagingStore().moveToTrash(recordingID: recordingID)
             await refreshRecoveryIssues()
         } catch {
-            errorMessage = "Bardo could not move \(issue.entryName) to the Trash: \(error.localizedDescription)"
+            errorMessage = String(localized: "Bardo could not move \(issue.entryName) to the Trash: \(error.localizedDescription)")
         }
     }
 
@@ -230,7 +230,7 @@ final class SystemAudioRecordingController: ObservableObject {
             }
             await refreshRecoveryIssues()
         } catch {
-            errorMessage = "Bardo could not move the recovery captures to the Trash: \(error.localizedDescription)"
+            errorMessage = String(localized: "Bardo could not move the recovery captures to the Trash: \(error.localizedDescription)")
         }
     }
 
@@ -290,7 +290,7 @@ final class SystemAudioRecordingController: ObservableObject {
             onRecordingPublished?(recording)
             return recording
         } catch {
-            errorMessage = "Bardo could not recover \(issue.entryName): \(error.localizedDescription)"
+            errorMessage = String(localized: "Bardo could not recover \(issue.entryName): \(error.localizedDescription)")
             await refreshRecoveryIssues()
             return nil
         }
@@ -322,7 +322,7 @@ final class SystemAudioRecordingController: ObservableObject {
                     if phase == .changingSelection { phase = .recording }
                 } catch {
                     guard phase == .changingSelection else { return }
-                    captureWarning = "Bardo kept the current capture because the new selection could not be applied: \(error.localizedDescription)"
+                    captureWarning = String(localized: "Bardo kept the current capture because the new selection could not be applied: \(error.localizedDescription)")
                     phase = .recording
                 }
                 return
@@ -342,12 +342,12 @@ final class SystemAudioRecordingController: ObservableObject {
 
         case .failed(let message):
             if phase == .changingSelection {
-                captureWarning = "The system sharing picker could not update the selection: \(message)"
+                captureWarning = String(localized: "The system sharing picker could not update the selection: \(message)")
                 phase = .recording
             } else if isRecording {
-                captureWarning = "The system sharing picker could not update the selection: \(message)"
+                captureWarning = String(localized: "The system sharing picker could not update the selection: \(message)")
             } else if phase == .selectingContent {
-                finishWithoutCapture(message: "The system sharing picker could not start: \(message)")
+                finishWithoutCapture(message: String(localized: "The system sharing picker could not start: \(message)"))
             }
         }
     }
@@ -406,7 +406,7 @@ final class SystemAudioRecordingController: ObservableObject {
         switch event {
         case .trackFailed(let detail):
             guard isRecording else { return }
-            captureWarning = "\(detail) The other source is still recording."
+            captureWarning = String(localized: "\(detail) The other source is still recording.")
 
         case .interrupted(let detail):
             guard isRecording, session != nil, !backendInterruptionInProgress else { return }
@@ -459,10 +459,10 @@ final class SystemAudioRecordingController: ObservableObject {
         }
 
         if let stopError = result.streamStopError {
-            warnings.append("ScreenCaptureKit reported a stop error after capture: \(stopError)")
+            warnings.append(String(localized: "ScreenCaptureKit reported a stop error after capture: \(stopError)"))
         }
         if let interruptionMessage {
-            warnings.append("Capture ended unexpectedly: \(interruptionMessage)")
+            warnings.append(String(localized: "Capture ended unexpectedly: \(interruptionMessage)"))
         }
 
         do {
@@ -499,7 +499,7 @@ final class SystemAudioRecordingController: ObservableObject {
             self.session = nil
             phase = .failed
             let context = warnings.isEmpty ? "" : "\n" + warnings.joined(separator: "\n")
-            errorMessage = "The capture ended, but Bardo could not safely publish it: \(error.localizedDescription) It was kept for recovery.\(context)"
+            errorMessage = String(localized: "The capture ended, but Bardo could not safely publish it: \(error.localizedDescription) It was kept for recovery.\(context)")
             elapsedTime = max(elapsedTime, backend.currentTime)
             captureWarning = nil
             picker.deactivate()
@@ -527,8 +527,8 @@ final class SystemAudioRecordingController: ObservableObject {
             do {
                 validated.append((track, try metadataReader.read(from: track.url)))
             } catch {
-                let source = track.role == .systemOriginal ? "System audio" : "Microphone audio"
-                warnings.append("\(source) could not be validated: \(error.localizedDescription)")
+                let source = track.role == .systemOriginal ? String(localized: "the system audio") : String(localized: "the microphone audio")
+                warnings.append(String(localized: "Bardo could not validate \(source): \(error.localizedDescription)"))
             }
         }
         guard !validated.isEmpty else {
@@ -579,7 +579,7 @@ final class SystemAudioRecordingController: ObservableObject {
                 allFiles[mix.id] = mixURL
             } catch {
                 try? FileManager.default.removeItem(at: mixURL)
-                warnings.append("The original sources were preserved, but the derived conversation mix could not be generated: \(error.localizedDescription)")
+                warnings.append(String(localized: "The original sources were preserved, but the derived conversation mix could not be generated: \(error.localizedDescription)"))
             }
         }
 
@@ -660,13 +660,13 @@ final class SystemAudioRecordingController: ObservableObject {
     private func microphonePermissionMessage(_ state: MicrophonePermissionState) -> String {
         switch state {
         case .notDetermined:
-            return "Microphone permission is still awaiting a response."
+            return String(localized: "Microphone permission is still awaiting a response.")
         case .authorized:
             return ""
         case .denied:
-            return "Microphone access is denied. Enable Bardo in System Settings → Privacy & Security → Microphone before recording both sources."
+            return String(localized: "Microphone access is denied. Enable Bardo in System Settings → Privacy & Security → Microphone before recording both sources.")
         case .restricted:
-            return "Microphone access is restricted by macOS, so dual-source recording cannot start."
+            return String(localized: "Microphone access is restricted by macOS, so dual-source recording cannot start.")
         case .error(let message):
             return message
         }

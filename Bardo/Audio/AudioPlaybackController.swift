@@ -234,13 +234,13 @@ enum AudioPlaybackError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .noAudioLoaded:
-            return "This recording has no playable managed audio."
+            return String(localized: "This recording has no playable managed audio.")
         case .couldNotPrepare:
-            return "Bardo could not prepare this audio for playback."
+            return String(localized: "Bardo could not prepare this audio for playback.")
         case .couldNotStart:
-            return "Bardo could not start audio playback."
+            return String(localized: "Bardo could not start audio playback.")
         case .unreadableAudio(let description):
-            return "The managed audio cannot be played: \(description)"
+            return String(localized: "The managed audio cannot be played: \(description)")
         }
     }
 }

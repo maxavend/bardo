@@ -115,13 +115,13 @@ final class LibraryViewModel: ObservableObject {
 
     func renameRecording(_ recordingID: Recording.ID, to proposedTitle: String) async {
         guard recordings.contains(where: { $0.id == recordingID }) else {
-            recordingActionErrorMessage = "That recording is no longer available."
+            recordingActionErrorMessage = String(localized: "That recording is no longer available.")
             return
         }
 
         let title = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else {
-            recordingActionErrorMessage = "Recording title cannot be empty."
+            recordingActionErrorMessage = String(localized: "Recording title cannot be empty.")
             recordingActionFeedback = nil
             return
         }
@@ -131,7 +131,7 @@ final class LibraryViewModel: ObservableObject {
 
         do {
             try await updateRecording(recordingID) { $0.title = title }
-            recordingActionFeedback = "Recording renamed"
+            recordingActionFeedback = String(localized: "Recording renamed")
         } catch {
             recordingActionErrorMessage = error.localizedDescription
         }
@@ -169,12 +169,12 @@ final class LibraryViewModel: ObservableObject {
 
     func deleteRecording(_ recordingID: Recording.ID) async {
         guard recordings.contains(where: { $0.id == recordingID }) else {
-            recordingActionErrorMessage = "That recording is no longer available."
+            recordingActionErrorMessage = String(localized: "That recording is no longer available.")
             return
         }
 
         guard !isProcessing(recordingID) else {
-            recordingActionErrorMessage = "Finish or cancel processing before deleting this recording."
+            recordingActionErrorMessage = String(localized: "Finish or cancel processing before deleting this recording.")
             return
         }
 
@@ -190,7 +190,7 @@ final class LibraryViewModel: ObservableObject {
                 transcript = nil
                 playback.unload()
             }
-            recordingActionFeedback = "Recording moved to the Trash"
+            recordingActionFeedback = String(localized: "Recording moved to the Trash")
         } catch {
             recordingActionErrorMessage = error.localizedDescription
         }
@@ -202,7 +202,7 @@ final class LibraryViewModel: ObservableObject {
 
     func playRecording(_ recordingID: Recording.ID) async {
         guard recordings.contains(where: { $0.id == recordingID }) else {
-            recordingActionErrorMessage = "That recording is no longer available."
+            recordingActionErrorMessage = String(localized: "That recording is no longer available.")
             return
         }
 
@@ -213,7 +213,7 @@ final class LibraryViewModel: ObservableObject {
 
         guard selection == recordingID else { return }
         guard playback.isLoaded else {
-            recordingActionErrorMessage = playback.errorMessage ?? "This recording has no playable managed audio."
+            recordingActionErrorMessage = playback.errorMessage ?? String(localized: "This recording has no playable managed audio.")
             return
         }
         _ = playback.play()
@@ -224,12 +224,12 @@ final class LibraryViewModel: ObservableObject {
             let location = try await managedLocation(for: recordingID)
             NSPasteboard.general.clearContents()
             guard NSPasteboard.general.setString(location.path, forType: .string) else {
-                recordingActionErrorMessage = "Bardo could not copy the managed location to the clipboard."
+                recordingActionErrorMessage = String(localized: "Bardo could not copy the managed location to the clipboard.")
                 recordingActionFeedback = nil
                 return
             }
             recordingActionErrorMessage = nil
-            recordingActionFeedback = "Managed location copied"
+            recordingActionFeedback = String(localized: "Managed location copied")
         } catch {
             recordingActionErrorMessage = error.localizedDescription
             recordingActionFeedback = nil
@@ -313,7 +313,7 @@ final class LibraryViewModel: ObservableObject {
             }
         }
 
-        controller.setUnavailable(lastError ?? "This recording has no playable managed audio.")
+        controller.setUnavailable(lastError ?? String(localized: "This recording has no playable managed audio."))
         return false
     }
 
@@ -340,7 +340,7 @@ final class LibraryViewModel: ObservableObject {
             if loaded == nil {
                 let residues = await activeStore.temporaryArtifacts(recordingID: recordingID)
                 if !residues.isEmpty {
-                    transcriptErrorMessage = "An interrupted transcription artifact was found and preserved. Retry transcription when ready."
+                    transcriptErrorMessage = String(localized: "An interrupted transcription artifact was found and preserved. Retry transcription when ready.")
                 }
             }
         } catch {
@@ -353,13 +353,13 @@ final class LibraryViewModel: ObservableObject {
     /// Why transcription cannot start for this recording right now, if anything.
     func transcriptionBlocker(for recordingID: Recording.ID) -> String? {
         if isTranscribing, transcriptionRecordingID != recordingID {
-            return "Bardo está transcribiendo otra conversación. Podrás transcribir esta cuando termine."
+            return String(localized: "Bardo is transcribing another conversation. You can transcribe this one when it finishes.")
         }
         if isDiarizing {
-            return "Espera a que termine la identificación de hablantes."
+            return String(localized: "Wait for speaker identification to finish.")
         }
         if isSavingTranscriptEdit {
-            return "Guardando tus cambios…"
+            return String(localized: "Saving your changes…")
         }
         return nil
     }
@@ -566,7 +566,7 @@ final class LibraryViewModel: ObservableObject {
         }
 
         guard let index = updated.speakers.firstIndex(where: { $0.id == speakerID }) else {
-            transcriptEditErrorMessage = "That speaker is no longer available in this transcript."
+            transcriptEditErrorMessage = String(localized: "That speaker is no longer available in this transcript.")
             return
         }
 
@@ -584,7 +584,7 @@ final class LibraryViewModel: ObservableObject {
 
         for (speakerID, proposedName) in proposedNames {
             guard let index = updated.speakers.firstIndex(where: { $0.id == speakerID }) else {
-                transcriptEditErrorMessage = "That speaker is no longer available in this transcript."
+                transcriptEditErrorMessage = String(localized: "That speaker is no longer available in this transcript.")
                 return
             }
             let trimmed = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -647,13 +647,13 @@ final class LibraryViewModel: ObservableObject {
         }
 
         guard let index = updated.segments.firstIndex(where: { $0.id == segmentID }) else {
-            transcriptEditErrorMessage = "That transcript segment is no longer available."
+            transcriptEditErrorMessage = String(localized: "That transcript segment is no longer available.")
             return
         }
 
         let trimmed = proposedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            transcriptEditErrorMessage = "Transcript text cannot be empty."
+            transcriptEditErrorMessage = String(localized: "Transcript text cannot be empty.")
             return
         }
 
@@ -670,7 +670,7 @@ final class LibraryViewModel: ObservableObject {
         }
 
         guard let index = updated.segments.firstIndex(where: { $0.id == segmentID }) else {
-            transcriptEditErrorMessage = "That transcript segment is no longer available."
+            transcriptEditErrorMessage = String(localized: "That transcript segment is no longer available.")
             return
         }
 
@@ -710,11 +710,11 @@ final class LibraryViewModel: ObservableObject {
     /// transcript: its result would otherwise overwrite them.
     private func canEditTranscript(of recordingID: Recording.ID) -> Bool {
         if isProcessing(recordingID) {
-            transcriptEditErrorMessage = "Espera a que termine el procesamiento de esta conversación para editarla."
+            transcriptEditErrorMessage = String(localized: "Wait for this conversation to finish processing before editing it.")
             return false
         }
         if isSavingTranscriptEdit {
-            transcriptEditErrorMessage = "Bardo todavía está guardando tu cambio anterior."
+            transcriptEditErrorMessage = String(localized: "Bardo is still saving your previous change.")
             return false
         }
         return true

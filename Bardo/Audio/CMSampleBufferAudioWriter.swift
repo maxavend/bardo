@@ -79,10 +79,10 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
                     try prepareWriterLocked(startingAt: pts)
                 }
                 guard let writer, let input else {
-                    throw SystemAudioCaptureError.writer("The audio writer was not prepared.")
+                    throw SystemAudioCaptureError.writer(String(localized: "The audio writer was not prepared."))
                 }
                 guard writer.status == .writing else {
-                    throw writer.error ?? SystemAudioCaptureError.writer("The audio writer left the writing state.")
+                    throw writer.error ?? SystemAudioCaptureError.writer(String(localized: "The audio writer left the writing state."))
                 }
 
                 try drainPendingLocked(input: input, writer: writer)
@@ -124,11 +124,11 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
             }
             if writer.status != .completed {
                 finalizationError = writer.error
-                    ?? SystemAudioCaptureError.writer("The \(sourceName) writer could not finalize its M4A file.")
+                    ?? SystemAudioCaptureError.writer(String(localized: "The \(sourceName) writer could not finalize its M4A file."))
             }
         } else if finalizationError == nil {
             finalizationError = writer.error
-                ?? SystemAudioCaptureError.writer("The \(sourceName) writer was not active at finalization.")
+                ?? SystemAudioCaptureError.writer(String(localized: "The \(sourceName) writer was not active at finalization."))
         }
 
         let snapshot = lock.bardoWithLock { (firstPTS, lastEndPTS, droppedBufferCount) }
@@ -140,10 +140,10 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
 
         var warnings: [String] = []
         if let finalizationError {
-            warnings.append("The \(sourceName) track stopped early (\(finalizationError.localizedDescription)). Audio captured before that point was kept.")
+            warnings.append(String(localized: "The \(sourceName) track stopped early (\(finalizationError.localizedDescription)). Audio captured before that point was kept."))
         }
         if snapshot.2 > 0 {
-            warnings.append("The \(sourceName) track skipped \(snapshot.2) short audio buffers while the Mac was busy.")
+            warnings.append(String(localized: "The \(sourceName) track skipped \(snapshot.2) short audio buffers while the Mac was busy."))
         }
 
         return CapturedAudioTrackTiming(
@@ -192,7 +192,7 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
         writer: AVAssetWriter
     ) throws {
         guard input.append(sampleBuffer) else {
-            throw writer.error ?? SystemAudioCaptureError.writer("AVAssetWriter rejected an audio sample.")
+            throw writer.error ?? SystemAudioCaptureError.writer(String(localized: "AVAssetWriter rejected an audio sample."))
         }
 
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
@@ -223,11 +223,11 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
         let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
         guard writer.canAdd(input) else {
-            throw SystemAudioCaptureError.writer("AVAssetWriter cannot add the requested audio input.")
+            throw SystemAudioCaptureError.writer(String(localized: "AVAssetWriter cannot add the requested audio input."))
         }
         writer.add(input)
         guard writer.startWriting() else {
-            throw writer.error ?? SystemAudioCaptureError.writer("AVAssetWriter could not start writing.")
+            throw writer.error ?? SystemAudioCaptureError.writer(String(localized: "AVAssetWriter could not start writing."))
         }
         writer.startSession(atSourceTime: pts)
 

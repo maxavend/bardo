@@ -9,9 +9,9 @@ enum CapturePublicationError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .noAudioCaptured:
-            return "The capture does not contain any readable audio."
+            return String(localized: "The capture does not contain any readable audio.")
         case .alreadyInLibrary:
-            return "This capture is already in your library."
+            return String(localized: "This capture is already in your library.")
         }
     }
 }
@@ -111,11 +111,11 @@ final class MicrophoneRecordingController: ObservableObject {
         errorMessage = nil
 
         guard !isBusy, !isRecovering else {
-            errorMessage = "A microphone recording is already active or changing state."
+            errorMessage = String(localized: "A microphone recording is already active or changing state.")
             return
         }
         guard acquireGlobalCaptureLease() else {
-            errorMessage = "Another Bardo recording is already active."
+            errorMessage = String(localized: "Another Bardo recording is already active.")
             return
         }
 
@@ -204,7 +204,7 @@ final class MicrophoneRecordingController: ObservableObject {
             try await resolveStagingStore().discardCapture(recordingID: recordingID)
             await refreshRecoveryIssues()
         } catch {
-            errorMessage = "Bardo could not discard \(issue.entryName): \(error.localizedDescription)"
+            errorMessage = String(localized: "Bardo could not discard \(issue.entryName): \(error.localizedDescription)")
         }
     }
 
@@ -214,7 +214,7 @@ final class MicrophoneRecordingController: ObservableObject {
             try await resolveStagingStore().moveToTrash(recordingID: recordingID)
             await refreshRecoveryIssues()
         } catch {
-            errorMessage = "Bardo could not move \(issue.entryName) to the Trash: \(error.localizedDescription)"
+            errorMessage = String(localized: "Bardo could not move \(issue.entryName) to the Trash: \(error.localizedDescription)")
         }
     }
 
@@ -231,7 +231,7 @@ final class MicrophoneRecordingController: ObservableObject {
             }
             await refreshRecoveryIssues()
         } catch {
-            errorMessage = "Bardo could not move the recovery captures to the Trash: \(error.localizedDescription)"
+            errorMessage = String(localized: "Bardo could not move the recovery captures to the Trash: \(error.localizedDescription)")
         }
     }
 
@@ -276,7 +276,7 @@ final class MicrophoneRecordingController: ObservableObject {
             onRecordingPublished?(recording)
             return recording
         } catch {
-            errorMessage = "Bardo could not recover \(issue.entryName): \(error.localizedDescription)"
+            errorMessage = String(localized: "Bardo could not recover \(issue.entryName): \(error.localizedDescription)")
             await refreshRecoveryIssues()
             return nil
         }
@@ -379,7 +379,7 @@ final class MicrophoneRecordingController: ObservableObject {
             inputDisplayName = nil
             inputLevel = 0
             errorMessage = interruptionMessage.map {
-                "Microphone recording was interrupted: \($0) Bardo saved the audio captured until then."
+                String(localized: "Microphone recording was interrupted: \($0) Bardo saved the audio captured until then.")
             }
             releaseGlobalCaptureLease()
             await refreshRecoveryIssues()
@@ -392,16 +392,16 @@ final class MicrophoneRecordingController: ObservableObject {
             elapsedTime = 0
             inputDisplayName = nil
             inputLevel = 0
-            errorMessage = interruptionMessage.map { "Microphone recording was interrupted: \($0)" }
-                ?? "The recording ended before any audio was captured."
+            errorMessage = interruptionMessage.map { String(localized: "Microphone recording was interrupted: \($0)") }
+                ?? String(localized: "The recording ended before any audio was captured.")
             releaseGlobalCaptureLease()
             await refreshRecoveryIssues()
             return nil
         } catch {
-            let detail = interruptionMessage.map { "Microphone recording was interrupted: \($0) " } ?? ""
+            let detail = interruptionMessage.map { String(localized: "Microphone recording was interrupted: \($0) ") } ?? ""
             await failAfterCapture(
                 session: session,
-                message: "\(detail)The recording stopped, but Bardo could not safely publish it: \(error.localizedDescription) It was kept for recovery."
+                message: String(localized: "\(detail)The recording stopped, but Bardo could not safely publish it: \(error.localizedDescription) It was kept for recovery.")
             )
             elapsedTime = capturedElapsed
             return nil
@@ -566,13 +566,13 @@ final class MicrophoneRecordingController: ObservableObject {
     private func presentPermissionMessage(for state: MicrophonePermissionState) {
         switch state {
         case .notDetermined:
-            errorMessage = "Microphone permission is still awaiting a response."
+            errorMessage = String(localized: "Microphone permission is still awaiting a response.")
         case .authorized:
             errorMessage = nil
         case .denied:
-            errorMessage = "Microphone access is denied. You can enable Bardo in System Settings → Privacy & Security → Microphone."
+            errorMessage = String(localized: "Microphone access is denied. You can enable Bardo in System Settings → Privacy & Security → Microphone.")
         case .restricted:
-            errorMessage = "Microphone access is restricted by macOS and cannot be requested by Bardo."
+            errorMessage = String(localized: "Microphone access is restricted by macOS and cannot be requested by Bardo.")
         case .error(let message):
             errorMessage = message
         }

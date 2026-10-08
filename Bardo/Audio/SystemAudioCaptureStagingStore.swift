@@ -19,9 +19,9 @@ actor SystemAudioCaptureStagingStore {
         var errorDescription: String? {
             switch self {
             case .captureAlreadyPrepared:
-                return "Another system-audio capture is already prepared."
+                return String(localized: "Another system-audio capture is already prepared.")
             case .captureNotFound(let id):
-                return "System-audio staging for \(id.uuidString) was not found."
+                return String(localized: "System-audio staging for \(id.uuidString) was not found.")
             }
         }
     }

@@ -23,17 +23,17 @@ enum TranscriptStoreError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .recordingNotFound(let id):
-            return "Recording \(id.uuidString) was not found."
+            return String(localized: "Recording \(id.uuidString) was not found.")
         case .transcriptNotFound(let id):
-            return "Recording \(id.uuidString) has no transcript yet."
+            return String(localized: "Recording \(id.uuidString) has no transcript yet.")
         case .unsupportedSchemaVersion(let version):
-            return "Transcript schema version \(version) is not supported."
+            return String(localized: "Transcript schema version \(version) is not supported.")
         case .invalidTranscript(let description):
-            return "The transcript is invalid: \(description)"
+            return String(localized: "The transcript is invalid: \(description)")
         case .identityMismatch(let expected, let actual):
-            return "Transcript identity \(actual.uuidString) does not match recording \(expected.uuidString)."
+            return String(localized: "Transcript identity \(actual.uuidString) does not match recording \(expected.uuidString).")
         case .fileSystem(let operation, let entry, let description):
-            return "Could not \(operation) \(entry): \(description)"
+            return String(localized: "Could not \(operation) \(entry): \(description)")
         }
     }
 }

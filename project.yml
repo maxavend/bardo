@@ -89,6 +89,10 @@ schemes:
       config: Debug
     test:
       config: Debug
+      # Tests assert user-facing text; run them in the development language instead of
+      # the Mac's preferred language.
+      language: en
+      region: US
       targets:
         - BardoTests
     archive:

@@ -87,13 +87,13 @@ enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .noManagedAudio(let id):
-            return "Recording \(id.uuidString) has no readable managed audio to transcribe."
+            return String(localized: "Recording \(id.uuidString) has no readable managed audio to transcribe.")
         case .combinedAudioUnavailable:
-            return "The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before transcribing."
+            return String(localized: "The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before transcribing.")
         case .invalidDuration:
-            return "Bardo could not determine a valid audio duration for transcription."
+            return String(localized: "Bardo could not determine a valid audio duration for transcription.")
         case .emptyTranscription:
-            return "WhisperKit completed without producing any transcript segments."
+            return String(localized: "WhisperKit completed without producing any transcript segments.")
         }
     }
 }

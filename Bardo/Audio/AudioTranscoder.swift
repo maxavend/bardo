@@ -13,7 +13,7 @@ enum AudioTranscodingError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .couldNotAllocateBuffer:
-            return "Bardo could not allocate an audio conversion buffer."
+            return String(localized: "Bardo could not allocate an audio conversion buffer.")
         case .incompleteOutput(let expected, let actual):
             return String(format: "The compressed audio is shorter than the original (%.1f s of %.1f s).", actual, expected)
         }

@@ -109,9 +109,9 @@ final class AVAudioRecorderCaptureBackend: NSObject, AudioCapturing {
         if let error {
             message = error.localizedDescription
         } else if flag {
-            message = "Microphone recording ended unexpectedly."
+            message = String(localized: "Microphone recording ended unexpectedly.")
         } else {
-            message = "Microphone recording stopped because the audio recorder could not continue."
+            message = String(localized: "Microphone recording stopped because the audio recorder could not continue.")
         }
         eventHandler?(.interrupted(message))
     }
@@ -119,7 +119,7 @@ final class AVAudioRecorderCaptureBackend: NSObject, AudioCapturing {
 
 extension AVAudioRecorderCaptureBackend: AVAudioRecorderDelegate {
     nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        let message = error?.localizedDescription ?? "The audio encoder reported an unknown recording error."
+        let message = error?.localizedDescription ?? String(localized: "The audio encoder reported an unknown recording error.")
         Task { @MainActor [weak self] in
             self?.reportUnexpectedFinish(successfully: false, error: NSError(
                 domain: "Bardo.AudioRecorder",

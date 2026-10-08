@@ -85,7 +85,7 @@ enum ModelOperationError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .inUse:
-            return "This model is being used right now. Try again when the current transcription or speaker identification finishes."
+            return String(localized: "This model is being used right now. Try again when the current transcription or speaker identification finishes.")
         }
     }
 }

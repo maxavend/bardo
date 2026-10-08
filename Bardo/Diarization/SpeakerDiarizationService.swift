@@ -79,17 +79,17 @@ enum RecordingDiarizationError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .noManagedAudio(let id):
-            return "Recording \(id.uuidString) has no readable managed audio to diarize."
+            return String(localized: "Recording \(id.uuidString) has no readable managed audio to diarize.")
         case .combinedAudioUnavailable:
-            return "The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before identifying speakers."
+            return String(localized: "The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before identifying speakers.")
         case .invalidDuration:
-            return "Bardo could not determine a valid audio duration for speaker identification."
+            return String(localized: "Bardo could not determine a valid audio duration for speaker identification.")
         case .noSpeakerActivity:
-            return "SpeakerKit completed without finding any speaker activity."
+            return String(localized: "SpeakerKit completed without finding any speaker activity.")
         case .speakerModelsUnavailable:
-            return "Bardo could not download or verify the private SpeakerKit models. Check the connection and try again."
+            return String(localized: "Bardo could not download or verify the private SpeakerKit models. Check the connection and try again.")
         case .speakerModelsNotLoaded:
-            return "Bardo could not load the private SpeakerKit models. Reset the SpeakerKit models and download them again."
+            return String(localized: "Bardo could not load the private SpeakerKit models. Reset the SpeakerKit models and download them again.")
         }
     }
 }

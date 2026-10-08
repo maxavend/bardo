@@ -161,13 +161,13 @@ enum MicrophoneCaptureStagingError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .captureAlreadyActive:
-            return "A microphone capture is already active."
+            return String(localized: "A microphone capture is already active.")
         case .captureNotActive:
-            return "The microphone capture is no longer active."
+            return String(localized: "The microphone capture is no longer active.")
         case .captureResidueExists:
-            return "Bardo found existing temporary data for this capture and left it untouched."
+            return String(localized: "Bardo found existing temporary data for this capture and left it untouched.")
         case .fileSystem(let description):
-            return "Microphone capture storage failed: \(description)"
+            return String(localized: "Microphone capture storage failed: \(description)")
         }
     }
 }

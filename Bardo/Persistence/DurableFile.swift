@@ -22,9 +22,9 @@ enum DurableFile {
         var errorDescription: String? {
             switch self {
             case .write(let path, let description):
-                return "Could not write \(path): \(description)"
+                return String(localized: "Could not write \(path): \(description)")
             case .rename(let path, let description):
-                return "Could not publish \(path): \(description)"
+                return String(localized: "Could not publish \(path): \(description)")
             }
         }
     }

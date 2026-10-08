@@ -10,9 +10,9 @@ enum TranscriptionModelError: Error, LocalizedError, Equatable, Sendable {
         case .insufficientDiskSpace(let required, let available):
             let formatter = ByteCountFormatter()
             formatter.countStyle = .file
-            return "Whisper model setup needs about \(formatter.string(fromByteCount: required)) free, but only \(formatter.string(fromByteCount: available)) is available."
+            return String(localized: "Whisper model setup needs about \(formatter.string(fromByteCount: required)) free, but only \(formatter.string(fromByteCount: available)) is available.")
         case .downloadedModelInvalid(let modelID):
-            return "WhisperKit downloaded \(modelID), but Bardo could not verify the required Core ML model files."
+            return String(localized: "WhisperKit downloaded \(modelID), but Bardo could not verify the required Core ML model files.")
         }
     }
 }

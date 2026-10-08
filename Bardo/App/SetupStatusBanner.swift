@@ -74,13 +74,13 @@ struct SetupStatusBanner: View {
     private var actionButton: some View {
         switch setup.state {
         case .installing, .installingSpeakers:
-            Button("Pausar", role: .cancel) { setup.cancelPreparation() }
+            Button(String(localized: "Pause"), role: .cancel) { setup.cancelPreparation() }
         case .cancelled:
-            Button("Continuar") { setup.retry() }
+            Button(String(localized: "Continue")) { setup.retry() }
         case .failed:
-            Button("Reintentar") { setup.retry() }
+            Button(String(localized: "Retry")) { setup.retry() }
         case .needsInstall:
-            Button("Descargar") { setup.retry() }
+            Button(String(localized: "Download")) { setup.retry() }
         case .checking, .ready:
             EmptyView()
         }
@@ -89,15 +89,15 @@ struct SetupStatusBanner: View {
     private var title: String {
         switch setup.state {
         case .installing:
-            return "Preparando la transcripción"
+            return String(localized: "Preparing transcription")
         case .installingSpeakers:
-            return "Preparando la identificación de hablantes"
+            return String(localized: "Preparing speaker identification")
         case .cancelled:
-            return "La preparación de la transcripción está en pausa"
+            return String(localized: "Transcription setup is paused")
         case .failed:
-            return "No pudimos preparar la transcripción"
+            return String(localized: "Transcription setup could not finish")
         case .needsInstall:
-            return "Faltan los recursos para transcribir"
+            return String(localized: "Transcription resources are missing")
         case .checking, .ready:
             return ""
         }
@@ -107,18 +107,18 @@ struct SetupStatusBanner: View {
         switch setup.state {
         case .installing(let progress):
             return progress.stage == .downloading
-                ? "Descargando · \(percentage(progress.fractionCompleted)). Puedes grabar e importar audio mientras tanto."
-                : "Dejando todo listo en este Mac. Puedes grabar e importar audio mientras tanto."
+                ? String(localized: "Downloading · \(percentage(progress.fractionCompleted)). You can record and import audio meanwhile.")
+                : String(localized: "Getting everything ready on this Mac. You can record and import audio meanwhile.")
         case .installingSpeakers(let progress):
             return progress.stage == .downloading
-                ? "Descargando · \(percentage(progress.fractionCompleted)). Puedes seguir usando Bardo."
-                : "Dejando todo listo en este Mac. Puedes seguir usando Bardo."
+                ? String(localized: "Downloading · \(percentage(progress.fractionCompleted)). You can keep using Bardo.")
+                : String(localized: "Getting everything ready on this Mac. You can keep using Bardo.")
         case .cancelled:
-            return "Lo descargado se conserva. Continúa cuando tengas conexión."
+            return String(localized: "What was downloaded is kept. Continue when you are online.")
         case .failed(let message):
             return message
         case .needsInstall:
-            return "Descárgalos para transcribir e identificar hablantes de forma privada en este Mac."
+            return String(localized: "Download them to transcribe and identify speakers privately on this Mac.")
         case .checking, .ready:
             return ""
         }

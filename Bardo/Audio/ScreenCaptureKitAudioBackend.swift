@@ -219,10 +219,10 @@ final class SystemAudioSampleProcessor: @unchecked Sendable {
         switch type {
         case .audio:
             writer = writers.0
-            sourceName = "System audio"
+            sourceName = String(localized: "System audio")
         case .microphone:
             writer = writers.1
-            sourceName = "Microphone"
+            sourceName = String(localized: "Microphone")
         default:
             return .recording
         }
@@ -233,7 +233,7 @@ final class SystemAudioSampleProcessor: @unchecked Sendable {
             return .recording
         }
 
-        let detail = "\(sourceName) stopped recording: \(message)"
+        let detail = String(localized: "\(sourceName) stopped recording: \(message)")
         let configured = [writers.0, writers.1].compactMap { $0 }
         return configured.allSatisfy(\.hasFailed) ? .allTracksFailed(detail) : .trackFailed(detail)
     }
@@ -248,7 +248,7 @@ final class SystemAudioSampleProcessor: @unchecked Sendable {
 
         if let writer = writers.0 {
             do {
-                systemTrack = try await writer.finish(sourceName: "system")
+                systemTrack = try await writer.finish(sourceName: String(localized: "system"))
             } catch {
                 systemError = error.localizedDescription
             }
@@ -256,7 +256,7 @@ final class SystemAudioSampleProcessor: @unchecked Sendable {
 
         if let writer = writers.1 {
             do {
-                microphoneTrack = try await writer.finish(sourceName: "microphone")
+                microphoneTrack = try await writer.finish(sourceName: String(localized: "microphone"))
             } catch {
                 microphoneError = error.localizedDescription
             }
