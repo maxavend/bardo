@@ -418,7 +418,7 @@ private struct BardoCollectionView: View {
             } label: {
                 Label("Mover a la Papelera", systemImage: "trash")
             }
-            .disabled(model.isTranscribing || model.isDiarizing)
+            .disabled(model.isProcessing(recording.id))
         }
     }
 

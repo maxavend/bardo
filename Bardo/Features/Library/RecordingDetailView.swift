@@ -5,7 +5,9 @@ struct RecordingDetailView: View {
     @ObserveInjection var redraw
     let recording: Recording
     @ObservedObject var model: LibraryViewModel
-    @ObservedObject var playback: AudioPlaybackController
+    /// Not observed here: only the playback bar and transcript rows redraw with the
+    /// playhead, instead of the whole document ten times per second.
+    let playback: AudioPlaybackController
     @ObservedObject private var favorites = BardoFavoritesStore.shared
 
     @Binding var transcriptSearch: String
@@ -160,7 +162,6 @@ struct RecordingDetailView: View {
             } label: {
                 Label("Renombrar…", systemImage: "pencil")
             }
-            .disabled(model.isTranscribing || model.isDiarizing)
             .keyboardShortcut("e", modifiers: [.command])
 
             Button {
@@ -221,7 +222,7 @@ struct RecordingDetailView: View {
             } label: {
                 Label("Mover a la Papelera", systemImage: "trash")
             }
-            .disabled(model.isTranscribing || model.isDiarizing)
+            .disabled(model.isProcessing(recording.id))
             .keyboardShortcut(.delete, modifiers: [.command])
         } label: {
             Label("Más", systemImage: "ellipsis")
@@ -236,7 +237,7 @@ struct RecordingDetailView: View {
     }
 
     private var showsPlaybackBar: Bool {
-        !recording.audioAssets.isEmpty || playback.errorMessage != nil
+        !recording.audioAssets.isEmpty
     }
 
     private var playbackContentInset: CGFloat {
