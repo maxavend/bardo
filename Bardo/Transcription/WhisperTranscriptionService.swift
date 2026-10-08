@@ -264,13 +264,6 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         category: "transcription.performance"
     )
 
-    /// Short decoder context for product-design vocabulary commonly used in meetings.
-    /// It improves lexical recognition without forcing a language or paraphrasing speech.
-    private static let transcriptionVocabulary = """
-    Figma, UX, UI, design system, empty state, supporting text, breadcrumb, breadcrumbs, handoff, layout, mobile, desktop,
-    modal, chip, release, sprint, weekly, prototype, prototipo, Chrome, Discord, roaming, LDI.
-    """
-
     private static let sharedServiceResult: Result<WhisperTranscriptionService, Error> = Result {
         WhisperTranscriptionService(modelManager: try TranscriptionModelManager.live())
     }
@@ -472,24 +465,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         try checkCancellation(cancellation)
         progress(.init(stage: .transcribing, fractionCompleted: 0))
 
-        let vocabularyTokens = whisper.tokenizer?.encode(text: Self.transcriptionVocabulary)
-        let options = DecodingOptions(
-            temperatureFallbackCount: performanceProfile.temperatureFallbackCount,
-            usePrefillPrompt: true,
-            detectLanguage: true,
-            skipSpecialTokens: true,
-            wordTimestamps: true,
-            promptTokens: vocabularyTokens,
-            concurrentWorkerCount: performanceProfile.concurrentWorkerCount,
-            chunkingStrategy: performanceProfile.usesVAD ? .vad : nil
-        )
-        let audioInputOptions = AudioInputOptions(
-            channelMode: .sumChannels(nil),
-            audioLoadingMode: .incremental(
-                chunkDurationSeconds: performanceProfile.incrementalChunkDurationSeconds,
-                maxBufferedChunks: performanceProfile.maxBufferedChunks
-            )
-        )
+        let options = Self.decodingOptions(for: performanceProfile)
+        let audioInputOptions = Self.audioInputOptions(for: performanceProfile)
         let liveBuffer = TranscriptionLiveBuffer(
             recordingID: recording.id,
             audioDuration: duration
@@ -611,6 +588,34 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             "Whisper metrics audioSeconds=\(duration) ASRSeconds=\(elapsed) ASR_RTF=\(elapsed / duration) segments=\(transcript.segments.count) words=\(transcript.segments.reduce(0) { $0 + $1.words.count }) workers=\(self.performanceProfile.concurrentWorkerCount) incrementalChunkSeconds=\(self.performanceProfile.incrementalChunkDurationSeconds) bufferedChunks=\(self.performanceProfile.maxBufferedChunks) fallbackCount=\(fallbackCount) vadWindows=\(windowCount)"
         )
         return transcript
+    }
+
+    /// Decoding settings for every transcription.
+    ///
+    /// No prompt tokens: conditioning the decoder on a vocabulary prompt made Whisper
+    /// skip the opening of each window and shift every later timestamp (a 25 s Spanish
+    /// conversation lost its first 13 s). Product terms are normalized after recognition
+    /// by `TranscriptTextSanitizer` instead.
+    nonisolated static func decodingOptions(for profile: WhisperPerformanceProfile) -> DecodingOptions {
+        DecodingOptions(
+            temperatureFallbackCount: profile.temperatureFallbackCount,
+            usePrefillPrompt: true,
+            detectLanguage: true,
+            skipSpecialTokens: true,
+            wordTimestamps: true,
+            concurrentWorkerCount: profile.concurrentWorkerCount,
+            chunkingStrategy: profile.usesVAD ? .vad : nil
+        )
+    }
+
+    nonisolated static func audioInputOptions(for profile: WhisperPerformanceProfile) -> AudioInputOptions {
+        AudioInputOptions(
+            channelMode: .sumChannels(nil),
+            audioLoadingMode: .incremental(
+                chunkDurationSeconds: profile.incrementalChunkDurationSeconds,
+                maxBufferedChunks: profile.maxBufferedChunks
+            )
+        )
     }
 
     private func engine(
