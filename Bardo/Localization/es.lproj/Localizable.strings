@@ -455,3 +455,5 @@
 "Getting everything ready on this Mac. You can keep using Bardo." = "Dejando todo listo en este Mac. Puedes seguir usando Bardo.";
 "What was downloaded is kept. Continue when you are online." = "Lo descargado se conserva. Continúa cuando tengas conexión.";
 "Download them to transcribe and identify speakers privately on this Mac." = "Descárgalos para transcribir e identificar hablantes de forma privada en este Mac.";
+"Bardo could not connect to the internet. Check your connection and try again." = "Bardo no pudo conectarse a internet. Revisa tu conexión e inténtalo de nuevo.";
+"The download was interrupted. Try again in a moment." = "La descarga se interrumpió. Inténtalo de nuevo en un momento.";

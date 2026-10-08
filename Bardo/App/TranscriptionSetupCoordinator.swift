@@ -162,8 +162,28 @@ final class TranscriptionSetupCoordinator: ObservableObject {
         } catch is CancellationError {
             state = .cancelled
         } catch {
-            state = .failed(error.localizedDescription)
+            state = .failed(Self.friendlyMessage(for: error))
         }
+    }
+
+    /// Network failures surface from deep inside the model downloaders as raw
+    /// `NSURLErrorDomain` codes; describe them in plain words.
+    nonisolated static func friendlyMessage(for error: Error) -> String {
+        let offlineCodes: Set<Int> = [
+            NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost, NSURLErrorCannotFindHost,
+            NSURLErrorCannotConnectToHost, NSURLErrorDNSLookupFailed, NSURLErrorTimedOut,
+            NSURLErrorInternationalRoamingOff, NSURLErrorDataNotAllowed
+        ]
+        var current: NSError? = error as NSError
+        while let nsError = current {
+            if nsError.domain == NSURLErrorDomain {
+                return offlineCodes.contains(nsError.code)
+                    ? String(localized: "Bardo could not connect to the internet. Check your connection and try again.")
+                    : String(localized: "The download was interrupted. Try again in a moment.")
+            }
+            current = nsError.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return error.localizedDescription
     }
 
     private func markCompleted() {
@@ -204,7 +224,7 @@ final class TranscriptionSetupCoordinator: ObservableObject {
                 state = .cancelled
                 preparationTask = nil
             } catch {
-                state = .failed(error.localizedDescription)
+                state = .failed(Self.friendlyMessage(for: error))
                 preparationTask = nil
             }
         }

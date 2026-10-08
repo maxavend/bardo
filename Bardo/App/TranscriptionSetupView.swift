@@ -258,7 +258,7 @@ struct TranscriptionSetupView: View {
             Label(stageLabel, systemImage: terminalStateSymbol)
                 .font(.headline)
 
-            Text(detail)
+            Text(failureReason ?? detail)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -281,6 +281,11 @@ struct TranscriptionSetupView: View {
                 Button(TranscriptionSetupCopy.skipButton, action: continueWithoutModels)
             }
         }
+    }
+
+    private var failureReason: String? {
+        if case .failed(let message) = state, !message.isEmpty { return message }
+        return nil
     }
 
     private var isTerminalState: Bool {

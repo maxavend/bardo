@@ -417,3 +417,18 @@ private final class LockedValues: @unchecked Sendable {
         lock.bardoWithLock { stored.append(value) }
     }
 }
+
+final class SetupErrorMessageTests: XCTestCase {
+    func testOfflineFailuresAreDescribedInPlainWords() {
+        let offline = URLError(.notConnectedToInternet)
+        let wrapped = NSError(domain: "Hub", code: 1, userInfo: [NSUnderlyingErrorKey: offline as NSError])
+        let expected = "Bardo could not connect to the internet. Check your connection and try again."
+
+        XCTAssertEqual(TranscriptionSetupCoordinator.friendlyMessage(for: offline), expected)
+        XCTAssertEqual(TranscriptionSetupCoordinator.friendlyMessage(for: wrapped), expected)
+        XCTAssertEqual(
+            TranscriptionSetupCoordinator.friendlyMessage(for: TranscriptionModelError.downloadedModelInvalid("x")),
+            TranscriptionModelError.downloadedModelInvalid("x").localizedDescription
+        )
+    }
+}
