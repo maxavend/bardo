@@ -35,9 +35,8 @@ targets:
           - Models
           - Resources
       - path: Bardo/Models
-    resources:
-      - path: Bardo/Localization
       - path: Bardo/Resources/Assets.xcassets
+        buildPhase: resources
     dependencies:
       - package: ArgmaxOSS
         product: WhisperKit
@@ -59,6 +58,9 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
         Debug:
+          # Hot reload needs debugger attachment and unsigned bundle loading. Those
+          # exceptions must never reach a distributed Release build.
+          CODE_SIGN_ENTITLEMENTS: Bardo/Bardo.Debug.entitlements
           OTHER_LDFLAGS:
             - $(inherited)
             - -Xlinker

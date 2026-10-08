@@ -84,6 +84,15 @@ validate_signed_app() {
     codesign -d --entitlements :- "$app_path" >"$entitlements_path" 2>/dev/null
     test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' "$entitlements_path")" = "true"
     test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' "$entitlements_path")" = "true"
+    if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.get-task-allow' "$entitlements_path" >/dev/null 2>&1 \
+        || /usr/libexec/PlistBuddy -c 'Print :com.apple.security.cs.disable-library-validation' "$entitlements_path" >/dev/null 2>&1; then
+        echo "DMG validation failed: release signature carries debugging entitlements" >&2
+        return 1
+    fi
+    test -f "$app_path/Contents/Resources/Assets.car" || {
+        echo "DMG validation failed: the compiled app icon catalog is missing" >&2
+        return 1
+    }
     rm -f "$entitlements_path"
     trap - RETURN
 }
