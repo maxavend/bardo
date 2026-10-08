@@ -39,7 +39,7 @@ final class BardoModelStoreTests: XCTestCase {
 
         let store = BardoModelStore(rootURL: root)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        for name in ["whisper-balanced", "whisper-maximum-accuracy", "parakeet"] {
+        for name in BardoModelStore.legacyModelDirectoryNames {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
         }
         try FileManager.default.createDirectory(at: store.root(for: .whisperTurbo), withIntermediateDirectories: true)
@@ -47,9 +47,9 @@ final class BardoModelStoreTests: XCTestCase {
 
         try store.removeLegacyVoiceModelDirectories()
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("whisper-balanced").path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("whisper-maximum-accuracy").path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("parakeet").path))
+        for name in BardoModelStore.legacyModelDirectoryNames {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(name).path), name)
+        }
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.root(for: .whisperTurbo).path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.root(for: .speakerKit).path))
     }

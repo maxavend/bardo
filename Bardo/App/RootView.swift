@@ -4,6 +4,7 @@ import SwiftUI
 struct RootView: View {
     @ObserveInjection var redraw
     private let warmTranscriptionForRecording: @MainActor () -> Void
+    private let setupBanner: AnyView?
 
     @StateObject private var library = LibraryViewModel()
     @StateObject private var microphone = MicrophoneRecordingController()
@@ -11,8 +12,12 @@ struct RootView: View {
     @State private var isRecoveryPresented = false
     @State private var isRecordingSetupPresented = false
 
-    init(warmTranscriptionForRecording: @escaping @MainActor () -> Void = {}) {
+    init(
+        warmTranscriptionForRecording: @escaping @MainActor () -> Void = {},
+        setupBanner: AnyView? = nil
+    ) {
         self.warmTranscriptionForRecording = warmTranscriptionForRecording
+        self.setupBanner = setupBanner
     }
 
     var body: some View {
@@ -142,7 +147,7 @@ struct RootView: View {
         } else if !microphone.recoveryIssues.isEmpty || !systemAudio.recoveryIssues.isEmpty {
             return AnyView(recoveryBanner)
         } else {
-            return nil
+            return setupBanner
         }
     }
 

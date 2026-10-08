@@ -56,13 +56,27 @@ actor TranscriptionModelManager {
 
     typealias CapacityProvider = @Sendable (URL) throws -> Int64?
     typealias TokenizerPreparer = @Sendable (URL) async throws -> Void
+    /// Downloads `variant` under the root and returns the model folder.
+    typealias ModelDownloader = @Sendable (
+        _ variant: String,
+        _ downloadRoot: URL,
+        _ progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> URL
 
     private let downloadRoot: URL
     private let fileManager: FileManager
     private let availableCapacity: CapacityProvider
     private let prepareTokenizer: TokenizerPreparer
+    private let downloadModel: ModelDownloader
     private var cachedResources: TranscriptionModelResources?
     private var modelState: ManagedModelState = .notInstalled
+    /// One download/preparation at a time, shared by setup, Settings and transcription.
+    private var inFlightPreparation: Task<TranscriptionModelResources, Error>?
+    private let preparationProgress = ProgressFanOut<Double>()
+
+    private static let sharedManagerResult: Result<TranscriptionModelManager, Error> = Result {
+        TranscriptionModelManager(downloadRoot: try BardoModelStore.live().root(for: .whisperTurbo))
+    }
 
     init(
         downloadRoot: URL,
@@ -72,17 +86,29 @@ actor TranscriptionModelManager {
         },
         prepareTokenizer: @escaping TokenizerPreparer = { root in
             try await TranscriptionModelManager.prepareLargeV3Tokenizer(in: root)
+        },
+        downloadModel: @escaping ModelDownloader = { variant, root, progress in
+            try await WhisperKit.download(
+                variant: variant,
+                downloadBase: root,
+                useBackgroundSession: false,
+                progressCallback: { downloadProgress in
+                    progress(downloadProgress.fractionCompleted)
+                }
+            )
         }
     ) {
         self.downloadRoot = downloadRoot.standardizedFileURL
         self.fileManager = fileManager
         self.availableCapacity = availableCapacity
         self.prepareTokenizer = prepareTokenizer
+        self.downloadModel = downloadModel
     }
 
+    /// The app-wide manager. Every caller shares it so concurrent requests coalesce
+    /// into one download instead of racing in the same folder.
     static func live() throws -> TranscriptionModelManager {
-        let store = try BardoModelStore.live()
-        return TranscriptionModelManager(downloadRoot: store.root(for: .whisperTurbo))
+        try sharedManagerResult.get()
     }
 
     nonisolated static func systemAvailableCapacity(at url: URL) throws -> Int64? {
@@ -118,8 +144,9 @@ actor TranscriptionModelManager {
     }
 
     func reset() throws {
+        guard inFlightPreparation == nil else { throw ModelOperationError.inUse }
         cachedResources = nil
-        guard downloadRoot.resolvingSymlinksInPath() == downloadRoot else {
+        guard downloadRoot.resolvingSymlinksInPath().path == downloadRoot.path else {
             throw TranscriptionModelError.downloadedModelInvalid(Self.modelID)
         }
         if fileManager.fileExists(atPath: downloadRoot.path) {
@@ -130,6 +157,52 @@ actor TranscriptionModelManager {
 
     func ensureResourcesAvailable(
         progress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async throws -> TranscriptionModelResources {
+        try Task.checkCancellation()
+        if let cachedResources, verifyModelFolder(cachedResources.modelFolder), tokenizerIsAvailable {
+            modelState = .installed
+            progress(1)
+            return cachedResources
+        }
+
+        let observer = preparationProgress.add(progress)
+        defer { preparationProgress.remove(observer) }
+
+        // A cancelled download may still be unwinding; never start a second one into
+        // the same folder until it has stopped.
+        while let current = inFlightPreparation, current.isCancelled {
+            _ = try? await current.value
+            if inFlightPreparation == current { inFlightPreparation = nil }
+        }
+
+        let preparation: Task<TranscriptionModelResources, Error>
+        if let inFlightPreparation {
+            preparation = inFlightPreparation
+        } else {
+            let fanOut = preparationProgress
+            preparation = Task { try await self.prepareResources(progress: { fanOut.send($0) }) }
+            inFlightPreparation = preparation
+            Task {
+                _ = try? await preparation.value
+                self.preparationFinished(preparation)
+            }
+        }
+
+        // Cancelling any caller (setup "Pause", transcription "Cancel") stops the shared
+        // download; every caller then sees the cancellation.
+        return try await CancellableAwait.value(of: preparation)
+    }
+
+    private func preparationFinished(_ preparation: Task<TranscriptionModelResources, Error>) {
+        if inFlightPreparation == preparation {
+            inFlightPreparation = nil
+        }
+    }
+
+    var isPreparing: Bool { inFlightPreparation != nil }
+
+    private func prepareResources(
+        progress: @escaping @Sendable (Double) -> Void
     ) async throws -> TranscriptionModelResources {
         do {
             try Task.checkCancellation()
@@ -150,15 +223,9 @@ actor TranscriptionModelManager {
                 try verifyFreeSpace()
                 modelState = .downloading(0)
                 progress(0)
-                let downloaded = try await WhisperKit.download(
-                    variant: Self.modelID,
-                    downloadBase: downloadRoot,
-                    useBackgroundSession: false,
-                    progressCallback: { downloadProgress in
-                        let fraction = min(1, max(0, downloadProgress.fractionCompleted))
-                        progress(fraction * 0.9)
-                    }
-                )
+                let downloaded = try await downloadModel(Self.modelID, downloadRoot) { fraction in
+                    progress(min(1, max(0, fraction.isFinite ? fraction : 0)) * 0.9)
+                }
                 guard verifyModelFolder(downloaded) else {
                     throw TranscriptionModelError.downloadedModelInvalid(Self.modelID)
                 }

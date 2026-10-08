@@ -59,10 +59,22 @@ struct BardoModelStore {
         try fileManager.removeItem(at: modelRoot)
     }
 
-    /// Removes only legacy voice-model directories from older Bardo releases.
+    /// Model caches written by earlier Bardo builds that the current app never reads.
+    /// Together they can take several gigabytes.
+    static let legacyModelDirectoryNames = [
+        "whisper-balanced",
+        "whisper-maximum-accuracy",
+        "parakeet",
+        "parakeet-tdt-0.6b-v3",
+        "meeting-minutes",
+        "WhisperKit",
+        "SpeakerKit"
+    ]
+
+    /// Removes only legacy model directories from older Bardo releases.
     func removeLegacyVoiceModelDirectories() throws {
         _ = try validatePrivateRoot()
-        for name in ["whisper-balanced", "whisper-maximum-accuracy", "parakeet"] {
+        for name in Self.legacyModelDirectoryNames {
             let legacyRoot = rootURL.appendingPathComponent(name, isDirectory: true)
             guard legacyRoot.deletingLastPathComponent().standardizedFileURL.path == rootURL.path,
                   legacyRoot.standardizedFileURL.pathComponents.starts(with: rootURL.pathComponents)
