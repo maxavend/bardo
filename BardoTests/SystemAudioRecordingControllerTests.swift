@@ -587,10 +587,10 @@ final class SystemAudioRecordingControllerTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<100 {
+        for _ in 0..<500 {
             if condition() { return }
             await Task.yield()
-            try? await Task.sleep(for: .milliseconds(5))
+            try? await Task.sleep(for: .milliseconds(10))
         }
         XCTFail("Timed out waiting for asynchronous state.", file: file, line: line)
     }

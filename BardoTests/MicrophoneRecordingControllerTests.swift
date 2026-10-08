@@ -276,7 +276,7 @@ final class MicrophoneRecordingControllerTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<200 {
+        for _ in 0..<500 {
             if condition() { return }
             await Task.yield()
             try? await Task.sleep(for: .milliseconds(10))

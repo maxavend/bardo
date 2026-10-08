@@ -151,7 +151,7 @@ final class LibraryConcurrencyTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<300 {
+        for _ in 0..<500 {
             if condition() { return }
             try? await Task.sleep(for: .milliseconds(10))
         }

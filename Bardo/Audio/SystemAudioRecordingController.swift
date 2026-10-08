@@ -520,6 +520,9 @@ final class SystemAudioRecordingController: ObservableObject {
             }
 
             self.session = nil
+            // The outcome is published in one step: observers never see an idle capture
+            // without the warnings that explain how it ended.
+            errorMessage = warnings.isEmpty ? nil : warnings.joined(separator: "\n")
             phase = .idle
             elapsedTime = 0
             includesMicrophone = false
@@ -527,8 +530,6 @@ final class SystemAudioRecordingController: ObservableObject {
             picker.deactivate()
             releaseCaptureLease()
             await refreshRecoveryIssues()
-
-            errorMessage = warnings.isEmpty ? nil : warnings.joined(separator: "\n")
             onRecordingPublished?(recording)
             return recording
         } catch {
