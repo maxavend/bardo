@@ -37,11 +37,6 @@ struct RecordingDetailView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .searchable(
-            text: $transcriptSearch,
-            placement: .toolbar,
-            prompt: Text("Buscar en la transcripción")
-        )
         .toolbar {
             ToolbarItem(id: "bardo.detail.favorite", placement: .secondaryAction) {
                 Button {

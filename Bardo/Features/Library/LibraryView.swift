@@ -53,10 +53,14 @@ struct LibraryView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        // One search field per window: AppKit aborts when a second toolbar search item
+        // is inserted. It searches the Library, or the open conversation's transcript.
         .searchable(
-            text: $globalSearchText,
+            text: isShowingRecording ? $transcriptSearchText : $globalSearchText,
             placement: .toolbar,
-            prompt: Text("Buscar conversaciones, transcripciones o participantes")
+            prompt: isShowingRecording
+                ? Text("Buscar en la transcripción")
+                : Text("Buscar conversaciones, transcripciones o participantes")
         )
         .searchFocused($isSearchFocused)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
@@ -186,6 +190,10 @@ struct LibraryView: View {
         }
         .frame(minWidth: 980, minHeight: 620)
         .enableInjection()
+    }
+
+    private var isShowingRecording: Bool {
+        !navigationPath.isEmpty
     }
 
     @ViewBuilder
