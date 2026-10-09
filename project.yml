@@ -17,7 +17,7 @@ settings:
     SWIFT_VERSION: "6.0"
     MACOSX_DEPLOYMENT_TARGET: "15.0"
     CURRENT_PROJECT_VERSION: 1
-    MARKETING_VERSION: 0.1.0
+    MARKETING_VERSION: 1.0.0
 
 packages:
   ArgmaxOSS:
@@ -46,6 +46,9 @@ targets:
       path: Bardo/Info.plist
       properties:
         CFBundleDisplayName: Bardo
+        # One source of truth: the version comes from the build settings above.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
         NSMicrophoneUsageDescription: Bardo records microphone audio only when you choose to start a local recording.
         NSScreenCaptureUsageDescription: Bardo captures audio from content you explicitly choose using the macOS system sharing picker.
