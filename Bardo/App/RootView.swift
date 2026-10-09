@@ -4,16 +4,20 @@ import SwiftUI
 struct RootView: View {
     @ObserveInjection var redraw
     private let warmTranscriptionForRecording: @MainActor () -> Void
+    private let setupBanner: AnyView?
 
     @StateObject private var library = LibraryViewModel()
     @StateObject private var microphone = MicrophoneRecordingController()
     @StateObject private var systemAudio = SystemAudioRecordingController()
     @State private var isRecoveryPresented = false
     @State private var isRecordingSetupPresented = false
-    @State private var pendingRecordingTitle: String?
 
-    init(warmTranscriptionForRecording: @escaping @MainActor () -> Void = {}) {
+    init(
+        warmTranscriptionForRecording: @escaping @MainActor () -> Void = {},
+        setupBanner: AnyView? = nil
+    ) {
         self.warmTranscriptionForRecording = warmTranscriptionForRecording
+        self.setupBanner = setupBanner
     }
 
     var body: some View {
@@ -24,6 +28,11 @@ struct RootView: View {
             onNewRecording: presentRecordingSetup
         )
             .task {
+                let publish: (Recording) -> Void = { recording in
+                    Task { await publishToLibrary(recording) }
+                }
+                microphone.onRecordingPublished = publish
+                systemAudio.onRecordingPublished = publish
                 microphone.refreshPermissionState()
                 await microphone.refreshRecoveryIssues()
                 await systemAudio.refreshRecoveryIssues()
@@ -63,8 +72,22 @@ struct RootView: View {
                 RecoveryReviewView(
                     microphoneIssues: microphone.recoveryIssues,
                     systemAudioIssues: systemAudio.recoveryIssues,
+                    isRecovering: microphone.isRecovering || systemAudio.isRecovering,
+                    canRecover: !microphone.isBusy && !systemAudio.isBusy,
                     openMicrophoneFolder: { microphone.openRecoveryFolder() },
                     openSystemAudioFolder: { systemAudio.openRecoveryFolder() },
+                    recoverMicrophoneIssue: { issue in Task { await microphone.recoverRecoveryIssue(issue) } },
+                    recoverSystemAudioIssue: { issue in Task { await systemAudio.recoverRecoveryIssue(issue) } },
+                    recoverAllIssues: {
+                        Task {
+                            for issue in microphone.recoveryIssues where issue.recordingID != nil {
+                                await microphone.recoverRecoveryIssue(issue)
+                            }
+                            for issue in systemAudio.recoveryIssues where issue.recordingID != nil {
+                                await systemAudio.recoverRecoveryIssue(issue)
+                            }
+                        }
+                    },
                     moveMicrophoneIssueToTrash: { issue in Task { await microphone.moveRecoveryIssueToTrash(issue) } },
                     moveSystemAudioIssueToTrash: { issue in Task { await systemAudio.moveRecoveryIssueToTrash(issue) } },
                     moveAllIssuesToTrash: {
@@ -124,7 +147,7 @@ struct RootView: View {
         } else if !microphone.recoveryIssues.isEmpty || !systemAudio.recoveryIssues.isEmpty {
             return AnyView(recoveryBanner)
         } else {
-            return nil
+            return setupBanner
         }
     }
 
@@ -192,7 +215,8 @@ struct RootView: View {
         case .selectingContent:
             transitionPill(
                 title: "Elige qué quieres grabar",
-                detail: "Selecciona una app, ventana o pantalla en el selector de macOS."
+                detail: "Selecciona una app, ventana o pantalla en el selector de macOS.",
+                cancelAction: { systemAudio.cancelContentSelection() }
             )
         case .preparing:
             transitionPill(
@@ -204,10 +228,11 @@ struct RootView: View {
         case .recording:
             activeRecordingPill(
                 title: "Grabando",
-                detail: systemAudio.includesMicrophone
+                detail: systemAudio.captureWarning ?? (systemAudio.includesMicrophone
                     ? "Tu voz y el audio del Mac se están guardando por separado."
-                    : "Grabando el audio del contenido que elegiste.",
+                    : "Grabando el audio del contenido que elegiste."),
                 duration: systemAudio.elapsedTime,
+                isWarning: systemAudio.captureWarning != nil,
                 changeSourceAction: {
                     systemAudio.changeSelection()
                 },
@@ -275,6 +300,7 @@ struct RootView: View {
         detail: String,
         duration: TimeInterval,
         inputLevel: Double? = nil,
+        isWarning: Bool = false,
         pauseAction: (() -> Void)? = nil,
         resumeAction: (() -> Void)? = nil,
         changeSourceAction: (() -> Void)? = nil,
@@ -300,8 +326,9 @@ struct RootView: View {
 
                     Text(detail)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .foregroundStyle(isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                        .lineLimit(2)
+                        .help(detail)
                 }
 
                 Spacer(minLength: 16)
@@ -334,8 +361,7 @@ struct RootView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
                 .controlSize(.small)
-                .keyboardShortcut(.escape, modifiers: [])
-                .help(String(localized: "Stop recording (⎋)"))
+                .help(String(localized: "Stop recording (⌘.)"))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -345,7 +371,11 @@ struct RootView: View {
         .accessibilityLabel("\(title), \(LibraryFormatting.duration(duration)). \(detail)")
     }
 
-    private func transitionPill(title: String, detail: String) -> some View {
+    private func transitionPill(
+        title: String,
+        detail: String,
+        cancelAction: (() -> Void)? = nil
+    ) -> some View {
         GroupBox {
             HStack(spacing: 12) {
                 ProgressView()
@@ -361,6 +391,11 @@ struct RootView: View {
                 }
 
                 Spacer()
+
+                if let cancelAction {
+                    Button(String(localized: "Cancel"), role: .cancel, action: cancelAction)
+                        .controlSize(.small)
+                }
             }
         }
         .frame(maxWidth: 720)
@@ -372,56 +407,49 @@ struct RootView: View {
     }
 
     private func beginRecording(mode: BardoRecordingMode, title: String?) {
-        pendingRecordingTitle = title
         switch mode {
         case .microphone:
-            Task { await startMicrophoneRecording() }
+            Task { await startMicrophoneRecording(title: title) }
         case .conversation:
-            Task { await startSystemRecording(includeMicrophone: true) }
+            Task { await startSystemRecording(includeMicrophone: true, title: title) }
         case .systemAudio:
-            Task { await startSystemRecording(includeMicrophone: false) }
+            Task { await startSystemRecording(includeMicrophone: false, title: title) }
         }
     }
 
     @MainActor
-    private func startMicrophoneRecording() async {
+    private func startMicrophoneRecording(title: String?) async {
         warmTranscriptionForRecording()
         library.stopPlayback()
-        await microphone.start()
+        await microphone.start(title: title)
     }
 
     @MainActor
-    private func startSystemRecording(includeMicrophone: Bool) async {
+    private func startSystemRecording(includeMicrophone: Bool, title: String?) async {
         warmTranscriptionForRecording()
         library.stopPlayback()
-        await systemAudio.start(includeMicrophone: includeMicrophone)
+        await systemAudio.start(includeMicrophone: includeMicrophone, title: title)
     }
 
+    /// Recordings reach the Library through each controller's publication callback,
+    /// which also covers interruptions that kept audio and recovered captures.
     @MainActor
     private func stopMicrophoneRecording() async {
         warmTranscriptionForRecording()
-        let recording = await microphone.stop()
-        await publishToLibrary(recording)
+        _ = await microphone.stop()
     }
 
     @MainActor
     private func stopSystemRecording() async {
         warmTranscriptionForRecording()
-        let recording = await systemAudio.stop()
-        await publishToLibrary(recording)
+        _ = await systemAudio.stop()
     }
 
     @MainActor
-    private func publishToLibrary(_ recording: Recording?) async {
+    private func publishToLibrary(_ recording: Recording) async {
         await library.reload()
-        if let recording {
-            if let pendingRecordingTitle {
-                await library.renameRecording(recording.id, to: pendingRecordingTitle)
-            }
-            self.pendingRecordingTitle = nil
-            library.selection = recording.id
-            await library.preparePlaybackForSelection()
-        }
+        library.selection = recording.id
+        await library.preparePlaybackForSelection()
     }
 
     private var microphoneAlertTitle: String {
@@ -439,7 +467,7 @@ struct RootView: View {
 private enum RecoveryCopy {
     static let title = String(localized: "Interrupted recordings")
     static let close = String(localized: "Close")
-    static let reviewDescription = String(localized: "Bardo found incomplete recordings after an interruption. They are still safe on your Mac. Review them in Finder or move the ones you do not need to the Trash.")
+    static let reviewDescription = String(localized: "Bardo found recordings that were interrupted before they could be saved. Recover them to add the audio captured until the interruption to your library, or move the ones you do not need to the Trash.")
     static let openInFinder = String(localized: "Open in Finder")
     static let moveToTrash = String(localized: "Move to Trash…")
     static let moveToTrashTitle = String(localized: "Move capture to the Trash?")
@@ -450,6 +478,10 @@ private enum RecoveryCopy {
     static let allClearTitle = String(localized: "All clear")
     static let allClearDescription = String(localized: "There are no incomplete captures waiting for review.")
     static let reviewAction = String(localized: "Review recordings…")
+    static let recover = String(localized: "Recover")
+    static let recoverAll = String(localized: "Recover All")
+    static let recovering = String(localized: "Recovering…")
+    static let recoverHelp = String(localized: "Add the audio captured before the interruption to your library")
 
     static func reviewTitle(_ count: Int) -> String {
         String.localizedStringWithFormat(
@@ -537,8 +569,13 @@ private struct RecoveryReviewView: View {
 
     let microphoneIssues: [RecordingStoreIssue]
     let systemAudioIssues: [RecordingStoreIssue]
+    let isRecovering: Bool
+    let canRecover: Bool
     let openMicrophoneFolder: () -> Bool
     let openSystemAudioFolder: () -> Bool
+    let recoverMicrophoneIssue: (RecordingStoreIssue) -> Void
+    let recoverSystemAudioIssue: (RecordingStoreIssue) -> Void
+    let recoverAllIssues: () -> Void
     let moveMicrophoneIssueToTrash: (RecordingStoreIssue) -> Void
     let moveSystemAudioIssueToTrash: (RecordingStoreIssue) -> Void
     let moveAllIssuesToTrash: () -> Void
@@ -591,8 +628,21 @@ private struct RecoveryReviewView: View {
                     }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.red)
+                    .disabled(isRecovering)
                 }
                 Spacer()
+                if isRecovering {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(RecoveryCopy.recovering)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if actionableIssueCount > 0 {
+                    Button(RecoveryCopy.recoverAll, action: recoverAllIssues)
+                        .disabled(isRecovering || !canRecover)
+                        .help(RecoveryCopy.recoverHelp)
+                }
                 Button(RecoveryCopy.close) { dismiss() }
                     .keyboardShortcut(.defaultAction)
             }
@@ -661,12 +711,25 @@ private struct RecoveryReviewView: View {
                         }
                         Spacer()
                         if issue.recordingID != nil {
+                            Button(RecoveryCopy.recover) {
+                                switch source {
+                                case .microphone:
+                                    recoverMicrophoneIssue(issue)
+                                case .systemAudio:
+                                    recoverSystemAudioIssue(issue)
+                                }
+                            }
+                            .controlSize(.small)
+                            .disabled(isRecovering || !canRecover)
+                            .help(RecoveryCopy.recoverHelp)
+
                             Button(RecoveryCopy.moveToTrash) {
                                 pendingDiscard = PendingDiscard(issue: issue, source: source)
                             }
                             .buttonStyle(.borderless)
                             .foregroundStyle(.secondary)
                             .controlSize(.small)
+                            .disabled(isRecovering)
                         }
                         }
                         .padding(.horizontal, 12)

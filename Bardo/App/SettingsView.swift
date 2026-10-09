@@ -590,6 +590,7 @@ private final class ModelSettingsViewModel: ObservableObject {
             do {
                 try await resetRuntimeModel(model)
                 setState(.notInstalled, for: model)
+                NotificationCenter.default.post(name: .bardoModelsChanged, object: nil)
             } catch {
                 setState(.failed(error.localizedDescription), for: model)
             }
@@ -656,6 +657,7 @@ private final class ModelSettingsViewModel: ObservableObject {
 
             try Task.checkCancellation()
             setState(.installed, for: model)
+            NotificationCenter.default.post(name: .bardoModelsChanged, object: nil)
         } catch {
             if error is CancellationError || Task.isCancelled {
                 await refreshModel(model)

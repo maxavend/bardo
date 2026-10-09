@@ -79,17 +79,17 @@ enum RecordingDiarizationError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .noManagedAudio(let id):
-            return "Recording \(id.uuidString) has no readable managed audio to diarize."
+            return String(localized: "Recording \(id.uuidString) has no readable managed audio to diarize.")
         case .combinedAudioUnavailable:
-            return "The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before identifying speakers."
+            return String(localized: "The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before identifying speakers.")
         case .invalidDuration:
-            return "Bardo could not determine a valid audio duration for speaker identification."
+            return String(localized: "Bardo could not determine a valid audio duration for speaker identification.")
         case .noSpeakerActivity:
-            return "SpeakerKit completed without finding any speaker activity."
+            return String(localized: "SpeakerKit completed without finding any speaker activity.")
         case .speakerModelsUnavailable:
-            return "Bardo could not download or verify the private SpeakerKit models. Check the connection and try again."
+            return String(localized: "Bardo could not download or verify the private SpeakerKit models. Check the connection and try again.")
         case .speakerModelsNotLoaded:
-            return "Bardo could not load the private SpeakerKit models. Reset the SpeakerKit models and download them again."
+            return String(localized: "Bardo could not load the private SpeakerKit models. Reset the SpeakerKit models and download them again.")
         }
     }
 }
@@ -214,6 +214,15 @@ actor SpeakerDiarizationService: RecordingDiarizing {
     private let operations: SpeakerDiarizationOperations
     private var loadedDiarizer: (any SpeakerDiarizationEngine)?
     private var modelState: ManagedModelState = .notInstalled
+    /// One download/load at a time, shared by setup, Settings, warm-up and diarization.
+    private var preparation: Task<Void, Error>?
+    private var preparationAllowsDownload = false
+    private var preparationWaiters = 0
+    private let preparationProgress = ProgressFanOut<DiarizationSetupProgressSnapshot>()
+    /// SpeakerKit cannot stop a running inference promptly. A cancelled run keeps
+    /// finishing in the background, and the next one waits for it to free its memory.
+    private var inflightInference: Task<DiarizationResult, Error>?
+    private var activeDiarizations = 0
     private(set) var lastMetrics: DiarizationPerformanceMetrics?
 
     init(modelStore: BardoModelStore, operations: SpeakerDiarizationOperations = .live) {
@@ -224,15 +233,20 @@ actor SpeakerDiarizationService: RecordingDiarizing {
 
     static func live() throws -> SpeakerDiarizationService { try sharedServiceResult.get() }
 
+    var isInUse: Bool {
+        preparation != nil || inflightInference != nil || activeDiarizations > 0
+    }
+
     func hasInstalledModels() async -> Bool {
         if let loadedDiarizer, loadedDiarizer.isLoaded {
             modelState = .installed
             return true
         }
         guard hasCompleteModelCache() else { modelState = .notInstalled; return false }
-        do { try await loadIfNeeded(); return true }
-        catch {
-            loadedDiarizer = nil
+        do {
+            try await ensureLoaded(allowDownload: false, progress: { _ in })
+            return true
+        } catch {
             modelState = .failed(error.localizedDescription)
             return false
         }
@@ -240,7 +254,7 @@ actor SpeakerDiarizationService: RecordingDiarizing {
 
     func warmUpIfInstalled() async {
         guard hasCompleteModelCache() else { return }
-        do { try await loadIfNeeded() }
+        do { try await ensureLoaded(allowDownload: false, progress: { _ in }) }
         catch { Self.logger.debug("Background speaker warm-up skipped: \(error.localizedDescription, privacy: .public)") }
     }
 
@@ -251,28 +265,13 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         try ensureModelDirectory()
         progress(.init(stage: .checking, fractionCompleted: 0))
         progress(.init(stage: .checking, fractionCompleted: 1))
-        if let loadedDiarizer, loadedDiarizer.isLoaded {
-            modelState = .installed
-            progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
-            return
-        }
-
-        if hasCompleteModelCache() {
-            do {
-                try await loadIfNeeded(progress: progress)
-                return
-            } catch {
-                loadedDiarizer = nil
-                try modelStore.reset(.speakerKit)
-                try ensureModelDirectory()
-            }
-        }
-        try await downloadAndLoadModels(progress: progress)
+        try await ensureLoaded(allowDownload: true, progress: progress)
     }
 
     func state() -> ManagedModelState { modelState }
 
     func reset() throws {
+        guard !isInUse else { throw ModelOperationError.inUse }
         loadedDiarizer = nil
         try modelStore.reset(.speakerKit)
         modelState = .notInstalled
@@ -285,6 +284,15 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         progress: @escaping @Sendable (DiarizationProgressSnapshot) -> Void
     ) async throws -> Transcript {
         try Task.checkCancellation()
+        activeDiarizations += 1
+        defer { activeDiarizations -= 1 }
+
+        if let previous = inflightInference {
+            progress(.init(stage: .preparingModel, fractionCompleted: 0))
+            _ = try? await CancellableAwait.value(of: previous, cancelUnderlyingTask: false)
+            try Task.checkCancellation()
+        }
+
         let overallStart = ProcessInfo.processInfo.systemUptime
         let (audioURL, duration) = try await resolveAudio(recording: recording, store: store)
         guard duration.isFinite, duration > 0 else { throw RecordingDiarizationError.invalidDuration }
@@ -300,9 +308,17 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         }
 
         progress(.init(stage: .diarizing, fractionCompleted: 0))
-        let result = try await runSpeakerKitDiarization(
-            diarizer: diarizer, audioURL: audioURL, duration: duration, progress: progress
-        )
+        let inference = Task.detached(priority: .userInitiated) {
+            try await Self.runSpeakerKitDiarization(
+                diarizer: diarizer, audioURL: audioURL, duration: duration, progress: progress
+            )
+        }
+        inflightInference = inference
+        Task { [weak self] in
+            _ = try? await inference.value
+            await self?.inferenceFinished(inference)
+        }
+        let result = try await CancellableAwait.value(of: inference)
         try Task.checkCancellation()
         progress(.init(stage: .diarizing, fractionCompleted: 1))
 
@@ -334,14 +350,107 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         return finalized
     }
 
-    private func loadIfNeeded(
-        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void = { _ in }
+    private func inferenceFinished(_ inference: Task<DiarizationResult, Error>) {
+        if inflightInference == inference {
+            inflightInference = nil
+        }
+    }
+
+    /// Loads the cached models, downloading them first when allowed. Concurrent callers
+    /// share one preparation; cancelling any of them cancels it for all.
+    private func ensureLoaded(
+        allowDownload: Bool,
+        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void
     ) async throws {
         if let loadedDiarizer, loadedDiarizer.isLoaded {
             modelState = .installed
             progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
             return
         }
+
+        while let current = preparation, current.isCancelled {
+            _ = try? await CancellableAwait.value(of: current, cancelUnderlyingTask: false)
+            try Task.checkCancellation()
+            if preparation == current { preparation = nil }
+        }
+
+        let task: Task<Void, Error>
+        let joinedWithoutDownload: Bool
+        if let current = preparation {
+            task = current
+            joinedWithoutDownload = allowDownload && !preparationAllowsDownload
+        } else {
+            preparationProgress.reset()
+            let fanOut = preparationProgress
+            task = Task { try await self.performPreparation(allowDownload: allowDownload, progress: { fanOut.send($0) }) }
+            preparation = task
+            preparationAllowsDownload = allowDownload
+            joinedWithoutDownload = false
+            Task { [weak self] in
+                _ = try? await task.value
+                await self?.preparationFinished(task)
+            }
+        }
+
+        let observer = preparationProgress.add(progress)
+        preparationWaiters += 1
+        defer {
+            preparationProgress.remove(observer)
+            preparationWaiters -= 1
+            // Stop a shared preparation only when the last caller gave up.
+            if Task.isCancelled, preparationWaiters == 0, preparation == task {
+                task.cancel()
+            }
+        }
+
+        do {
+            try await CancellableAwait.value(of: task, cancelUnderlyingTask: false)
+        } catch where joinedWithoutDownload && !(error is CancellationError) {
+            // A warm-up that could only load failed; this caller may download.
+            try await ensureLoaded(allowDownload: true, progress: progress)
+        }
+    }
+
+    private func preparationFinished(_ task: Task<Void, Error>) {
+        if preparation == task {
+            preparation = nil
+        }
+    }
+
+    private func performPreparation(
+        allowDownload: Bool,
+        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void
+    ) async throws {
+        if let loadedDiarizer, loadedDiarizer.isLoaded {
+            modelState = .installed
+            progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
+            return
+        }
+
+        if hasCompleteModelCache() {
+            do {
+                try await loadFromCache(progress: progress)
+                return
+            } catch {
+                guard allowDownload, !(error is CancellationError) else {
+                    loadedDiarizer = nil
+                    throw error
+                }
+                // A complete-looking cache that cannot load is stale; replace it.
+                loadedDiarizer = nil
+                try modelStore.reset(.speakerKit)
+                try ensureModelDirectory()
+            }
+        } else if !allowDownload {
+            throw RecordingDiarizationError.speakerModelsUnavailable
+        }
+        try ensureModelDirectory()
+        try await downloadAndLoadModels(progress: progress)
+    }
+
+    private func loadFromCache(
+        progress: @escaping @Sendable (DiarizationSetupProgressSnapshot) -> Void
+    ) async throws {
         try Task.checkCancellation()
         guard hasCompleteModelCache() else { throw RecordingDiarizationError.speakerModelsUnavailable }
 
@@ -431,7 +540,7 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
     }
 
-    private func runSpeakerKitDiarization(
+    private static func runSpeakerKitDiarization(
         diarizer: any SpeakerDiarizationEngine,
         audioURL: URL,
         duration: TimeInterval,

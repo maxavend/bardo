@@ -5,13 +5,17 @@ import Foundation
 
 @MainActor
 final class AVAudioRecorderCaptureBackend: NSObject, AudioCapturing {
-    static let recordingFileExtension = "m4a"
+    /// Linear PCM in CAF stays readable up to the last written sample if Bardo crashes,
+    /// is force quit or loses power. The controller compresses it to AAC after stopping.
+    static let recordingFileExtension = "caf"
     static let recordingSettings: [String: Any] = [
-        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+        AVFormatIDKey: Int(kAudioFormatLinearPCM),
         AVSampleRateKey: 48_000,
         AVNumberOfChannelsKey: 1,
-        AVEncoderBitRateKey: 96_000,
-        AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMIsNonInterleaved: false
     ]
 
     var eventHandler: ((AudioCaptureBackendEvent) -> Void)?
@@ -105,9 +109,9 @@ final class AVAudioRecorderCaptureBackend: NSObject, AudioCapturing {
         if let error {
             message = error.localizedDescription
         } else if flag {
-            message = "Microphone recording ended unexpectedly."
+            message = String(localized: "Microphone recording ended unexpectedly.")
         } else {
-            message = "Microphone recording stopped because the audio recorder could not continue."
+            message = String(localized: "Microphone recording stopped because the audio recorder could not continue.")
         }
         eventHandler?(.interrupted(message))
     }
@@ -115,7 +119,7 @@ final class AVAudioRecorderCaptureBackend: NSObject, AudioCapturing {
 
 extension AVAudioRecorderCaptureBackend: AVAudioRecorderDelegate {
     nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        let message = error?.localizedDescription ?? "The audio encoder reported an unknown recording error."
+        let message = error?.localizedDescription ?? String(localized: "The audio encoder reported an unknown recording error.")
         Task { @MainActor [weak self] in
             self?.reportUnexpectedFinish(successfully: false, error: NSError(
                 domain: "Bardo.AudioRecorder",

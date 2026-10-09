@@ -6,8 +6,15 @@ struct BardoLaunchView: View {
 
     var body: some View {
         Group {
-            if setup.isReady {
-                RootView(warmTranscriptionForRecording: setup.warmForRecording)
+            // Once unlocked, the Library never goes away again during a session: missing
+            // or failing models only affect transcription, shown in a banner.
+            if setup.isLibraryUnlocked {
+                RootView(
+                    warmTranscriptionForRecording: setup.warmForRecording,
+                    setupBanner: SetupStatusBanner.isNeeded(for: setup.state)
+                        ? AnyView(SetupStatusBanner(setup: setup))
+                        : nil
+                )
             } else if !hasCompletedWelcome {
                 BardoWelcomeView {
                     hasCompletedWelcome = true
@@ -18,12 +25,13 @@ struct BardoLaunchView: View {
                     state: setup.state,
                     retry: setup.retry,
                     cancel: setup.cancelPreparation,
-                    resetAndRetry: setup.resetAndRetry
+                    resetAndRetry: setup.resetAndRetry,
+                    continueWithoutModels: setup.unlockLibrary
                 )
             }
         }
         .task {
-            if hasCompletedWelcome {
+            if hasCompletedWelcome || setup.isLibraryUnlocked {
                 setup.startPreparation()
             }
         }

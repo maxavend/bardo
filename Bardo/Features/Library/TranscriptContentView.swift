@@ -5,7 +5,9 @@ struct TranscriptContentView: View {
     @ObserveInjection var redraw
     let recording: Recording
     @ObservedObject var model: LibraryViewModel
-    @ObservedObject var playback: AudioPlaybackController
+    /// Passed to the rows, which observe it; observing it here would rebuild every
+    /// paragraph on each playhead tick.
+    let playback: AudioPlaybackController
 
     @Binding var searchText: String
     @Binding var editor: TranscriptEditorState?
@@ -237,7 +239,7 @@ struct TranscriptContentView: View {
     private var transcriptionLiveStatus: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Label {
-                Text(transcriptionStageText(model.transcriptionProgress?.stage))
+                Text(transcriptionStatusText(model.transcriptionProgress))
                     .font(.callout.weight(.semibold))
             } icon: {
                 ProgressView()
@@ -279,7 +281,8 @@ struct TranscriptContentView: View {
         BardoEmptyState(
             systemImage: "waveform.and.mic",
             title: "Aún no hay transcripción",
-            detail: "Transcribe esta conversación para leerla, buscar dentro de ella e identificar a los hablantes.",
+            detail: model.transcriptionBlocker(for: recording.id)
+                ?? "Transcribe esta conversación para leerla, buscar dentro de ella e identificar a los hablantes.",
             footnote: "Se procesa de forma privada en este Mac"
         ) {
             Button {
@@ -294,7 +297,7 @@ struct TranscriptContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
-            .disabled(recording.audioAssets.isEmpty || model.isDiarizing)
+            .disabled(recording.audioAssets.isEmpty || model.transcriptionBlocker(for: recording.id) != nil)
         }
     }
 
@@ -858,6 +861,17 @@ private struct InlineIssueView: View {
             .foregroundStyle(.orange)
             .fixedSize(horizontal: false, vertical: true)
     }
+}
+
+/// Model preparation can include a first download when setup was skipped or the
+/// models were removed; show how far along it is.
+private func transcriptionStatusText(_ progress: TranscriptionProgressSnapshot?) -> String {
+    if let progress, progress.stage == .preparingModel,
+       progress.fractionCompleted > 0, progress.fractionCompleted < 1 {
+        let percentage = Int((progress.fractionCompleted * 100).rounded())
+        return "Preparando lo necesario para transcribir · \(percentage) %"
+    }
+    return transcriptionStageText(progress?.stage)
 }
 
 private func transcriptionStageText(_ stage: TranscriptionStage?) -> String {

@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+@preconcurrency import WhisperKit
 @testable import Bardo
 
 final class TranscriptionPipelineTests: XCTestCase {
@@ -31,5 +32,26 @@ final class TranscriptionPipelineTests: XCTestCase {
 
     private func makeAsset(role: AudioAssetRole, fileName: String, derivedFrom: [UUID] = []) -> AudioAsset {
         AudioAsset(originalFileName: fileName, fileExtension: "m4a", metadata: AudioMetadata(duration: 30, codec: "AAC", sampleRate: 48_000, channelCount: role == .systemOriginal ? 2 : 1), role: role, derivedFromAssetIDs: derivedFrom)
+    }
+}
+
+final class WhisperDecodingOptionsTests: XCTestCase {
+    func testTranscriptionNeverConditionsTheDecoderOnAPrompt() {
+        let options = WhisperTranscriptionService.decodingOptions(for: WhisperPerformanceProfile())
+
+        XCTAssertNil(options.promptTokens, "Prompt tokens made Whisper drop the opening of each window")
+        XCTAssertNil(options.prefixTokens)
+        XCTAssertNil(options.language, "Language is detected from the audio")
+        XCTAssertTrue(options.detectLanguage)
+        XCTAssertTrue(options.wordTimestamps, "Seeking and karaoke need word timings")
+    }
+
+    func testRepetitiveConversationDoesNotTriggerTheLossyFallback() {
+        let options = WhisperTranscriptionService.decodingOptions(for: WhisperPerformanceProfile())
+
+        let threshold = try? XCTUnwrap(options.compressionRatioThreshold)
+        XCTAssertEqual(threshold, 3.5, "Whisper's 2.4 default made the fallback drop whole turns")
+        XCTAssertNotNil(options.logProbThreshold, "Low-confidence windows still fall back")
+        XCTAssertGreaterThan(options.temperatureFallbackCount, 0)
     }
 }

@@ -87,13 +87,13 @@ enum RecordingTranscriptionError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .noManagedAudio(let id):
-            return "Recording \(id.uuidString) has no readable managed audio to transcribe."
+            return String(localized: "Recording \(id.uuidString) has no readable managed audio to transcribe.")
         case .combinedAudioUnavailable:
-            return "The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before transcribing."
+            return String(localized: "The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before transcribing.")
         case .invalidDuration:
-            return "Bardo could not determine a valid audio duration for transcription."
+            return String(localized: "Bardo could not determine a valid audio duration for transcription.")
         case .emptyTranscription:
-            return "WhisperKit completed without producing any transcript segments."
+            return String(localized: "WhisperKit completed without producing any transcript segments.")
         }
     }
 }
@@ -232,6 +232,16 @@ final class TranscriptionLiveBuffer: @unchecked Sendable {
     }
 }
 
+/// Carries a freshly loaded engine back to the transcription actor, which is the only
+/// place that uses it afterwards.
+final class LoadedWhisperEngine: @unchecked Sendable {
+    let whisper: WhisperKit
+
+    init(_ whisper: WhisperKit) {
+        self.whisper = whisper
+    }
+}
+
 struct WhisperTranscriptionMetrics: Equatable, Sendable {
     let audioSeconds: TimeInterval
     let asrSeconds: TimeInterval
@@ -254,13 +264,6 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         category: "transcription.performance"
     )
 
-    /// Short decoder context for product-design vocabulary commonly used in meetings.
-    /// It improves lexical recognition without forcing a language or paraphrasing speech.
-    private static let transcriptionVocabulary = """
-    Figma, UX, UI, design system, empty state, supporting text, breadcrumb, breadcrumbs, handoff, layout, mobile, desktop,
-    modal, chip, release, sprint, weekly, prototype, prototipo, Chrome, Discord, roaming, LDI.
-    """
-
     private static let sharedServiceResult: Result<WhisperTranscriptionService, Error> = Result {
         WhisperTranscriptionService(modelManager: try TranscriptionModelManager.live())
     }
@@ -270,7 +273,19 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     private let idleUnloadNanoseconds: UInt64
 
     private var loadedWhisper: WhisperKit?
+    /// One Core ML load at a time; concurrent callers share it instead of loading the
+    /// model twice and doubling peak memory.
+    private var engineLoad: Task<LoadedWhisperEngine, Error>?
+    /// Operations currently relying on the loaded engine. The idle unload and resets
+    /// never run while this is above zero.
+    private var activeOperations = 0
+    /// WhisperKit keeps per-run callbacks on the shared engine, so transcriptions run
+    /// one at a time.
+    private var isTranscribing = false
+    private var transcriptionWaiters: [CheckedContinuation<Void, Never>] = []
     private var idleUnloadTask: Task<Void, Never>?
+    /// Set for the whole reset, so work cannot start while the files are being removed.
+    private var isResetting = false
     private(set) var lastMetrics: WhisperTranscriptionMetrics?
 
     init(
@@ -291,7 +306,14 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         (try? await modelManager.hasInstalledModel()) == true
     }
 
+    var isInUse: Bool {
+        activeOperations > 0 || engineLoad != nil || isTranscribing || isResetting
+    }
+
     func reset() async throws {
+        guard !isInUse else { throw ModelOperationError.inUse }
+        isResetting = true
+        defer { isResetting = false }
         idleUnloadTask?.cancel()
         idleUnloadTask = nil
         if let loadedWhisper {
@@ -304,8 +326,9 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     func prepareForUse(
         progress: @escaping @Sendable (TranscriptionSetupProgressSnapshot) -> Void
     ) async throws {
-        idleUnloadTask?.cancel()
-        idleUnloadTask = nil
+        guard !isResetting else { throw ModelOperationError.inUse }
+        beginOperation()
+        defer { endOperation() }
         progress(.init(stage: .checking, fractionCompleted: 0))
         progress(.init(stage: .downloading, fractionCompleted: 0))
         var resources = try await modelManager.ensureResourcesAvailable { fraction in
@@ -317,6 +340,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         } catch {
             // A complete-looking Core ML cache can still be stale or corrupted after an
             // interrupted update. Repair only that private root and retry once.
+            try Task.checkCancellation()
             loadedWhisper = nil
             try await modelManager.reset()
             progress(.init(stage: .downloading, fractionCompleted: 0))
@@ -326,20 +350,18 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             _ = try await engine(resources: resources, progress: { _ in })
         }
         progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
-        scheduleIdleUnload()
     }
 
     func warmUpIfInstalled() async {
-        guard loadedWhisper == nil else {
-            scheduleIdleUnload()
-            return
-        }
+        guard !isResetting else { return }
+        beginOperation()
+        defer { endOperation() }
+        guard loadedWhisper == nil else { return }
 
         do {
             guard try await modelManager.hasInstalledModel() else { return }
             let resources = try await modelManager.ensureResourcesAvailable()
             _ = try await engine(resources: resources, progress: { _ in })
-            scheduleIdleUnload()
         } catch {
             Self.logger.debug("Background Whisper warm-up skipped: \(error.localizedDescription, privacy: .public)")
         }
@@ -364,26 +386,54 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void,
         liveUpdate: @escaping @Sendable (TranscriptionLiveSnapshot) -> Void
     ) async throws -> Transcript {
-        idleUnloadTask?.cancel()
-        idleUnloadTask = nil
+        guard !isResetting else { throw ModelOperationError.inUse }
+        beginOperation()
+        defer { endOperation() }
+        await acquireTranscriptionTurn()
+        defer { releaseTranscriptionTurn() }
+
         let cancellation = TranscriptionCancellationFlag()
         return try await withTaskCancellationHandler {
-            do {
-                let transcript = try await transcribeInternal(
-                    recording: recording,
-                    store: store,
-                    cancellation: cancellation,
-                    progress: progress,
-                    liveUpdate: liveUpdate
-                )
-                scheduleIdleUnload()
-                return transcript
-            } catch {
-                scheduleIdleUnload()
-                throw error
-            }
+            try await transcribeInternal(
+                recording: recording,
+                store: store,
+                cancellation: cancellation,
+                progress: progress,
+                liveUpdate: liveUpdate
+            )
         } onCancel: {
             cancellation.cancel()
+        }
+    }
+
+    private func beginOperation() {
+        activeOperations += 1
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
+    }
+
+    private func endOperation() {
+        activeOperations = max(0, activeOperations - 1)
+        if activeOperations == 0, loadedWhisper != nil {
+            scheduleIdleUnload()
+        }
+    }
+
+    private func acquireTranscriptionTurn() async {
+        guard isTranscribing else {
+            isTranscribing = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            transcriptionWaiters.append(continuation)
+        }
+    }
+
+    private func releaseTranscriptionTurn() {
+        if transcriptionWaiters.isEmpty {
+            isTranscribing = false
+        } else {
+            transcriptionWaiters.removeFirst().resume()
         }
     }
 
@@ -411,6 +461,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         do {
             whisper = try await engine(resources: resources, progress: progress)
         } catch {
+            try checkCancellation(cancellation)
             loadedWhisper = nil
             try await modelManager.reset()
             let repairedResources = try await modelManager.ensureResourcesAvailable { fraction in
@@ -421,24 +472,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         try checkCancellation(cancellation)
         progress(.init(stage: .transcribing, fractionCompleted: 0))
 
-        let vocabularyTokens = whisper.tokenizer?.encode(text: Self.transcriptionVocabulary)
-        let options = DecodingOptions(
-            temperatureFallbackCount: performanceProfile.temperatureFallbackCount,
-            usePrefillPrompt: true,
-            detectLanguage: true,
-            skipSpecialTokens: true,
-            wordTimestamps: true,
-            promptTokens: vocabularyTokens,
-            concurrentWorkerCount: performanceProfile.concurrentWorkerCount,
-            chunkingStrategy: performanceProfile.usesVAD ? .vad : nil
-        )
-        let audioInputOptions = AudioInputOptions(
-            channelMode: .sumChannels(nil),
-            audioLoadingMode: .incremental(
-                chunkDurationSeconds: performanceProfile.incrementalChunkDurationSeconds,
-                maxBufferedChunks: performanceProfile.maxBufferedChunks
-            )
-        )
+        let options = Self.decodingOptions(for: performanceProfile)
+        let audioInputOptions = Self.audioInputOptions(for: performanceProfile)
         let liveBuffer = TranscriptionLiveBuffer(
             recordingID: recording.id,
             audioDuration: duration
@@ -562,6 +597,42 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         return transcript
     }
 
+    /// A window whose text compresses this well is a repetition loop. Whisper's default
+    /// (2.4) also flags ordinary conversation that repeats a phrase; the temperature
+    /// fallback it then triggers dropped whole turns at random (2–13 of 24 turns in a
+    /// 187 s test dialogue). Real loops compress far beyond 3.5.
+    static let repetitionCompressionRatioThreshold: Float = 3.5
+
+    /// Decoding settings for every transcription.
+    ///
+    /// No prompt tokens: conditioning the decoder on a vocabulary prompt made Whisper
+    /// skip the opening of each window and shift every later timestamp (a 25 s Spanish
+    /// conversation lost its first 13 s). Product terms are normalized after recognition
+    /// by `TranscriptTextSanitizer` instead.
+    nonisolated static func decodingOptions(for profile: WhisperPerformanceProfile) -> DecodingOptions {
+        var options = DecodingOptions(
+            temperatureFallbackCount: profile.temperatureFallbackCount,
+            usePrefillPrompt: true,
+            detectLanguage: true,
+            skipSpecialTokens: true,
+            wordTimestamps: true,
+            concurrentWorkerCount: profile.concurrentWorkerCount,
+            chunkingStrategy: profile.usesVAD ? .vad : nil
+        )
+        options.compressionRatioThreshold = repetitionCompressionRatioThreshold
+        return options
+    }
+
+    nonisolated static func audioInputOptions(for profile: WhisperPerformanceProfile) -> AudioInputOptions {
+        AudioInputOptions(
+            channelMode: .sumChannels(nil),
+            audioLoadingMode: .incremental(
+                chunkDurationSeconds: profile.incrementalChunkDurationSeconds,
+                maxBufferedChunks: profile.maxBufferedChunks
+            )
+        )
+    }
+
     private func engine(
         resources: TranscriptionModelResources,
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
@@ -572,19 +643,48 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         }
 
         progress(.init(stage: .loadingModel, fractionCompleted: 0))
-        let config = WhisperKitConfig(
-            model: nil,
-            modelFolder: resources.modelFolder.path,
-            tokenizerFolder: resources.tokenizerFolder,
-            verbose: false,
-            prewarm: true,
-            load: true,
-            download: false
-        )
-        let whisper = try await WhisperKit(config)
-        loadedWhisper = whisper
+        let load: Task<LoadedWhisperEngine, Error>
+        if let engineLoad {
+            load = engineLoad
+        } else {
+            let modelFolder = resources.modelFolder.path
+            let tokenizerFolder = resources.tokenizerFolder
+            load = Task.detached(priority: .userInitiated) {
+                let config = WhisperKitConfig(
+                    model: nil,
+                    modelFolder: modelFolder,
+                    tokenizerFolder: tokenizerFolder,
+                    verbose: false,
+                    prewarm: true,
+                    load: true,
+                    download: false
+                )
+                return LoadedWhisperEngine(try await WhisperKit(config))
+            }
+            engineLoad = load
+            Task { [weak self] in
+                let engine = try? await load.value
+                await self?.engineLoadFinished(load, engine: engine)
+            }
+        }
+
+        // Loading is not interrupted for one impatient caller: others may share it, and
+        // a finished load is kept warm by `engineLoadFinished`.
+        let engine = try await CancellableAwait.value(of: load, cancelUnderlyingTask: false)
+        engineLoadFinished(load, engine: engine)
         progress(.init(stage: .loadingModel, fractionCompleted: 1))
-        return whisper
+        return loadedWhisper ?? engine.whisper
+    }
+
+    private func engineLoadFinished(_ load: Task<LoadedWhisperEngine, Error>, engine: LoadedWhisperEngine?) {
+        guard engineLoad == load else { return }
+        engineLoad = nil
+        if let engine, loadedWhisper == nil {
+            loadedWhisper = engine.whisper
+        }
+        if activeOperations == 0, loadedWhisper != nil {
+            scheduleIdleUnload()
+        }
     }
 
     private func resolveAudio(
@@ -622,9 +722,9 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     }
 
     private func unloadEngineAfterIdleTimeout() async {
-        guard let whisper = loadedWhisper else { return }
-        loadedWhisper = nil
         idleUnloadTask = nil
+        guard activeOperations == 0, !isTranscribing, let whisper = loadedWhisper else { return }
+        loadedWhisper = nil
         await whisper.unloadModels()
     }
 

@@ -43,23 +43,23 @@ enum RecordingStoreError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .recordingNotFound(let id):
-            return "Recording \(id.uuidString) was not found."
+            return String(localized: "Recording \(id.uuidString) was not found.")
         case .recordingAlreadyExists(let id):
-            return "Recording \(id.uuidString) already exists."
+            return String(localized: "Recording \(id.uuidString) already exists.")
         case .audioAssetNotFound(let recordingID, let audioAssetID):
-            return "Audio \(audioAssetID.uuidString) is not registered for recording \(recordingID.uuidString)."
+            return String(localized: "Audio \(audioAssetID.uuidString) is not registered for recording \(recordingID.uuidString).")
         case .audioAssetFileSetMismatch(let recordingID, let expected, let supplied):
-            return "Recording \(recordingID.uuidString) expected \(expected) managed audio files but received \(supplied)."
+            return String(localized: "Recording \(recordingID.uuidString) expected \(expected) managed audio files but received \(supplied).")
         case .managedAudioMissing(let recordingID, let audioAssetID):
-            return "Managed audio \(audioAssetID.uuidString) for recording \(recordingID.uuidString) is missing."
+            return String(localized: "Managed audio \(audioAssetID.uuidString) for recording \(recordingID.uuidString) is missing.")
         case .unsupportedSchemaVersion(let version):
-            return "Manifest schema version \(version) is not supported."
+            return String(localized: "Manifest schema version \(version) is not supported.")
         case .invalidManifest(let description):
-            return "The recording manifest is invalid: \(description)"
+            return String(localized: "The recording manifest is invalid: \(description)")
         case .identityMismatch(let expected, let actual):
-            return "Manifest identity \(actual.uuidString) does not match directory identity \(expected.uuidString)."
+            return String(localized: "Manifest identity \(actual.uuidString) does not match directory identity \(expected.uuidString).")
         case .fileSystem(let operation, let entry, let description):
-            return "Could not \(operation) \(entry): \(description)"
+            return String(localized: "Could not \(operation) \(entry): \(description)")
         }
     }
 }

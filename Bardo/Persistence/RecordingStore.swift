@@ -49,14 +49,26 @@ actor RecordingStore {
     func importRecording(
         _ recording: Recording,
         audioAsset: AudioAsset,
-        from sourceURL: URL
+        from sourceURL: URL,
+        transferringOwnership: Bool = false
     ) throws {
-        try importRecording(recording, audioFiles: [audioAsset.id: sourceURL])
+        try importRecording(
+            recording,
+            audioFiles: [audioAsset.id: sourceURL],
+            transferringOwnership: transferringOwnership
+        )
     }
 
+    /// Publishes a recording with its managed audio.
+    ///
+    /// With `transferringOwnership`, source files are moved instead of copied. Bardo uses
+    /// this for its own capture staging, which lives on the same volume: publication is
+    /// then instant and needs no extra disk space. If publication fails, moved files are
+    /// returned to their original locations before the partial recording is removed.
     func importRecording(
         _ recording: Recording,
-        audioFiles: [AudioAsset.ID: URL]
+        audioFiles: [AudioAsset.ID: URL],
+        transferringOwnership: Bool = false
     ) throws {
         let expectedIDs = Set(recording.audioAssets.map(\.id))
         let suppliedIDs = Set(audioFiles.keys)
@@ -75,6 +87,9 @@ actor RecordingStore {
         guard !FileManager.default.fileExists(atPath: recordingDirectory.path) else {
             throw RecordingStoreError.recordingAlreadyExists(recording.id)
         }
+
+        // Moved sources and where they currently are, so a failure can return them.
+        var transferred: [(source: URL, current: URL)] = []
 
         do {
             try ensureDirectoryExists(recordingDirectory)
@@ -97,20 +112,29 @@ actor RecordingStore {
                 )
 
                 do {
-                    try FileManager.default.copyItem(at: sourceURL, to: temporaryAudioURL)
+                    if transferringOwnership {
+                        try FileManager.default.moveItem(at: sourceURL, to: temporaryAudioURL)
+                        transferred.append((sourceURL, temporaryAudioURL))
+                    } else {
+                        try FileManager.default.copyItem(at: sourceURL, to: temporaryAudioURL)
+                    }
                 } catch {
                     throw RecordingStoreError.fileSystem(
-                        operation: "copy managed audio",
+                        operation: transferringOwnership ? "move managed audio" : "copy managed audio",
                         entry: sourceURL.lastPathComponent,
                         description: error.localizedDescription
                     )
                 }
+                DurableFile.restrictToOwner(temporaryAudioURL)
 
                 try atomicallyMove(
                     from: temporaryAudioURL,
                     to: destinationAudioURL,
                     operation: "finalize managed audio"
                 )
+                if transferringOwnership, let index = transferred.lastIndex(where: { $0.current == temporaryAudioURL }) {
+                    transferred[index].current = destinationAudioURL
+                }
             }
 
             // All managed audio files are final before the manifest becomes visible.
@@ -120,11 +144,77 @@ actor RecordingStore {
                 in: recordingDirectory
             )
         } catch {
+            var everySourceReturned = true
+            for file in transferred.reversed() {
+                do {
+                    try FileManager.default.moveItem(at: file.current, to: file.source)
+                } catch {
+                    everySourceReturned = false
+                }
+            }
             // This directory was created exclusively for this failed publication. Removing
-            // it cannot affect an existing recording or the caller-owned staging sources.
-            try? FileManager.default.removeItem(at: recordingDirectory)
+            // it cannot affect an existing recording; transferred sources were returned
+            // above. If any could not be returned, keep the directory so no audio is lost:
+            // `reclaimIncompletePublication` hands it back to recovery later.
+            if everySourceReturned {
+                try? FileManager.default.removeItem(at: recordingDirectory)
+            }
             throw error
         }
+    }
+
+    /// Returns audio from a publication that never wrote its manifest (Bardo quit or
+    /// crashed halfway) to the capture's staging directory, so recovery sees every source
+    /// again. Returns true when an incomplete publication was reclaimed.
+    @discardableResult
+    func reclaimIncompletePublication(recordingID: Recording.ID, into stagingDirectory: URL) throws -> Bool {
+        let directory = recordingDirectoryURL(for: recordingID)
+        guard FileManager.default.fileExists(atPath: directory.path),
+              !FileManager.default.fileExists(atPath: manifestURL(for: recordingID).path) else {
+            return false
+        }
+
+        let audioDirectory = audioDirectoryURL(for: recordingID)
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: audioDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )) ?? []
+
+        for entry in entries {
+            let name = entry.lastPathComponent
+            let assetName: String
+            let fileExtension: String
+            if name.hasPrefix(".audio-"), entry.pathExtension == "tmp" {
+                assetName = String(name.dropFirst(".audio-".count).dropLast(".tmp".count))
+                fileExtension = Self.detectedAudioExtension(of: entry)
+            } else {
+                assetName = entry.deletingPathExtension().lastPathComponent
+                fileExtension = entry.pathExtension
+            }
+            guard UUID(uuidString: assetName) != nil, !fileExtension.isEmpty else { continue }
+
+            let destination = stagingDirectory.appendingPathComponent("\(assetName).\(fileExtension)")
+            guard !FileManager.default.fileExists(atPath: destination.path) else { continue }
+            try FileManager.default.moveItem(at: entry, to: destination)
+        }
+
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: audioDirectory.path)) ?? []
+        if leftovers.isEmpty {
+            try FileManager.default.removeItem(at: directory)
+        }
+        return true
+    }
+
+    /// Identifies a staged audio container from its header.
+    private static func detectedAudioExtension(of url: URL) -> String {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "m4a" }
+        defer { try? handle.close() }
+        let header = (try? handle.read(upToCount: 12)) ?? Data()
+        if header.starts(with: Data("caff".utf8)) { return "caf" }
+        if header.starts(with: Data("RIFF".utf8)) { return "wav" }
+        if header.starts(with: Data("FORM".utf8)) { return "aiff" }
+        return "m4a"
     }
 
     func read(id: Recording.ID) throws -> Recording {
@@ -170,6 +260,11 @@ actor RecordingStore {
         return url
     }
 
+    /// Whether anything, complete or not, already occupies this recording's folder.
+    func recordingDirectoryExists(recordingID: Recording.ID) -> Bool {
+        FileManager.default.fileExists(atPath: recordingDirectoryURL(for: recordingID).path)
+    }
+
     func recordingDirectoryURL(recordingID: Recording.ID) throws -> URL {
         // UUIDs cannot introduce path traversal. Returning a path derived only from the
         // store root keeps Finder actions scoped to Bardo's managed library.
@@ -178,6 +273,8 @@ actor RecordingStore {
 
     func loadLibrary() throws -> LibrarySnapshot {
         try ensureDirectoryExists(rootURL)
+        // Recordings are private. Tighten folders created by earlier builds (0755).
+        DurableFile.restrictToOwner(rootURL.deletingLastPathComponent(), permissions: DurableFile.privateDirectoryPermissions)
 
         let entries: [URL]
         do {
@@ -221,6 +318,7 @@ actor RecordingStore {
                 ))
                 continue
             }
+            DurableFile.restrictToOwner(entry, permissions: DurableFile.privateDirectoryPermissions)
 
             issues.append(contentsOf: temporaryManifestArtifactIssues(in: entry, recordingID: id))
             issues.append(contentsOf: temporaryAudioArtifactIssues(in: entry, recordingID: id))
@@ -364,10 +462,7 @@ actor RecordingStore {
 
     private func ensureDirectoryExists(_ url: URL) throws {
         do {
-            try FileManager.default.createDirectory(
-                at: url,
-                withIntermediateDirectories: true
-            )
+            try DurableFile.createPrivateDirectory(at: url)
         } catch {
             throw RecordingStoreError.fileSystem(
                 operation: "create directory for",
@@ -377,28 +472,17 @@ actor RecordingStore {
         }
     }
 
+    /// Flushes the manifest to disk before it replaces the previous one, so a power
+    /// loss leaves either the old or the new manifest, never an empty file.
     private func atomicallyWrite(_ data: Data, to destinationURL: URL, in directoryURL: URL) throws {
-        let temporaryURL = directoryURL.appendingPathComponent(".manifest-\(UUID().uuidString).tmp")
-
         do {
-            try data.write(to: temporaryURL, options: [])
+            try DurableFile.write(data, to: destinationURL, temporaryPrefix: ".manifest")
         } catch {
             throw RecordingStoreError.fileSystem(
-                operation: "write temporary manifest",
+                operation: "atomically replace manifest",
                 entry: destinationURL.lastPathComponent,
                 description: error.localizedDescription
             )
-        }
-
-        do {
-            try atomicallyMove(
-                from: temporaryURL,
-                to: destinationURL,
-                operation: "atomically replace manifest"
-            )
-        } catch {
-            try? FileManager.default.removeItem(at: temporaryURL)
-            throw error
         }
     }
 

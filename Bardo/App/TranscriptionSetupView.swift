@@ -109,13 +109,16 @@ enum TranscriptionSetupCopy {
     static let retryButton = "Intentar de nuevo"
     static let resetButton = "Empezar de nuevo"
     static let cancelButton = "Pausar"
+    static let useMeanwhileButton = "Usar Bardo mientras tanto"
+    static let skipButton = "Continuar sin transcribir"
+    static let skipFootnote = "Puedes grabar, importar y escuchar audio ahora. Transcribir estará disponible cuando termine la preparación."
     static let footer = "Esto solo ocurre una vez. Después, Bardo estará listo para ti."
 
     static var allVisibleCopy: [String] {
         let stageCopy = Stage.allCases.flatMap { stage in
             [title(for: stage), detail(for: stage), stageLabel(for: stage)] + messages(for: stage)
         }
-        return stageCopy + [retryButton, resetButton, cancelButton, footer]
+        return stageCopy + [retryButton, resetButton, cancelButton, useMeanwhileButton, skipButton, skipFootnote, footer]
     }
 }
 
@@ -126,17 +129,21 @@ struct TranscriptionSetupView: View {
     let retry: () -> Void
     let cancel: () -> Void
     let resetAndRetry: () -> Void
+    /// Opens the Library while setup continues or stays incomplete.
+    let continueWithoutModels: (() -> Void)?
 
     init(
         state: TranscriptionSetupCoordinator.State,
         retry: @escaping () -> Void,
         cancel: @escaping () -> Void = {},
-        resetAndRetry: @escaping () -> Void = {}
+        resetAndRetry: @escaping () -> Void = {},
+        continueWithoutModels: (() -> Void)? = nil
     ) {
         self.state = state
         self.retry = retry
         self.cancel = cancel
         self.resetAndRetry = resetAndRetry
+        self.continueWithoutModels = continueWithoutModels
     }
 
     var body: some View {
@@ -172,7 +179,7 @@ struct TranscriptionSetupView: View {
             }
             .frame(maxWidth: 520)
 
-            Text(TranscriptionSetupCopy.footer)
+            Text(continueWithoutModels == nil ? TranscriptionSetupCopy.footer : TranscriptionSetupCopy.skipFootnote)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
@@ -209,6 +216,9 @@ struct TranscriptionSetupView: View {
 
             if isCancellable {
                 HStack {
+                    if let continueWithoutModels {
+                        Button(TranscriptionSetupCopy.useMeanwhileButton, action: continueWithoutModels)
+                    }
                     Spacer()
                     Button(TranscriptionSetupCopy.cancelButton, role: .cancel, action: cancel)
                 }
@@ -248,7 +258,7 @@ struct TranscriptionSetupView: View {
             Label(stageLabel, systemImage: terminalStateSymbol)
                 .font(.headline)
 
-            Text(detail)
+            Text(failureReason ?? detail)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -266,12 +276,21 @@ struct TranscriptionSetupView: View {
             Button(TranscriptionSetupCopy.resetButton, action: resetAndRetry)
 
             Spacer()
+
+            if let continueWithoutModels {
+                Button(TranscriptionSetupCopy.skipButton, action: continueWithoutModels)
+            }
         }
+    }
+
+    private var failureReason: String? {
+        if case .failed(let message) = state, !message.isEmpty { return message }
+        return nil
     }
 
     private var isTerminalState: Bool {
         switch state {
-        case .cancelled, .failed:
+        case .cancelled, .failed, .needsInstall:
             return true
         case .checking, .installing, .installingSpeakers, .ready:
             return false
@@ -293,7 +312,7 @@ struct TranscriptionSetupView: View {
         switch state {
         case .checking, .installing, .installingSpeakers:
             return true
-        case .ready, .cancelled, .failed:
+        case .ready, .cancelled, .failed, .needsInstall:
             return false
         }
     }
@@ -328,7 +347,7 @@ struct TranscriptionSetupView: View {
             }
         case .ready:
             return .ready
-        case .cancelled:
+        case .cancelled, .needsInstall:
             return .paused
         case .failed:
             return .failed
@@ -341,7 +360,7 @@ struct TranscriptionSetupView: View {
             return min(1, max(0, progress.fractionCompleted))
         case .installingSpeakers(let progress) where progress.stage == .downloading:
             return min(1, max(0, progress.fractionCompleted))
-        case .checking, .installing, .installingSpeakers, .ready, .cancelled, .failed:
+        case .checking, .installing, .installingSpeakers, .ready, .cancelled, .failed, .needsInstall:
             return nil
         }
     }
@@ -357,7 +376,7 @@ struct TranscriptionSetupView: View {
             step = 2
         case .ready:
             return "Listo"
-        case .cancelled:
+        case .cancelled, .needsInstall:
             return "En pausa"
         case .failed:
             return "Necesita otro intento"

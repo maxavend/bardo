@@ -23,6 +23,13 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 - After setup succeeds, open Settings → Transcripción and confirm both resources show as ready.
 - Quit and reopen Bardo; the Library should appear without replaying first-run setup.
 
+### 1b. Setup without a connection
+
+- On a clean install, turn Wi-Fi off and launch Bardo.
+- When setup fails, choose **Continuar sin transcribir** and confirm the Library opens.
+- Record or import audio, then reconnect and use **Reintentar** in the banner; transcription becomes available when it finishes.
+- In Settings → Transcripción remove the transcription resource, relaunch, and confirm Bardo opens normally with a banner offering **Descargar**.
+
 ### 2. Audio import
 
 - Import a short `.m4a`, `.wav`, or other supported audio file.
@@ -47,6 +54,15 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 - Record system audio and microphone together.
 - Confirm Bardo preserves both original sources and produces a playable conversation recording.
 
+### 5b. Interruptions and recovery
+
+- Start a microphone recording, speak for 20 seconds, then force quit Bardo (⌥⌘⎋).
+- Relaunch: a banner reports an interrupted recording. Open it, choose **Recuperar**, and confirm the recording appears with its title and plays the 20 seconds.
+- Repeat with system + microphone; the recovered recording must contain both sources and the mix.
+- During a system-audio recording choose **Cambiar fuente…** and immediately **Finalizar**: the recording must be saved once and the status must not return to "Grabando".
+- While choosing content in the macOS picker, use **Cancelar** in Bardo's status pill.
+- Quit Bardo with ⌘Q during a recording: it is saved before the app closes.
+
 ### 6. Real transcription
 
 - Choose **Transcribe** on a short recording.
@@ -55,12 +71,16 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 - Confirm timestamped transcript turns appear.
 - Click several timestamps and verify playback seeks to the expected audio position.
 - Search inside the transcript and copy the full transcript.
+- Transcribe a recording of several minutes and confirm the beginning of the conversation is present (an earlier build dropped the opening seconds).
+- Start transcribing one conversation, open another, and confirm **Transcribir** explains that Bardo is busy instead of doing nothing.
+- Import a file while audio is playing: playback must continue.
 
 ### 7. Speaker identification
 
 - Use audio with at least two distinct speakers.
 - Choose **Identify Speakers**.
 - Confirm SpeakerKit resources are prepared locally if absent.
+- Start speaker identification on a long recording and press **Cancelar**: the transcript must become editable again right away.
 - Confirm speaker labels are applied to the transcript.
 - Name a participant and verify the name updates across their turns.
 - Quit/reopen and verify participant names persist.

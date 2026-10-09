@@ -72,7 +72,8 @@ final class MicrophoneRecordingControllerTests: XCTestCase {
         let recording = try XCTUnwrap(stoppedRecording)
         let asset = try XCTUnwrap(recording.audioAssets.first)
         XCTAssertEqual(recording.sources, [.microphone])
-        XCTAssertEqual(asset.fileExtension, "wav")
+        XCTAssertEqual(asset.fileExtension, "m4a", "Lossless staging audio is compressed on stop")
+        XCTAssertEqual(asset.metadata.codec, "AAC")
         XCTAssertEqual(asset.metadata.sampleRate, 8_000, accuracy: 0.1)
         XCTAssertEqual(asset.metadata.channelCount, 1)
         XCTAssertGreaterThan(asset.metadata.duration, 0)
@@ -108,25 +109,112 @@ final class MicrophoneRecordingControllerTests: XCTestCase {
     }
 
     @MainActor
-    func testUnexpectedInterruptionPreservesStagingWithoutFalseRecording() async throws {
+    func testUnexpectedInterruptionPublishesTheAudioCapturedSoFar() async throws {
         let env = makeEnvironment()
         defer { try? FileManager.default.removeItem(at: env.baseURL) }
         let backend = IncrementalTestCaptureBackend()
         let controller = makeController(env: env, backend: backend)
+        var published: [Recording] = []
+        controller.onRecordingPublished = { published.append($0) }
+
+        await controller.start(title: "Entrevista")
+        backend.simulateInterruption("Input disconnected")
+        await waitUntil { controller.phase != .finalizing }
+
+        XCTAssertEqual(controller.phase, .idle)
+        XCTAssertTrue(controller.errorMessage?.contains("Input disconnected") == true)
+        let library = try await env.recordingStore.loadLibrary()
+        XCTAssertEqual(library.recordings.count, 1)
+        XCTAssertEqual(library.recordings.first?.title, "Entrevista")
+        XCTAssertEqual(published.map(\.id), library.recordings.map(\.id))
+        let remainingIssues = await MicrophoneCaptureStagingStore(rootURL: env.stagingURL).recoveryIssues()
+        XCTAssertTrue(remainingIssues.isEmpty)
+    }
+
+    @MainActor
+    func testTranscodingFailureKeepsLosslessStagingAudio() async throws {
+        let env = makeEnvironment()
+        defer { try? FileManager.default.removeItem(at: env.baseURL) }
+        let backend = IncrementalTestCaptureBackend()
+        let controller = MicrophoneRecordingController(
+            store: env.recordingStore,
+            stagingStore: env.stagingStore,
+            permissionAuthorizer: TestMicrophonePermissionAuthorizer(status: .authorized),
+            backend: backend,
+            transcoder: FailingAudioTranscoder()
+        )
 
         await controller.start()
-        let stagedURL = try XCTUnwrap(backend.lastURL)
-        backend.simulateInterruption("Input disconnected")
+        let recordingResult = await controller.stop()
 
+        let recording = try XCTUnwrap(recordingResult)
+
+        let asset = try XCTUnwrap(recording.audioAssets.first)
+        XCTAssertEqual(asset.fileExtension, "wav")
+        let managedURL = try await env.recordingStore.managedAudioURL(recordingID: recording.id, audioAssetID: asset.id)
+        XCTAssertGreaterThan(try AudioMetadataReader().read(from: managedURL).duration, 0)
+    }
+
+    @MainActor
+    func testCaptureWithoutAudioIsDiscardedInsteadOfKeptForRecovery() async throws {
+        let env = makeEnvironment()
+        defer { try? FileManager.default.removeItem(at: env.baseURL) }
+        let backend = IncrementalTestCaptureBackend()
+        backend.writesAudio = false
+        let controller = makeController(env: env, backend: backend)
+
+        await controller.start()
+        let recording = await controller.stop()
+
+        XCTAssertNil(recording)
         XCTAssertEqual(controller.phase, .failed)
         XCTAssertNotNil(controller.errorMessage)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedURL.path))
+        XCTAssertTrue(controller.recoveryIssues.isEmpty)
         let library = try await env.recordingStore.loadLibrary()
         XCTAssertTrue(library.recordings.isEmpty)
 
-        let freshStagingStore = MicrophoneCaptureStagingStore(rootURL: env.stagingURL)
-        let issues = await freshStagingStore.recoveryIssues()
-        XCTAssertEqual(issues.count, 1)
+        controller.clearError()
+        await controller.start()
+        XCTAssertEqual(controller.phase, .recording, "The capture lease must be released")
+        _ = await controller.stop()
+    }
+
+    @MainActor
+    func testCaptureLeftBehindByACrashCanBeRecoveredWithItsTitle() async throws {
+        let env = makeEnvironment()
+        defer { try? FileManager.default.removeItem(at: env.baseURL) }
+        // The crashed process prepared a capture and wrote crash-safe PCM into it.
+        let crashedStaging = MicrophoneCaptureStagingStore(rootURL: env.stagingURL)
+        let stagedURL = try await crashedStaging.prepareCapture(
+            recordingID: UUID(),
+            audioAssetID: UUID(),
+            fileExtension: "caf",
+            title: "Reunión de diseño"
+        )
+        try AudioTestFixture.makeWAV(at: stagedURL, duration: 1)
+
+        // A new process sees the staging directory without an active capture.
+        let relaunched = MicrophoneRecordingController(
+            store: RecordingStore(rootURL: env.libraryURL),
+            stagingStore: MicrophoneCaptureStagingStore(rootURL: env.stagingURL),
+            permissionAuthorizer: TestMicrophonePermissionAuthorizer(status: .authorized),
+            backend: IncrementalTestCaptureBackend()
+        )
+        await relaunched.refreshRecoveryIssues()
+        let issue = try XCTUnwrap(relaunched.recoveryIssues.first)
+        XCTAssertEqual(relaunched.recoveryIssues.count, 1)
+        XCTAssertEqual(issue.entryName, "Reunión de diseño")
+
+        let recoveredResult = await relaunched.recoverRecoveryIssue(issue)
+
+
+        let recovered = try XCTUnwrap(recoveredResult)
+        XCTAssertEqual(recovered.title, "Reunión de diseño")
+        XCTAssertEqual(recovered.sources, [.microphone])
+        XCTAssertTrue(relaunched.recoveryIssues.isEmpty)
+        let library = try await RecordingStore(rootURL: env.libraryURL).loadLibrary()
+        XCTAssertEqual(library.recordings.map(\.id), [recovered.id])
+        XCTAssertTrue(library.issues.isEmpty)
     }
 
     @MainActor
@@ -180,6 +268,20 @@ final class MicrophoneRecordingControllerTests: XCTestCase {
         XCTAssertEqual(controller.phase, .idle)
         XCTAssertFalse(controller.requiresTerminationFinalization)
         XCTAssertEqual(backend.startCount, 0)
+    }
+
+    @MainActor
+    private func waitUntil(
+        _ condition: @escaping @MainActor () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<500 {
+            if condition() { return }
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("Timed out waiting for asynchronous state.", file: file, line: line)
     }
 
     @MainActor

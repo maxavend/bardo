@@ -18,6 +18,7 @@ final class AudioPlaybackController: ObservableObject {
     @Published private(set) var volume: Float = 1
 
     private var player: AVAudioPlayer?
+    private var loadedURL: URL?
     private var progressTask: Task<Void, Never>?
     private var playbackEndTime: TimeInterval?
 
@@ -25,8 +26,15 @@ final class AudioPlaybackController: ObservableObject {
         player != nil
     }
 
+    /// Loads `url` for playback. Loading the file that is already loaded keeps its
+    /// position and playback state, so refreshing the Library never interrupts listening.
     @discardableResult
     func load(url: URL, metadata: AudioPlaybackMetadata? = nil) -> Bool {
+        if player != nil, loadedURL?.standardizedFileURL == url.standardizedFileURL {
+            if let metadata { self.metadata = metadata }
+            errorMessage = nil
+            return true
+        }
         unload()
 
         do {
@@ -38,6 +46,7 @@ final class AudioPlaybackController: ObservableObject {
             player.rate = playbackRate
             player.volume = volume
             self.player = player
+            loadedURL = url
             duration = player.duration
             position = player.currentTime
             self.metadata = metadata
@@ -159,6 +168,7 @@ final class AudioPlaybackController: ObservableObject {
         playbackEndTime = nil
         player?.stop()
         player = nil
+        loadedURL = nil
         isPlaying = false
         position = 0
         duration = 0
@@ -224,13 +234,13 @@ enum AudioPlaybackError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .noAudioLoaded:
-            return "This recording has no playable managed audio."
+            return String(localized: "This recording has no playable managed audio.")
         case .couldNotPrepare:
-            return "Bardo could not prepare this audio for playback."
+            return String(localized: "Bardo could not prepare this audio for playback.")
         case .couldNotStart:
-            return "Bardo could not start audio playback."
+            return String(localized: "Bardo could not start audio playback.")
         case .unreadableAudio(let description):
-            return "The managed audio cannot be played: \(description)"
+            return String(localized: "The managed audio cannot be played: \(description)")
         }
     }
 }

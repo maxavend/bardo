@@ -1,8 +1,3 @@
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 import Foundation
 
 struct TranscriptDocumentV1: Codable, Equatable, Sendable {
@@ -28,17 +23,17 @@ enum TranscriptStoreError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .recordingNotFound(let id):
-            return "Recording \(id.uuidString) was not found."
+            return String(localized: "Recording \(id.uuidString) was not found.")
         case .transcriptNotFound(let id):
-            return "Recording \(id.uuidString) has no transcript yet."
+            return String(localized: "Recording \(id.uuidString) has no transcript yet.")
         case .unsupportedSchemaVersion(let version):
-            return "Transcript schema version \(version) is not supported."
+            return String(localized: "Transcript schema version \(version) is not supported.")
         case .invalidTranscript(let description):
-            return "The transcript is invalid: \(description)"
+            return String(localized: "The transcript is invalid: \(description)")
         case .identityMismatch(let expected, let actual):
-            return "Transcript identity \(actual.uuidString) does not match recording \(expected.uuidString)."
+            return String(localized: "Transcript identity \(actual.uuidString) does not match recording \(expected.uuidString).")
         case .fileSystem(let operation, let entry, let description):
-            return "Could not \(operation) \(entry): \(description)"
+            return String(localized: "Could not \(operation) \(entry): \(description)")
         }
     }
 }
@@ -72,17 +67,11 @@ actor TranscriptStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(TranscriptDocumentV1(transcript: transcript))
         let destination = recordingDirectory.appendingPathComponent(Self.transcriptFileName)
-        let temporary = recordingDirectory
-            .appendingPathComponent(".transcript-\(UUID().uuidString).tmp")
 
         do {
-            try data.write(to: temporary, options: [])
-            try atomicallyMove(from: temporary, to: destination)
-        } catch let error as TranscriptStoreError {
-            try? FileManager.default.removeItem(at: temporary)
-            throw error
+            // Flushed before it replaces the previous transcript, and private to the user.
+            try DurableFile.write(data, to: destination, temporaryPrefix: ".transcript")
         } catch {
-            try? FileManager.default.removeItem(at: temporary)
             throw TranscriptStoreError.fileSystem(
                 operation: "write transcript",
                 entry: transcript.recordingID.uuidString,
@@ -151,19 +140,4 @@ actor TranscriptStore {
             .appendingPathComponent(Self.transcriptFileName)
     }
 
-    private func atomicallyMove(from sourceURL: URL, to destinationURL: URL) throws {
-        let result = sourceURL.path.withCString { sourcePath in
-            destinationURL.path.withCString { destinationPath in
-                rename(sourcePath, destinationPath)
-            }
-        }
-        guard result == 0 else {
-            let code = errno
-            throw TranscriptStoreError.fileSystem(
-                operation: "atomically replace transcript",
-                entry: destinationURL.lastPathComponent,
-                description: String(cString: strerror(code))
-            )
-        }
-    }
 }

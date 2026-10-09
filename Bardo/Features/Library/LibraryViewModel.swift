@@ -25,6 +25,8 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var isImporting = false
     @Published private(set) var isTranscribing = false
     @Published private(set) var isDiarizing = false
+    /// A manual edit is being written; model work must not start from a stale copy.
+    @Published private(set) var isSavingTranscriptEdit = false
     @Published var selection: Recording.ID?
 
     let playback: AudioPlaybackController
@@ -112,47 +114,67 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func renameRecording(_ recordingID: Recording.ID, to proposedTitle: String) async {
-        guard var recording = recordings.first(where: { $0.id == recordingID }) else {
-            recordingActionErrorMessage = "That recording is no longer available."
-            return
-        }
-
-        guard !isTranscribing, !isDiarizing else {
-            recordingActionErrorMessage = "Finish or cancel processing before renaming this recording."
+        guard recordings.contains(where: { $0.id == recordingID }) else {
+            recordingActionErrorMessage = String(localized: "That recording is no longer available.")
             return
         }
 
         let title = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else {
-            recordingActionErrorMessage = "Recording title cannot be empty."
+            recordingActionErrorMessage = String(localized: "Recording title cannot be empty.")
             recordingActionFeedback = nil
             return
         }
 
         recordingActionErrorMessage = nil
         recordingActionFeedback = nil
-        recording.title = title
 
         do {
-            try await resolveStore().update(recording)
-            replaceRecording(recording)
-            recordingActionFeedback = "Recording renamed"
+            try await updateRecording(recordingID) { $0.title = title }
+            recordingActionFeedback = String(localized: "Recording renamed")
         } catch {
             recordingActionErrorMessage = error.localizedDescription
         }
     }
 
+    /// Whether transcription or speaker identification is working on this recording.
+    func isProcessing(_ recordingID: Recording.ID) -> Bool {
+        (isTranscribing && transcriptionRecordingID == recordingID)
+            || (isDiarizing && diarizationRecordingID == recordingID)
+    }
+
+    /// Applies one change to the newest copy of a recording and persists it. Renames and
+    /// processing-state updates can interleave without overwriting each other.
+    private func updateRecording(
+        _ recordingID: Recording.ID,
+        _ change: (inout Recording) -> Void
+    ) async throws {
+        guard let index = recordings.firstIndex(where: { $0.id == recordingID }) else {
+            throw RecordingStoreError.recordingNotFound(recordingID)
+        }
+        let previous = recordings[index]
+        var updated = previous
+        change(&updated)
+        recordings[index] = updated
+        do {
+            try await resolveStore().update(updated)
+        } catch {
+            if let current = recordings.firstIndex(where: { $0.id == recordingID }),
+               recordings[current] == updated {
+                recordings[current] = previous
+            }
+            throw error
+        }
+    }
+
     func deleteRecording(_ recordingID: Recording.ID) async {
         guard recordings.contains(where: { $0.id == recordingID }) else {
-            recordingActionErrorMessage = "That recording is no longer available."
+            recordingActionErrorMessage = String(localized: "That recording is no longer available.")
             return
         }
 
-        guard recordingID != transcriptionRecordingID,
-              recordingID != diarizationRecordingID,
-              !(isDiarizing && selection == recordingID)
-        else {
-            recordingActionErrorMessage = "Finish or cancel processing before deleting this recording."
+        guard !isProcessing(recordingID) else {
+            recordingActionErrorMessage = String(localized: "Finish or cancel processing before deleting this recording.")
             return
         }
 
@@ -168,7 +190,7 @@ final class LibraryViewModel: ObservableObject {
                 transcript = nil
                 playback.unload()
             }
-            recordingActionFeedback = "Recording moved to the Trash"
+            recordingActionFeedback = String(localized: "Recording moved to the Trash")
         } catch {
             recordingActionErrorMessage = error.localizedDescription
         }
@@ -180,7 +202,7 @@ final class LibraryViewModel: ObservableObject {
 
     func playRecording(_ recordingID: Recording.ID) async {
         guard recordings.contains(where: { $0.id == recordingID }) else {
-            recordingActionErrorMessage = "That recording is no longer available."
+            recordingActionErrorMessage = String(localized: "That recording is no longer available.")
             return
         }
 
@@ -191,7 +213,7 @@ final class LibraryViewModel: ObservableObject {
 
         guard selection == recordingID else { return }
         guard playback.isLoaded else {
-            recordingActionErrorMessage = playback.errorMessage ?? "This recording has no playable managed audio."
+            recordingActionErrorMessage = playback.errorMessage ?? String(localized: "This recording has no playable managed audio.")
             return
         }
         _ = playback.play()
@@ -202,12 +224,12 @@ final class LibraryViewModel: ObservableObject {
             let location = try await managedLocation(for: recordingID)
             NSPasteboard.general.clearContents()
             guard NSPasteboard.general.setString(location.path, forType: .string) else {
-                recordingActionErrorMessage = "Bardo could not copy the managed location to the clipboard."
+                recordingActionErrorMessage = String(localized: "Bardo could not copy the managed location to the clipboard.")
                 recordingActionFeedback = nil
                 return
             }
             recordingActionErrorMessage = nil
-            recordingActionFeedback = "Managed location copied"
+            recordingActionFeedback = String(localized: "Managed location copied")
         } catch {
             recordingActionErrorMessage = error.localizedDescription
             recordingActionFeedback = nil
@@ -240,10 +262,8 @@ final class LibraryViewModel: ObservableObject {
             return
         }
 
-        if playback.isPlaying {
-            playback.pause()
-        }
-
+        // Loading the audio that is already playing is a no-op, so reloads (an import,
+        // a finished recording) never interrupt playback.
         _ = await preparePlayback(playback, for: recording)
     }
 
@@ -293,7 +313,7 @@ final class LibraryViewModel: ObservableObject {
             }
         }
 
-        controller.setUnavailable(lastError ?? "This recording has no playable managed audio.")
+        controller.setUnavailable(lastError ?? String(localized: "This recording has no playable managed audio."))
         return false
     }
 
@@ -320,7 +340,7 @@ final class LibraryViewModel: ObservableObject {
             if loaded == nil {
                 let residues = await activeStore.temporaryArtifacts(recordingID: recordingID)
                 if !residues.isEmpty {
-                    transcriptErrorMessage = "An interrupted transcription artifact was found and preserved. Retry transcription when ready."
+                    transcriptErrorMessage = String(localized: "An interrupted transcription artifact was found and preserved. Retry transcription when ready.")
                 }
             }
         } catch {
@@ -330,10 +350,24 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    /// Why transcription cannot start for this recording right now, if anything.
+    func transcriptionBlocker(for recordingID: Recording.ID) -> String? {
+        if isTranscribing, transcriptionRecordingID != recordingID {
+            return String(localized: "Bardo is transcribing another conversation. You can transcribe this one when it finishes.")
+        }
+        if isDiarizing {
+            return String(localized: "Wait for speaker identification to finish.")
+        }
+        if isSavingTranscriptEdit {
+            return String(localized: "Saving your changes…")
+        }
+        return nil
+    }
+
     func beginTranscription() {
-        guard !isTranscribing, !isDiarizing, selectedRecording != nil else { return }
+        guard let recording = startTranscriptionIfPossible() else { return }
         transcriptionTask = Task { [weak self] in
-            await self?.performSelectedTranscription()
+            await self?.runTranscription(of: recording)
         }
     }
 
@@ -354,15 +388,29 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func performSelectedTranscription() async {
-        guard !isTranscribing, !isDiarizing, var recording = selectedRecording else { return }
-        let recordingID = recording.id
+        guard let recording = startTranscriptionIfPossible() else { return }
+        await runTranscription(of: recording)
+    }
+
+    /// Marks transcription as running synchronously, so a second start in the same
+    /// run-loop turn is rejected instead of replacing the first task.
+    private func startTranscriptionIfPossible() -> Recording? {
+        guard !isTranscribing, !isDiarizing, !isSavingTranscriptEdit, let recording = selectedRecording else {
+            return nil
+        }
         isTranscribing = true
-        transcriptionRecordingID = recordingID
+        transcriptionRecordingID = recording.id
         transcriptErrorMessage = nil
         transcriptEditErrorMessage = nil
         diarizationErrorMessage = nil
         transcriptionProgress = .init(stage: .preparingModel, fractionCompleted: 0)
-        liveTranscription = .empty(recordingID: recordingID, audioDuration: recording.duration ?? 0)
+        liveTranscription = .empty(recordingID: recording.id, audioDuration: recording.duration ?? 0)
+        return recording
+    }
+
+    private func runTranscription(of startingRecording: Recording) async {
+        var recording = startingRecording
+        let recordingID = recording.id
         defer {
             isTranscribing = false
             transcriptionRecordingID = nil
@@ -373,9 +421,8 @@ final class LibraryViewModel: ObservableObject {
 
         do {
             let activeRecordingStore = try resolveStore()
-            recording.processingState = .processing
-            try await activeRecordingStore.update(recording)
-            replaceRecording(recording)
+            try await updateRecording(recordingID) { $0.processingState = .processing }
+            recording = recordings.first { $0.id == recordingID } ?? recording
 
             let activeTranscriber = try resolveTranscriber()
             let generated = try await activeTranscriber.transcribe(
@@ -409,9 +456,9 @@ final class LibraryViewModel: ObservableObject {
             let activeTranscriptStore = try resolveTranscriptStore()
             try await activeTranscriptStore.save(generated)
 
-            recording.processingState = .completed
-            try await activeRecordingStore.update(recording)
-            replaceRecording(recording)
+            try await updateRecording(recordingID) { $0.processingState = .completed }
+            // The models may have been downloaded on demand for this transcription.
+            NotificationCenter.default.post(name: .bardoModelsChanged, object: nil)
             if selection == recordingID {
                 transcript = generated
                 liveTranscription = nil
@@ -419,32 +466,17 @@ final class LibraryViewModel: ObservableObject {
             transcriptionProgress = .init(stage: .saving, fractionCompleted: 1)
             await rebuildSearchDocuments()
         } catch is CancellationError {
-            recording.processingState = .pending
-            if let activeStore = try? resolveStore() {
-                try? await activeStore.update(recording)
-            }
-            replaceRecording(recording)
+            try? await updateRecording(recordingID) { $0.processingState = .pending }
         } catch {
-            recording.processingState = .failed
-            if let activeStore = try? resolveStore() {
-                try? await activeStore.update(recording)
-            }
-            replaceRecording(recording)
+            try? await updateRecording(recordingID) { $0.processingState = .failed }
             transcriptErrorMessage = error.localizedDescription
         }
     }
 
     func beginDiarization() {
-        guard !isTranscribing,
-              !isDiarizing,
-              let recording = selectedRecording,
-              let transcript,
-              transcript.recordingID == recording.id else {
-            return
-        }
-
+        guard let start = startDiarizationIfPossible() else { return }
         diarizationTask = Task { [weak self] in
-            await self?.performSelectedDiarization()
+            await self?.runDiarization(of: start.recording, transcript: start.transcript)
         }
     }
 
@@ -461,20 +493,29 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func performSelectedDiarization() async {
+        guard let start = startDiarizationIfPossible() else { return }
+        await runDiarization(of: start.recording, transcript: start.transcript)
+    }
+
+    private func startDiarizationIfPossible() -> (recording: Recording, transcript: Transcript)? {
         guard !isTranscribing,
               !isDiarizing,
+              !isSavingTranscriptEdit,
               let recording = selectedRecording,
               let currentTranscript = transcript,
               currentTranscript.recordingID == recording.id else {
-            return
+            return nil
         }
-
-        let recordingID = recording.id
         isDiarizing = true
-        diarizationRecordingID = recordingID
+        diarizationRecordingID = recording.id
         diarizationErrorMessage = nil
         transcriptEditErrorMessage = nil
         diarizationProgress = .init(stage: .preparingModel, fractionCompleted: 0)
+        return (recording, currentTranscript)
+    }
+
+    private func runDiarization(of recording: Recording, transcript currentTranscript: Transcript) async {
+        let recordingID = recording.id
         defer {
             isDiarizing = false
             diarizationRecordingID = nil
@@ -499,6 +540,7 @@ final class LibraryViewModel: ObservableObject {
 
             diarizationProgress = .init(stage: .saving, fractionCompleted: 0)
             try await resolveTranscriptStore().save(updated)
+            NotificationCenter.default.post(name: .bardoModelsChanged, object: nil)
             if selection == recordingID {
                 transcript = updated
 
@@ -520,15 +562,14 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func renameSpeaker(_ speakerID: Speaker.ID, to proposedName: String) async {
-        guard !isTranscribing,
-              !isDiarizing,
-              var updated = transcript,
-              updated.recordingID == selection else {
+        guard var updated = transcript,
+              updated.recordingID == selection,
+              canEditTranscript(of: updated.recordingID) else {
             return
         }
 
         guard let index = updated.speakers.firstIndex(where: { $0.id == speakerID }) else {
-            transcriptEditErrorMessage = "That speaker is no longer available in this transcript."
+            transcriptEditErrorMessage = String(localized: "That speaker is no longer available in this transcript.")
             return
         }
 
@@ -538,16 +579,15 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func renameSpeakers(_ proposedNames: [Speaker.ID: String]) async {
-        guard !isTranscribing,
-              !isDiarizing,
-              var updated = transcript,
-              updated.recordingID == selection else {
+        guard var updated = transcript,
+              updated.recordingID == selection,
+              canEditTranscript(of: updated.recordingID) else {
             return
         }
 
         for (speakerID, proposedName) in proposedNames {
             guard let index = updated.speakers.firstIndex(where: { $0.id == speakerID }) else {
-                transcriptEditErrorMessage = "That speaker is no longer available in this transcript."
+                transcriptEditErrorMessage = String(localized: "That speaker is no longer available in this transcript.")
                 return
             }
             let trimmed = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -558,10 +598,9 @@ final class LibraryViewModel: ObservableObject {
 
     func mergeSpeaker(_ sourceID: Speaker.ID, into targetID: Speaker.ID) async {
         guard sourceID != targetID,
-              !isTranscribing,
-              !isDiarizing,
               var updated = transcript,
               updated.recordingID == selection,
+              canEditTranscript(of: updated.recordingID),
               let sourceIndex = updated.speakers.firstIndex(where: { $0.id == sourceID }),
               let targetIndex = updated.speakers.firstIndex(where: { $0.id == targetID })
         else {
@@ -583,10 +622,9 @@ final class LibraryViewModel: ObservableObject {
 
     func assignTranscriptSegments(_ segmentIDs: [TranscriptSegment.ID], to speakerID: Speaker.ID) async {
         guard !segmentIDs.isEmpty,
-              !isTranscribing,
-              !isDiarizing,
               var updated = transcript,
               updated.recordingID == selection,
+              canEditTranscript(of: updated.recordingID),
               updated.speakers.contains(where: { $0.id == speakerID })
         else {
             return
@@ -605,21 +643,20 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func updateTranscriptSegment(_ segmentID: TranscriptSegment.ID, text proposedText: String) async {
-        guard !isTranscribing,
-              !isDiarizing,
-              var updated = transcript,
-              updated.recordingID == selection else {
+        guard var updated = transcript,
+              updated.recordingID == selection,
+              canEditTranscript(of: updated.recordingID) else {
             return
         }
 
         guard let index = updated.segments.firstIndex(where: { $0.id == segmentID }) else {
-            transcriptEditErrorMessage = "That transcript segment is no longer available."
+            transcriptEditErrorMessage = String(localized: "That transcript segment is no longer available.")
             return
         }
 
         let trimmed = proposedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            transcriptEditErrorMessage = "Transcript text cannot be empty."
+            transcriptEditErrorMessage = String(localized: "Transcript text cannot be empty.")
             return
         }
 
@@ -629,15 +666,14 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func restoreOriginalTranscriptSegment(_ segmentID: TranscriptSegment.ID) async {
-        guard !isTranscribing,
-              !isDiarizing,
-              var updated = transcript,
-              updated.recordingID == selection else {
+        guard var updated = transcript,
+              updated.recordingID == selection,
+              canEditTranscript(of: updated.recordingID) else {
             return
         }
 
         guard let index = updated.segments.firstIndex(where: { $0.id == segmentID }) else {
-            transcriptEditErrorMessage = "That transcript segment is no longer available."
+            transcriptEditErrorMessage = String(localized: "That transcript segment is no longer available.")
             return
         }
 
@@ -673,8 +709,24 @@ final class LibraryViewModel: ObservableObject {
         return recordings.first { $0.id == selection }
     }
 
+    /// Edits are refused, with an explanation, while model work runs on the same
+    /// transcript: its result would otherwise overwrite them.
+    private func canEditTranscript(of recordingID: Recording.ID) -> Bool {
+        if isProcessing(recordingID) {
+            transcriptEditErrorMessage = String(localized: "Wait for this conversation to finish processing before editing it.")
+            return false
+        }
+        if isSavingTranscriptEdit {
+            transcriptEditErrorMessage = String(localized: "Bardo is still saving your previous change.")
+            return false
+        }
+        return true
+    }
+
     private func persistEditedTranscript(_ updated: Transcript) async {
         let recordingID = updated.recordingID
+        isSavingTranscriptEdit = true
+        defer { isSavingTranscriptEdit = false }
         do {
             try await resolveTranscriptStore().save(updated)
             guard selection == recordingID else { return }
@@ -808,10 +860,5 @@ final class LibraryViewModel: ObservableObject {
             return
         }
         selection = recordings.first?.id
-    }
-
-    private func replaceRecording(_ recording: Recording) {
-        guard let index = recordings.firstIndex(where: { $0.id == recording.id }) else { return }
-        recordings[index] = recording
     }
 }
