@@ -47,6 +47,21 @@ if [ "$VERIFY_DMG_ONLY" != "1" ]; then
     require_command xcodegen
 fi
 
+# Hosted macOS runners intermittently fail disk-image operations with
+# "Resource temporarily unavailable" or "Resource busy", most often when an image
+# is attached right after it was created. Retry a few times before giving up.
+run_hdiutil() {
+    local attempt
+    for attempt in 1 2 3 4; do
+        if hdiutil "$@"; then
+            return 0
+        fi
+        echo "hdiutil $1 failed (attempt $attempt of 5); retrying" >&2
+        sleep $((attempt * 3))
+    done
+    hdiutil "$@"
+}
+
 assert_path() {
     local path="$1"
     local description="$2"
@@ -126,7 +141,7 @@ if [ "$VERIFY_DMG_ONLY" != "1" ]; then
     mkdir -p "$DMG_ROOT"
     ditto "$APP_PATH" "$DMG_ROOT/Bardo.app"
     ln -s /Applications "$DMG_ROOT/Applications"
-    hdiutil create \
+    run_hdiutil create \
         -volname "$DMG_VOLUME_NAME" \
         -srcfolder "$DMG_ROOT" \
         -ov \
@@ -141,7 +156,7 @@ MOUNT_POINT="$TEMP_ROOT/mount"
 mkdir -p "$MOUNT_POINT"
 
 echo "Attaching $DMG_PATH read-only at $MOUNT_POINT"
-hdiutil attach \
+run_hdiutil attach \
     -readonly \
     -nobrowse \
     -noautoopen \
@@ -160,10 +175,10 @@ test "$(readlink "$MOUNT_POINT/Applications")" = "/Applications"
 validate_signed_app "$MOUNTED_APP"
 echo "Mounted validation passed: Bardo.app and /Applications alias are present."
 
-hdiutil detach "$MOUNT_POINT"
+run_hdiutil detach "$MOUNT_POINT"
 ATTACHED=0
 
-hdiutil verify "$DMG_PATH"
+run_hdiutil verify "$DMG_PATH"
 DMG_SHA="$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
 {
     printf '%s  %s\n' "$DMG_SHA" "$(basename "$DMG_PATH")"

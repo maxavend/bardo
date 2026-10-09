@@ -31,6 +31,10 @@ Bardo owns the local resources it uses under:
 
 A global cache does not make a Bardo resource ready. Voice setup validates Bardo's private cache, downloads resources when absent, prepares them locally, and keeps the private cache authoritative.
 
+## Interface
+
+The main window follows Mail, Notes and Voice Memos: Library filters in the sidebar, a keyboard-driven list, the selected conversation and an optional inspector. One toolbar search field covers the whole Library (accent-insensitive, with snippets) and highlights matches in the transcript. Menus, toolbar actions and states (loading, errors, empty filters, untranscribed and failed conversations) are native. Debug builds include a visual review that drives the real windows and captures them (see `TESTING.md`).
+
 ## Persistence
 
 Managed source audio stays inside the recording store. Transcript edits and speaker names are saved atomically through `TranscriptStore`; original recognition text and timing evidence remain available when a segment is manually corrected.
@@ -47,7 +51,7 @@ Managed source audio stays inside the recording store. Transcript edits and spea
 
 ## Verification evidence
 
-- XCTest: 214 tests, 0 failures (2 opt-in real-model tests skipped without models), on Xcode 27 / macOS 27, stable across repeated runs.
+- XCTest: 229 tests, 0 failures (3 opt-in tests skipped: two real-model checks and the design-review seed), on Xcode 27 / macOS 27; CI builds and tests with Xcode 26.6.
 - Real models (`RealModelEndToEndTests`, Whisper large-v3 Turbo + SpeakerKit, MacBook Air with 16 GB):
   - 25 s two-voice Spanish dialogue: all four turns, two speakers correctly alternating; about 4.5 s to transcribe once the model is loaded.
   - 187 s dialogue (beyond one 120 s loading chunk): all 24 turns in order and 23/23 speaker alternations in every run; 16–20 s to transcribe, under 1 s to identify speakers.
@@ -62,6 +66,10 @@ Managed source audio stays inside the recording store. Transcript edits and spea
 CI generates the project from `project.yml`, verifies capture/transcription entitlements, verifies `AppIcon` is the configured asset-catalog app icon, builds the app, checks the compiled asset catalog, and runs XCTest.
 
 The DMG workflows continue to validate bundle structure and signing separately.
+
+## Releases
+
+Version 1.0.0 (build 1) is the first release. `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml` are the only source of the app's version. Pushing a `v*` tag runs the Release workflow, which checks the tag against the version, runs the tests, builds and verifies `Bardo-<version>.dmg` and attaches it with its SHA-256 to a draft GitHub release. Every push to `main` also builds `Bardo-Latest.dmg` as a workflow artifact.
 
 ## Physical validation still required
 

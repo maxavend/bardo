@@ -1,0 +1,112 @@
+name: Release
+
+# Pushing a version tag (for example v1.0.0) builds, verifies and attaches the
+# release image to a GitHub release. A new release is created as a draft so its
+# notes can be reviewed before publishing; re-running a tag replaces the assets.
+
+"on":
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and attach Bardo release
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Report toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Check that the tag matches the app version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          xcodegen generate
+          MARKETING_VERSION="$(xcodebuild -project Bardo.xcodeproj -scheme Bardo -configuration Release -showBuildSettings \
+            | awk -F ' = ' '/ MARKETING_VERSION = / { print $2; exit }')"
+          if [ "$MARKETING_VERSION" != "$VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $MARKETING_VERSION in project.yml" >&2
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Run DMG verifier fixture
+        run: .github/scripts/test-verify-dmg.sh
+
+      - name: Run unit tests
+        run: |
+          set +e
+          xcodebuild \
+            -project Bardo.xcodeproj \
+            -scheme Bardo \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath .derived-data \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            test > xcode-test.log 2>&1
+          STATUS=$?
+          if [ "$STATUS" -ne 0 ]; then
+            echo "---- XCTest failure summary ----"
+            grep -E "Test Case .* (failed|passed)|/[A-Za-z0-9_./-]+\.swift:[0-9]+|: error:|XCTAssert|failed -|\*\* TEST FAILED \*\*" xcode-test.log || tail -n 160 xcode-test.log
+          else
+            grep -E "Executed [0-9]+ tests|\*\* TEST SUCCEEDED \*\*" xcode-test.log || true
+          fi
+          exit "$STATUS"
+
+      - name: Build and verify the release image
+        env:
+          DMG_PATH: Bardo-${{ env.VERSION }}.dmg
+          DMG_VOLUME_NAME: Bardo
+        run: |
+          set -o pipefail
+          .github/scripts/verify-dmg.sh 2>&1 | tee mounted-validation.log
+
+      - name: Attach the image to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ASSETS=("Bardo-$VERSION.dmg" "Bardo-$VERSION.dmg.sha256")
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${ASSETS[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${ASSETS[@]}" \
+              --draft \
+              --verify-tag \
+              --title "Bardo $VERSION" \
+              --generate-notes
+          fi
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bardo-Release-${{ github.ref_name }}-${{ github.run_id }}
+          path: |
+            Bardo-*.dmg.sha256
+            mounted-validation.log
+            xcode-test.log
+          if-no-files-found: warn
+          retention-days: 30

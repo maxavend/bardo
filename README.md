@@ -17,6 +17,15 @@ The current product experience focuses on transcription. Bardo can:
 
 Bardo does not include a generative meeting-minutes feature or a general-purpose LLM runtime.
 
+## Install
+
+Download `Bardo-<version>.dmg` from the [latest release](https://github.com/maxavend/bardo/releases/latest), open it and drag Bardo to Applications.
+
+- Bardo needs a Mac with Apple silicon and macOS 15 or later.
+- On first launch it downloads its local speech and speaker resources (about 650 MB). After that, transcription and speaker identification work offline.
+- Releases are signed ad hoc and are not notarized yet, so macOS blocks the first launch. Open **System Settings → Privacy & Security** and choose **Open Anyway** next to the message about Bardo. Later launches open normally.
+- To check the download, compare `shasum -a 256 Bardo-<version>.dmg` with the `.sha256` file attached to the release.
+
 ## Privacy
 
 Audio, transcripts, speaker labels, and participant names stay in Bardo's private local storage. Speech recognition and speaker identification run on the Mac. Network access is used only to download the required local speech and speaker resources when they are not already installed.
@@ -68,6 +77,19 @@ open Bardo.xcodeproj
 ```
 
 The app target depends on `argmaxinc/argmax-oss-swift` 1.1.0 and links only the `WhisperKit` and `SpeakerKit` products.
+
+## Releasing
+
+1. Set `MARKETING_VERSION` (and raise `CURRENT_PROJECT_VERSION`) in `project.yml`; the app's `Info.plist` takes both from there. Merge to `main`.
+2. Tag the release commit on `main` and push the tag:
+
+   ```bash
+   git tag -a v1.0.0 -m "Bardo 1.0.0" && git push origin v1.0.0
+   ```
+
+3. The **Release** workflow checks that the tag matches the app version, runs the tests, builds and verifies `Bardo-<version>.dmg` with its SHA-256, and attaches both to a draft GitHub release. Review the notes and publish it.
+
+Every push to `main` also builds `Bardo-Latest.dmg` as a workflow artifact for testing.
 
 ## App icon
 
