@@ -21,6 +21,7 @@ final class BardoAppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         if !BardoApp.isHostingUnitTests {
             InjectionObserver.shared.loadInjectionBundleIfNeeded()
+            DesignReview.start()
         }
         #endif
     }

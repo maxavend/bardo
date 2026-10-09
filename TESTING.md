@@ -97,6 +97,22 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 - Confirm Bardo shows its custom icon in Finder, the Dock, the app switcher, and the window/app menu context.
 - Confirm the icon remains correct after copying the app from a DMG into `/Applications`.
 
+## Visual design review (Debug builds)
+
+Debug builds can drive the real windows into a known state, save each window as a PNG and quit, so a design change can be checked in light and dark, at several window sizes and in every state.
+
+1. Build with a separate bundle identifier (`PRODUCT_BUNDLE_IDENTIFIER=com.maxavend.bardo.design`). `CFFIXED_USER_HOME` isolates Bardo's files but not its preferences, so a separate identifier keeps the review away from your own settings.
+2. Seed a sample Library with real transcripts by running `DesignSeedTests` with `TEST_RUNNER_BARDO_DESIGN_SEED_HOME`, `TEST_RUNNER_BARDO_E2E_MODELS_ROOT`, `TEST_RUNNER_BARDO_E2E_AUDIO` and `TEST_RUNNER_BARDO_E2E_LONG_AUDIO`. Copy the models into `<home>/Library/Application Support/Bardo/Models` as real folders (`cp -cR`); Bardo refuses a model folder that resolves through a symbolic link.
+3. Launch:
+
+   ```bash
+   open -n -W Bardo.app --env CFFIXED_USER_HOME=<home> --args -BardoDesignCapture <folder> -BardoDesignScenario "open:0+inspector" -BardoDesignAppearance dark -BardoDesignWindowSize 980x620
+   ```
+
+Steps are joined with `+`: `section:<all|recorded|imported|favorites>`, `open:<index>`, `deselect`, `search:<text>`, `inspector`, `sidebar:hidden`, `speakers`, `rename`, `edit`, `delete`, `seek:<seconds>`, `newRecording`, `settings`, `settingsTab:<general|recording|transcription|storage|privacy>`, `recovery`, `focusList[:index]`, `press:<down|up|space|return|escape|delete|tab>` (real key events), `mute`, `transcribe`, `trash`, `wait:<seconds>` and `menus` (writes every menu item with its shortcut and state). `transcribe` and `trash` change the Library: run them against a copy.
+
+Keep the screen unlocked. A locked screen composites windows as blank sheets; the review then draws the views directly, which shows the layout but not Liquid Glass, vibrancy, sidebars or scrolling content.
+
 ## What to report
 
 For any issue, capture what you expected, what happened, whether it reproduces after relaunch, macOS version, Mac model/chip, and a screenshot or screen recording when the problem is visual.
