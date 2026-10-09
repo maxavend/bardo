@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 
 /// Presentation-only formatting shared by the Library feature.
 enum LibraryFormatting {
@@ -29,6 +31,68 @@ enum LibraryFormatting {
             return String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
         }
         return String(format: "%d:%02d", minutes, remainingSeconds)
+    }
+
+    /// The compact date Mail and Notes show in a list: the time for today, then
+    /// "Yesterday", the weekday for the past week and a short date before that.
+    static func listDate(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
+        // Whole calendar days between the two dates, measured against `now` rather than
+        // the system clock.
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: date),
+            to: calendar.startOfDay(for: now)
+        ).day ?? .max
+        switch days {
+        case 0:
+            return date.formatted(date: .omitted, time: .shortened)
+        case 1:
+            return String(localized: "Yesterday")
+        case 2..<7:
+            return date.formatted(.dateTime.weekday(.wide)).localizedCapitalized
+        default:
+            break
+        }
+        if calendar.isDate(date, equalTo: now, toGranularity: .year) {
+            return date.formatted(.dateTime.day().month(.abbreviated))
+        }
+        return date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
+    static func searchTerms(_ query: String) -> [String] {
+        query.split(whereSeparator: \.isWhitespace).map(String.init)
+    }
+
+    /// Marks every occurrence of the query's terms, ignoring case and accents.
+    static func highlighted(
+        _ text: String,
+        matching query: String,
+        style: SearchHighlightStyle
+    ) -> AttributedString {
+        var attributed = AttributedString(text)
+        for term in searchTerms(query) {
+            var searchStart = attributed.startIndex
+            while searchStart < attributed.endIndex,
+                  let range = attributed[searchStart..<attributed.endIndex]
+                      .range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) {
+                switch style {
+                case .emphasis:
+                    attributed[range].inlinePresentationIntent = .stronglyEmphasized
+                case .findIndicator:
+                    attributed[range].backgroundColor = Color(nsColor: .findHighlightColor)
+                    attributed[range].foregroundColor = .black
+                }
+                searchStart = range.upperBound
+            }
+        }
+        return attributed
+    }
+
+    static func containsSearchTerms(_ text: String, query: String) -> Bool {
+        let terms = searchTerms(query)
+        return !terms.isEmpty && terms.contains {
+            text.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
     }
 
     static func processingDuration(_ duration: TimeInterval) -> String {
@@ -110,6 +174,13 @@ enum LibraryFormatting {
         if title.localizedCaseInsensitiveContains("Recording ") && title.contains(uuid.prefix(8)) { return true }
         return false
     }
+}
+
+enum SearchHighlightStyle {
+    /// Bold, for result lists where a coloured background would fight the selection.
+    case emphasis
+    /// The system find indicator, for matches inside a transcript.
+    case findIndicator
 }
 
 enum RecordingSearch {

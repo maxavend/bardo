@@ -3,42 +3,29 @@ import SwiftUI
 struct LibrarySidebar: View {
     @ObserveInjection var redraw
     @ObservedObject var model: LibraryViewModel
+    @ObservedObject var favorites: BardoFavoritesStore
     @Binding var selection: BardoLibrarySection
 
     var body: some View {
         List(selection: $selection) {
-            Section {
+            Section("Biblioteca") {
                 ForEach(BardoLibrarySection.allCases) { section in
-                    Label {
-                        HStack(spacing: 8) {
-                            Text(section.title)
-                            Spacer(minLength: 4)
-                            if let count = count(for: section), count > 0 {
-                                Text("\(count)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    } icon: {
-                        Image(systemName: section.symbol)
-                    }
-                    .tag(section)
+                    Label(section.title, systemImage: section.symbol)
+                        .badge(count(for: section))
+                        .tag(section)
                 }
             }
 
             if activeProcessingCount > 0 {
                 Section("Actividad") {
                     Label {
-                        HStack {
-                            Text(activityLabel)
-                            Spacer()
-                            ProgressView()
-                                .controlSize(.mini)
-                        }
+                        Text(activityLabel)
                     } icon: {
-                        Image(systemName: "clock.arrow.circlepath")
+                        ProgressView()
+                            .controlSize(.small)
                     }
                     .foregroundStyle(.secondary)
+                    .selectionDisabled()
                 }
             }
 
@@ -50,13 +37,12 @@ struct LibrarySidebar: View {
                             : "\(model.issues.count) elementos necesitan revisión",
                         systemImage: "exclamationmark.triangle"
                     )
-                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .selectionDisabled()
                 }
             }
         }
         .listStyle(.sidebar)
-        .navigationTitle("Bardo")
         .navigationSplitViewColumnWidth(
             min: BardoLayout.librarySidebarMinWidth,
             ideal: BardoLayout.librarySidebarIdealWidth,
@@ -70,20 +56,16 @@ struct LibrarySidebar: View {
     }
 
     private var activityLabel: String {
-        if activeProcessingCount == 1 { return "1 conversación en proceso" }
+        if model.transcriptionRecordingID != nil, model.diarizationRecordingID == nil {
+            return "Transcribiendo"
+        }
+        if model.diarizationRecordingID != nil, model.transcriptionRecordingID == nil {
+            return "Identificando hablantes"
+        }
         return "\(activeProcessingCount) conversaciones en proceso"
     }
 
-    private func count(for section: BardoLibrarySection) -> Int? {
-        switch section {
-        case .home, .trash:
-            return nil
-        case .recordings:
-            return model.recordings.filter { !$0.sources.contains(.importedFile) }.count
-        case .imported:
-            return model.recordings.filter { $0.sources.contains(.importedFile) }.count
-        case .favorites:
-            return model.recordings.filter { BardoFavoritesStore.shared.contains($0.id) }.count
-        }
+    private func count(for section: BardoLibrarySection) -> Int {
+        model.recordings.filter { section.contains($0, favorites: favorites) }.count
     }
 }

@@ -457,3 +457,28 @@
 "Download them to transcribe and identify speakers privately on this Mac." = "Download them to transcribe and identify speakers privately on this Mac.";
 "Bardo could not connect to the internet. Check your connection and try again." = "Bardo could not connect to the internet. Check your connection and try again.";
 "The download was interrupted. Try again in a moment." = "The download was interrupted. Try again in a moment.";
+
+/* Library redesign */
+"Bardo processes your recordings locally on this Mac. Audio and transcripts stay on your device." = "Bardo processes your recordings locally on this Mac. Audio and transcripts stay on your device.";
+"Pause recording" = "Pause recording";
+"Resume" = "Resume";
+"Resume recording" = "Resume recording";
+"Yesterday" = "Yesterday";
+"Rename Recording" = "Rename Recording";
+"Choose a name that will be used throughout your Library." = "Choose a name that will be used throughout your Library.";
+"Recording title" = "Recording title";
+"Save" = "Save";
+"This transcript contains manual corrections. Original recognition text is preserved." = "This transcript contains manual corrections. Original recognition text is preserved.";
+"Edit Segment…" = "Edit Segment…";
+"Edit Segment" = "Edit Segment";
+"Restore Original" = "Restore Original";
+"Speaker name" = "Speaker name";
+"Preparing local audio previews…" = "Preparing local audio previews…";
+"Audio previews are unavailable. You can still name participants." = "Audio previews are unavailable. You can still name participants.";
+"Save Names" = "Save Names";
+"Sample · %@" = "Sample · %@";
+"Pause Sample" = "Pause Sample";
+"Play Sample" = "Play Sample";
+"Play a short local sample of this speaker" = "Play a short local sample of this speaker";
+"No representative audio sample" = "No representative audio sample";
+"No representative sample" = "No representative sample";

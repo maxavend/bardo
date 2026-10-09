@@ -9,7 +9,8 @@ struct TranscriptContentView: View {
     /// paragraph on each playhead tick.
     let playback: AudioPlaybackController
 
-    @Binding var searchText: String
+    /// Highlighted, never filtered: a match keeps the rest of the conversation around it.
+    let searchQuery: String
     @Binding var editor: TranscriptEditorState?
     @Binding var isSpeakerNamingPresented: Bool
 
@@ -68,6 +69,9 @@ struct TranscriptContentView: View {
             .onChange(of: liveSegmentCount) { _, _ in
                 followLiveTranscript(using: proxy)
             }
+            .onChange(of: searchQuery) { _, query in
+                scrollToFirstMatch(of: query, using: proxy)
+            }
             .onChange(of: model.transcriptionRecordingID) { _, recordingID in
                 if recordingID == recording.id {
                     followsLiveTranscription = true
@@ -92,9 +96,11 @@ struct TranscriptContentView: View {
                     .frame(maxWidth: .infinity)
                     .padding(
                         .bottom,
-                        BardoLayout.playbackBottomPadding
-                            + BardoLayout.playbackSurfaceHeight
-                            + BardoLayout.followLiveGapAbovePlayback
+                        bottomContentInset > 0
+                            ? BardoLayout.playbackBottomPadding
+                                + BardoLayout.playbackSurfaceHeight
+                                + BardoLayout.followLiveGapAbovePlayback
+                            : BardoLayout.followLiveGapAbovePlayback
                     )
                 }
             }
@@ -126,11 +132,14 @@ struct TranscriptContentView: View {
     private func transcriptHeader(for transcript: Transcript) -> some View {
         HStack(spacing: 10) {
             speakerControl(for: transcript)
+                .fixedSize()
 
             if transcript.segments.contains(where: { $0.editedText != nil }) {
                 Label(String(localized: "Edited"), systemImage: "pencil")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
                     .help(String(localized: "This transcript contains manual corrections. Original recognition text is preserved."))
             }
 
@@ -270,6 +279,24 @@ struct TranscriptContentView: View {
         }
     }
 
+    private func scrollToFirstMatch(of query: String, using proxy: ScrollViewProxy) {
+        guard !query.isEmpty,
+              let transcript = model.transcript,
+              transcript.recordingID == recording.id,
+              let paragraph = buildParagraphs(from: transcript.segments).first(where: { paragraph in
+                  LibraryFormatting.containsSearchTerms(paragraph.fullText, query: query)
+              }) else {
+            return
+        }
+        if reduceMotion {
+            proxy.scrollTo(paragraph.id, anchor: .center)
+        } else {
+            withAnimation(.smooth(duration: 0.3)) {
+                proxy.scrollTo(paragraph.id, anchor: .center)
+            }
+        }
+    }
+
     private var diarizationProgressView: some View {
         SpeakerIdentificationProgressView(
             progress: model.diarizationProgress,
@@ -278,27 +305,28 @@ struct TranscriptContentView: View {
     }
 
     private var emptyTranscriptView: some View {
-        BardoEmptyState(
-            systemImage: "waveform.and.mic",
-            title: "Aún no hay transcripción",
-            detail: model.transcriptionBlocker(for: recording.id)
-                ?? "Transcribe esta conversación para leerla, buscar dentro de ella e identificar a los hablantes.",
-            footnote: "Se procesa de forma privada en este Mac"
-        ) {
-            Button {
+        ContentUnavailableView {
+            Label(
+                recording.processingState == .failed ? "No pudimos transcribir esta conversación" : "Aún no hay transcripción",
+                systemImage: recording.processingState == .failed ? "exclamationmark.bubble" : "text.bubble"
+            )
+        } description: {
+            Text(
+                model.transcriptionBlocker(for: recording.id)
+                    ?? (recording.audioAssets.isEmpty
+                        ? "Esta conversación no tiene un audio que se pueda transcribir."
+                        : recording.processingState == .failed
+                            ? "La última transcripción no terminó. El audio está a salvo y puedes intentarlo de nuevo."
+                            : "Bardo la transcribe de forma privada en este Mac para que puedas leerla, buscar dentro de ella e identificar a los hablantes.")
+            )
+        } actions: {
+            Button(recording.processingState == .failed ? "Intentar de nuevo" : "Transcribir") {
                 model.beginTranscription()
-            } label: {
-                Label(
-                    recording.processingState == .failed
-                        ? "Intentar de nuevo"
-                        : "Transcribir",
-                    systemImage: "waveform"
-                )
             }
             .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
             .disabled(recording.audioAssets.isEmpty || model.transcriptionBlocker(for: recording.id) != nil)
         }
+        .frame(maxWidth: .infinity, minHeight: 320)
     }
 
     private func buildParagraphs(from segments: [TranscriptSegment]) -> [TranscriptParagraph] {
@@ -351,8 +379,7 @@ struct TranscriptContentView: View {
 
     @ViewBuilder
     private func transcriptConversation(_ transcript: Transcript) -> some View {
-        let segments = filteredSegments(in: transcript)
-        let paragraphs = buildParagraphs(from: segments)
+        let paragraphs = buildParagraphs(from: transcript.segments)
 
         if transcript.segments.isEmpty {
             ContentUnavailableView(
@@ -361,9 +388,6 @@ struct TranscriptContentView: View {
                 description: Text("El audio terminó de procesarse, pero no encontramos una conversación que se pudiera transcribir.")
             )
             .frame(maxWidth: .infinity, minHeight: 240)
-        } else if paragraphs.isEmpty {
-            ContentUnavailableView.search(text: searchText)
-                .frame(maxWidth: .infinity, minHeight: 240)
         } else {
             LazyVStack(alignment: .leading, spacing: 20) {
                 ForEach(Array(paragraphs.enumerated()), id: \.element.id) { index, paragraph in
@@ -373,7 +397,7 @@ struct TranscriptContentView: View {
                         : nil
                     let startsSpeakerTurn = currentSpeaker != previousSpeaker
 
-                    VStack(alignment: .leading, spacing: 7) {
+                    VStack(alignment: .leading, spacing: 6) {
                         if !transcript.speakers.isEmpty && (startsSpeakerTurn || index == 0) {
                             speakerHeader(speakerID: paragraph.speakerID, in: transcript)
                         }
@@ -382,12 +406,15 @@ struct TranscriptContentView: View {
                             paragraph: paragraph,
                             playback: playback,
                             canEdit: !model.isTranscribing && !model.isDiarizing,
+                            searchQuery: searchQuery,
                             speakerChoices: transcript.speakers.enumerated().map { index, speaker in
                                 TranscriptSpeakerChoice(
                                     id: speaker.id,
                                     label: {
                                         let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                                        return name.isEmpty ? "Hablante \(index + 1)" : name
+                                        return name.isEmpty
+                                            ? String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
+                                            : name
                                     }()
                                 )
                             },
@@ -402,6 +429,8 @@ struct TranscriptContentView: View {
                             }
                         )
                     }
+                    .padding(.top, startsSpeakerTurn && index > 0 ? 6 : 0)
+                    .id(paragraph.id)
                 }
             }
         }
@@ -410,8 +439,8 @@ struct TranscriptContentView: View {
     @ViewBuilder
     private func speakerHeader(speakerID: Speaker.ID?, in transcript: Transcript) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "person.crop.circle")
-                .foregroundStyle(Color.accentColor)
+            Image(systemName: "person.crop.circle.fill")
+                .foregroundStyle(SpeakerPalette.color(for: speakerID, in: transcript))
                 .accessibilityHidden(true)
 
             if let speakerID,
@@ -429,16 +458,6 @@ struct TranscriptContentView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(transcript.speakers.isEmpty ? Color.primary : Color.secondary)
             }
-        }
-    }
-
-    private func filteredSegments(in transcript: Transcript) -> [TranscriptSegment] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return transcript.segments }
-
-        return transcript.segments.filter { segment in
-            segment.displayText.localizedCaseInsensitiveContains(query)
-                || speakerLabel(for: segment.speakerID, in: transcript).localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -464,6 +483,20 @@ struct TranscriptContentView: View {
             return name
         }
         return String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
+    }
+}
+
+/// Distinct, system-adaptive colours that make speaker turns easy to scan. The name
+/// always accompanies the colour, so it never carries meaning on its own.
+enum SpeakerPalette {
+    private static let colors: [Color] = [.blue, .orange, .green, .purple, .pink, .teal, .indigo, .brown]
+
+    static func color(for speakerID: Speaker.ID?, in transcript: Transcript) -> Color {
+        guard let speakerID,
+              let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) else {
+            return .secondary
+        }
+        return colors[index % colors.count]
     }
 }
 
@@ -503,6 +536,7 @@ private struct TranscriptParagraphRow: View {
     let paragraph: TranscriptParagraph
     @ObservedObject var playback: AudioPlaybackController
     let canEdit: Bool
+    var searchQuery: String = ""
     var usesKaraoke: Bool = true
     var speakerChoices: [TranscriptSpeakerChoice] = []
     let onEditSegment: (TranscriptSegment) -> Void
@@ -609,7 +643,11 @@ private struct TranscriptParagraphRow: View {
 
     @ViewBuilder
     private var paragraphText: some View {
-        if !usesKaraoke || paragraph.hasEdits || paragraph.timedWords.isEmpty {
+        if !searchQuery.isEmpty, LibraryFormatting.containsSearchTerms(paragraph.fullText, query: searchQuery) {
+            Text(LibraryFormatting.highlighted(paragraph.fullText, matching: searchQuery, style: .findIndicator))
+                .font(.body)
+                .lineSpacing(4)
+        } else if !usesKaraoke || paragraph.hasEdits || paragraph.timedWords.isEmpty {
             Text(paragraph.fullText)
                 .font(.body)
                 .lineSpacing(4)
@@ -647,7 +685,7 @@ private struct KaraokeTranscriptText: View {
                 .font(.body)
                 .lineSpacing(4)
         } else {
-            BardoWordFlowLayout(horizontalSpacing: 4, verticalSpacing: 5) {
+            BardoWordFlowLayout(horizontalSpacing: 4, verticalSpacing: 2) {
                 ForEach(words) { word in
                     Text(word.text.trimmingCharacters(in: .whitespacesAndNewlines))
                         .font(.body.weight(isCurrent(word) ? .medium : .regular))

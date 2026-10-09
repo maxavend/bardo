@@ -103,6 +103,7 @@ struct RootView: View {
                     beginRecording(mode: mode, title: title)
                 }
             }
+            .focusedSceneValue(\.captureCommands, captureCommandState)
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.newRecording)) { _ in
                 presentRecordingSetup()
             }
@@ -125,6 +126,11 @@ struct RootView: View {
                     }
                 }
             }
+            #if DEBUG
+            .onDesignReviewCommand { step in
+                if step.action == "recovery" { isRecoveryPresented = true }
+            }
+            #endif
             .onDisappear {
                 Task {
                     if microphone.requiresTerminationFinalization {
@@ -137,6 +143,15 @@ struct RootView: View {
                 }
             }
             .enableInjection()
+    }
+
+    private var captureCommandState: BardoCaptureCommandState {
+        BardoCaptureCommandState(
+            canStart: !microphone.isBusy && !systemAudio.isBusy,
+            canPause: microphone.phase == .recording,
+            canResume: microphone.phase == .paused,
+            canStop: microphone.phase == .recording || microphone.phase == .paused || systemAudio.isRecording
+        )
     }
 
     private var activeCaptureBanner: AnyView? {

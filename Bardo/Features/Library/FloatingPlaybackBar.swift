@@ -6,6 +6,11 @@ struct FloatingPlaybackBar: View {
     @ObservedObject var playback: AudioPlaybackController
 
     @State private var isVolumePresented = false
+    @State private var availableWidth: CGFloat = .infinity
+
+    /// Speed and volume step aside before the timeline gets too short to scrub.
+    private var showsSecondaryControls: Bool { availableWidth >= 440 }
+    private var showsTimes: Bool { availableWidth >= 300 }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -19,6 +24,7 @@ struct FloatingPlaybackBar: View {
                 .padding(.vertical, 7)
                 .bardoPlaybackSurface()
                 .frame(maxWidth: BardoLayout.playbackMaxWidth)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         }
         .padding(.horizontal, BardoLayout.playbackHorizontalPadding)
         .padding(.bottom, BardoLayout.playbackBottomPadding)
@@ -30,26 +36,13 @@ struct FloatingPlaybackBar: View {
         HStack(spacing: 14) {
             transportControls
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(LibraryFormatting.recordingTitle(recording))
-                        .font(.caption.weight(.medium))
-                        .lineLimit(1)
-                        .help(LibraryFormatting.recordingTitle(recording))
-
-                    Spacer(minLength: 8)
-
+            // The title is already the document's heading; the bar is for time.
+            HStack(spacing: 10) {
+                if showsTimes {
                     Text(LibraryFormatting.duration(playback.position))
-                        .font(.caption2.monospacedDigit())
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
-
-                    Text("/")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-
-                    Text(LibraryFormatting.duration(playback.duration))
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 36, alignment: .trailing)
                 }
 
                 Slider(
@@ -59,51 +52,67 @@ struct FloatingPlaybackBar: View {
                     ),
                     in: 0...max(playback.duration, 0.01)
                 )
-                .controlSize(.mini)
+                .controlSize(.small)
                 .disabled(!playback.isLoaded)
                 .accessibilityLabel("Posición de reproducción")
-                .accessibilityValue(LibraryFormatting.duration(playback.position))
+                .accessibilityValue(
+                    "\(LibraryFormatting.duration(playback.position)) de \(LibraryFormatting.duration(playback.duration))"
+                )
+
+                if showsTimes {
+                    Text(LibraryFormatting.duration(playback.duration))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 36, alignment: .leading)
+                }
             }
             .layoutPriority(1)
 
-            Divider()
-                .frame(height: 24)
-
-            playbackRateMenu
-
-            Button {
-                isVolumePresented.toggle()
-            } label: {
-                Label("Volumen", systemImage: volumeSymbol)
-                    .labelStyle(.iconOnly)
-                    .frame(width: 22, height: 22)
-            }
-            .buttonStyle(.plain)
-            .disabled(!playback.isLoaded)
-            .help("Volumen")
-            .popover(isPresented: $isVolumePresented, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Volumen")
-                        .font(.headline)
-                    HStack(spacing: 8) {
-                        Image(systemName: "speaker")
-                            .foregroundStyle(.secondary)
-                        Slider(
-                            value: Binding(
-                                get: { Double(playback.volume) },
-                                set: { playback.setVolume(Float($0)) }
-                            ),
-                            in: 0...1
-                        )
-                        .frame(width: 150)
-                        Image(systemName: "speaker.wave.3")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(14)
+            if showsSecondaryControls {
+                secondaryControls
             }
         }
         .controlSize(.regular)
+    }
+
+    @ViewBuilder
+    private var secondaryControls: some View {
+        Divider()
+            .frame(height: 24)
+
+        playbackRateMenu
+
+        Button {
+            isVolumePresented.toggle()
+        } label: {
+            Label("Volumen", systemImage: volumeSymbol)
+                .labelStyle(.iconOnly)
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .disabled(!playback.isLoaded)
+        .help("Volumen")
+        .popover(isPresented: $isVolumePresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Volumen")
+                    .font(.headline)
+                HStack(spacing: 8) {
+                    Image(systemName: "speaker")
+                        .foregroundStyle(.secondary)
+                    Slider(
+                        value: Binding(
+                            get: { Double(playback.volume) },
+                            set: { playback.setVolume(Float($0)) }
+                        ),
+                        in: 0...1
+                    )
+                    .frame(width: 150)
+                    Image(systemName: "speaker.wave.3")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(14)
+        }
     }
 
     private var transportControls: some View {

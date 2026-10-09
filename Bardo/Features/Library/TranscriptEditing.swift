@@ -230,7 +230,7 @@ struct SpeakerNamingSheet: View {
             }
         }
         .padding(24)
-        .frame(minWidth: 620, minHeight: 340)
+        .frame(width: 620)
         .task {
             if model.playback.isPlaying {
                 model.playback.pause()
@@ -280,22 +280,31 @@ struct SpeakerNamingSheet: View {
 
     private var participantList: some View {
         GroupBox {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(transcript.speakers.enumerated()), id: \.element.id) { index, speaker in
-                        if index > 0 {
-                            Divider()
-                                .padding(.leading, 42)
-                        }
-
-                        speakerRow(speaker, index: index)
-                    }
+            // Scroll only when the list would not fit; a short list sizes the sheet.
+            if transcript.speakers.count > 5 {
+                ScrollView {
+                    participantRows
                 }
+                .frame(height: 340)
+            } else {
+                participantRows
             }
-            .frame(maxHeight: 340)
         } label: {
             Text("Participantes")
                 .font(.headline)
+        }
+    }
+
+    private var participantRows: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(transcript.speakers.enumerated()), id: \.element.id) { index, speaker in
+                if index > 0 {
+                    Divider()
+                        .padding(.leading, 46)
+                }
+
+                speakerRow(speaker, index: index)
+            }
         }
     }
 
@@ -305,12 +314,40 @@ struct SpeakerNamingSheet: View {
         let isThisPreviewPlaying = activePreviewSpeakerID == speaker.id && previewPlayback.isPlaying
 
         return HStack(spacing: 12) {
-            Image(systemName: "person.crop.circle.fill")
-                .font(.title3)
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary)
-                .frame(width: 30)
-                .accessibilityHidden(true)
+            // The speaker's colour from the transcript doubles as the sample control.
+            Button {
+                guard let preview else { return }
+
+                if isThisPreviewPlaying {
+                    previewPlayback.pause()
+                } else {
+                    activePreviewSpeakerID = speaker.id
+                    _ = previewPlayback.playPreview(
+                        from: preview.startTime,
+                        to: preview.endTime
+                    )
+                }
+            } label: {
+                Image(systemName: isThisPreviewPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.title)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(SpeakerPalette.color(for: speaker.id, in: transcript))
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 34, height: 34)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(preview == nil || isPreparingPreviewAudio || !previewPlayback.isLoaded)
+            .accessibilityLabel(
+                isThisPreviewPlaying
+                    ? String(localized: "Pause Sample")
+                    : String(localized: "Play Sample")
+            )
+            .help(
+                preview == nil
+                    ? String(localized: "No representative audio sample")
+                    : String(localized: "Play a short local sample of this speaker")
+            )
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(fallback)
@@ -335,58 +372,35 @@ struct SpeakerNamingSheet: View {
 
             Spacer(minLength: 12)
 
-            Button {
-                guard let preview else { return }
-
-                if isThisPreviewPlaying {
-                    previewPlayback.pause()
-                } else {
-                    activePreviewSpeakerID = speaker.id
-                    _ = previewPlayback.playPreview(
-                        from: preview.startTime,
-                        to: preview.endTime
-                    )
-                }
-            } label: {
-                Label(
-                    isThisPreviewPlaying
-                        ? String(localized: "Pause Sample")
-                        : String(localized: "Play Sample"),
-                    systemImage: isThisPreviewPlaying ? "pause.fill" : "play.fill"
-                )
-            }
-            .controlSize(.small)
-            .disabled(preview == nil || isPreparingPreviewAudio || !previewPlayback.isLoaded)
-            .help(
-                preview == nil
-                    ? String(localized: "No representative audio sample")
-                    : String(localized: "Play a short local sample of this speaker")
-            )
-
             Menu {
                 let otherSpeakers = transcript.speakers.filter { $0.id != speaker.id }
                 if otherSpeakers.isEmpty {
                     Text("No hay otros hablantes")
                 } else {
-                    ForEach(Array(otherSpeakers.enumerated()), id: \.element.id) { otherIndex, target in
-                        let targetFallback = transcript.speakers.firstIndex(where: { $0.id == target.id }).map { "Hablante \($0 + 1)" } ?? "Hablante"
-                        let targetName = target.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        Button(targetName.isEmpty ? targetFallback : targetName) {
-                            let sourceName = names[speaker.id, default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
-                            pendingMerge = SpeakerMergeRequest(
-                                sourceID: speaker.id,
-                                targetID: target.id,
-                                sourceLabel: sourceName.isEmpty ? fallback : sourceName,
-                                targetLabel: targetName.isEmpty ? targetFallback : targetName
-                            )
+                    Section("Fusionar con") {
+                        ForEach(Array(otherSpeakers.enumerated()), id: \.element.id) { otherIndex, target in
+                            let targetFallback = transcript.speakers.firstIndex(where: { $0.id == target.id })
+                                .map { String.localizedStringWithFormat(String(localized: "Speaker %lld"), $0 + 1) }
+                                ?? String(localized: "Unassigned Speaker")
+                            let targetName = target.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            Button(targetName.isEmpty ? targetFallback : targetName) {
+                                let sourceName = names[speaker.id, default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+                                pendingMerge = SpeakerMergeRequest(
+                                    sourceID: speaker.id,
+                                    targetID: target.id,
+                                    sourceLabel: sourceName.isEmpty ? fallback : sourceName,
+                                    targetLabel: targetName.isEmpty ? targetFallback : targetName
+                                )
+                            }
                         }
                     }
                 }
             } label: {
-                Label("Más acciones", systemImage: "ellipsis.circle")
+                Label("Fusionar con otro hablante", systemImage: "ellipsis.circle")
                     .labelStyle(.iconOnly)
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
             .help("Fusionar este hablante con otra persona")
 
