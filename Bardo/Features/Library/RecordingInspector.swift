@@ -11,11 +11,11 @@ struct RecordingInspector: View {
         Form {
             Section("Conversación") {
                 LabeledContent("Creada") {
-                    Text(recording.createdAt, format: .dateTime.day().month(.abbreviated).year().hour().minute())
+                    Text(recording.createdAt, format: Self.dateFormat)
                 }
                 if let modifiedAt {
-                    LabeledContent("Última modificación") {
-                        Text(modifiedAt, format: .dateTime.day().month(.abbreviated).year().hour().minute())
+                    LabeledContent("Modificada") {
+                        Text(modifiedAt, format: Self.dateFormat)
                     }
                 }
                 LabeledContent("Duración", value: LibraryFormatting.duration(recording.duration))
@@ -27,18 +27,13 @@ struct RecordingInspector: View {
                 Section("Contenido") {
                     LabeledContent("Idioma", value: LibraryFormatting.language(transcript.languageCode))
                     if transcript.diarizationMetadata != nil {
-                        LabeledContent(
-                            "Participantes",
-                            value: transcript.speakers.count == 1
-                                ? "1 participante"
-                                : "\(transcript.speakers.count) participantes"
-                        )
+                        LabeledContent("Participantes", value: "\(transcript.speakers.count)")
                     }
                 }
 
                 if transcript.metadata.processingDuration != nil
                     || transcript.diarizationMetadata?.processingDuration != nil {
-                    Section("Tiempos de procesamiento") {
+                    Section("Procesamiento") {
                         if let duration = transcript.metadata.processingDuration {
                             LabeledContent(
                                 "Transcripción",
@@ -47,7 +42,7 @@ struct RecordingInspector: View {
                         }
                         if let duration = transcript.diarizationMetadata?.processingDuration {
                             LabeledContent(
-                                "Identificación de hablantes",
+                                "Hablantes",
                                 value: LibraryFormatting.processingDuration(duration)
                             )
                         }
@@ -92,18 +87,11 @@ struct RecordingInspector: View {
                     }
                 }
             }
-
-            Section("Privacidad") {
-                Label(
-                    "El audio y la transcripción permanecen almacenados en este Mac.",
-                    systemImage: "lock.shield"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
         }
         .formStyle(.grouped)
     }
+
+    private static let dateFormat = Date.FormatStyle.dateTime.day().month(.abbreviated).year().hour().minute()
 
     private var recordingDirectory: URL? {
         guard let root = try? RecordingStore.defaultLibraryURL() else { return nil }
@@ -140,44 +128,5 @@ struct RecordingInspector: View {
         let sizes = recording.audioAssets.compactMap(byteCount(for:))
         guard sizes.count == recording.audioAssets.count else { return nil }
         return ByteCountFormatter.string(fromByteCount: sizes.reduce(0, +), countStyle: .file)
-    }
-}
-
-struct RecordingInformationSheet: View {
-    let recording: Recording
-    let transcript: Transcript?
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Información")
-                        .font(.headline)
-
-                    Text(LibraryFormatting.recordingTitle(recording))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                Button("Listo") {
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-            .padding(20)
-
-            Divider()
-
-            RecordingInspector(
-                recording: recording,
-                transcript: transcript
-            )
-        }
-        .frame(width: 460, height: 600)
     }
 }

@@ -783,6 +783,10 @@ final class LibraryViewModel: ObservableObject {
                     duration: recording.duration,
                     source: LibraryFormatting.source(recording.sources),
                     participantNames: names,
+                    namedParticipants: loadedTranscript?.speakers.compactMap { speaker in
+                        let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        return name.isEmpty ? nil : name
+                    } ?? [],
                     transcriptText: loadedTranscript?.text ?? ""
                 )
             )

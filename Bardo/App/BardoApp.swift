@@ -34,10 +34,12 @@ struct BardoApp: App {
             }
             .frame(minWidth: 920, minHeight: 600)
         }
-        .defaultSize(width: 1240, height: 800)
+        .defaultSize(width: BardoLayout.windowDefaultWidth, height: 800)
         .windowResizability(.contentMinSize)
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
+            SidebarCommands()
+            ToolbarCommands()
             BardoCommands()
         }
 

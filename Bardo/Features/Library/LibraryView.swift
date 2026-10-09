@@ -1,6 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The main window: Library filters, the conversations they contain, and the
+/// selected conversation with an optional inspector — the same three-column
+/// shape as Mail, Notes and Voice Memos.
 struct LibraryView: View {
     @ObserveInjection var redraw
     @ObservedObject var model: LibraryViewModel
@@ -10,14 +13,18 @@ struct LibraryView: View {
     private let onNewRecording: () -> Void
 
     @ObservedObject private var favorites = BardoFavoritesStore.shared
-    @State private var selectedSection: BardoLibrarySection = .home
-    @State private var navigationPath = NavigationPath()
-    @State private var isFileImporterPresented = false
+    @SceneStorage("bardo.library.section") private var selectedSection: BardoLibrarySection = .all
+    @SceneStorage("bardo.library.inspector") private var isInspectorPresented = false
+    @AppStorage("bardo.library.sort") private var sort: BardoLibrarySort = .newest
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var globalSearchText = ""
-    @State private var transcriptSearchText = ""
-    @State private var isInspectorPresented = false
+    @State private var isFileImporterPresented = false
+    @State private var searchText = ""
+    @State private var windowWidth: CGFloat = 0
+    @State private var sidebarHiddenForInspector = false
     @FocusState private var isSearchFocused: Bool
+    #if DEBUG
+    @Environment(\.openSettings) private var openSettings
+    #endif
 
     init(
         model: LibraryViewModel,
@@ -34,105 +41,80 @@ struct LibraryView: View {
         self.onNewRecording = onNewRecording
     }
 
+    private var searchQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebar(model: model, selection: $selectedSection)
-        } detail: {
-            NavigationStack(path: $navigationPath) {
-                workspaceRoot
-                    .navigationDestination(for: UUID.self) { recordingID in
-                        recordingDestination(recordingID)
+            LibrarySidebar(model: model, favorites: favorites, selection: $selectedSection)
+        } content: {
+            RecordingListView(
+                section: selectedSection,
+                searchQuery: searchQuery,
+                sort: $sort,
+                model: model,
+                favorites: favorites,
+                onNewRecording: onNewRecording,
+                onImport: { isFileImporterPresented = true },
+                onMoveToTrash: moveToTrash
+            )
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    newRecordingButton
+
+                    Button {
+                        isFileImporterPresented = true
+                    } label: {
+                        Label("Importar audio", systemImage: "square.and.arrow.down")
                     }
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if let activeCaptureBanner {
-                    activeCaptureBanner
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
+                    .help("Importar audio (⇧⌘O)")
+                    .disabled(model.isImporting)
                 }
             }
+        } detail: {
+            detailColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .navigationSplitViewColumnWidth(min: BardoLayout.detailColumnMinWidth, ideal: 640)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if let activeCaptureBanner {
+                        activeCaptureBanner
+                            .padding(.horizontal, 20)
+                            .padding(.top, 4)
+                            .padding(.bottom, 8)
+                    }
+                }
+                .inspector(isPresented: $isInspectorPresented) {
+                    inspectorContent
+                        .inspectorColumnWidth(
+                            min: BardoLayout.inspectorMinWidth,
+                            ideal: BardoLayout.inspectorIdealWidth,
+                            max: BardoLayout.inspectorMaxWidth
+                        )
+                }
         }
-        .navigationSplitViewStyle(.balanced)
-        // One search field per window: AppKit aborts when a second toolbar search item
-        // is inserted. It searches the Library, or the open conversation's transcript.
-        .searchable(
-            text: isShowingRecording ? $transcriptSearchText : $globalSearchText,
-            placement: .toolbar,
-            prompt: isShowingRecording
-                ? Text("Buscar en la transcripción")
-                : Text("Buscar conversaciones, transcripciones o participantes")
-        )
+        // One toolbar search field for the window; it searches the whole Library.
+        // Keep the prompt short so it never truncates in a narrow toolbar.
+        .searchable(text: $searchText, placement: .toolbar, prompt: Text("Buscar"))
         .searchFocused($isSearchFocused)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
-                if let captureMenu {
-                    captureMenu
-                } else {
-                    Button(action: onNewRecording) {
-                        Label("Nueva grabación", systemImage: "record.circle")
-                    }
-                    .help("Nueva grabación (⌘N)")
-                }
-
-                Button {
-                    isFileImporterPresented = true
-                } label: {
-                    Label("Importar audio", systemImage: "square.and.arrow.down")
-                }
-                .help("Importar audio (⇧⌘O)")
-                .disabled(model.isImporting)
-            }
-
-            ToolbarItem(placement: .primaryAction) {
-                if !navigationPath.isEmpty {
-                    Button {
-                        isInspectorPresented.toggle()
-                    } label: {
-                        Label("Información", systemImage: "sidebar.trailing")
-                    }
-                    .help(isInspectorPresented ? "Ocultar información" : "Mostrar información")
-                }
-            }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            windowWidth = width
+            fitColumnsToWindow()
         }
-        .inspector(isPresented: $isInspectorPresented) {
-            if let recording = model.selectedRecording, !navigationPath.isEmpty {
-                RecordingInspector(
-                    recording: recording,
-                    transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil
-                )
-                .frame(minWidth: 280, idealWidth: 320)
-            } else {
-                ContentUnavailableView(
-                    "Sin información",
-                    systemImage: "info.circle",
-                    description: Text("Abre una conversación para ver sus detalles.")
-                )
-                .frame(minWidth: 280)
-            }
+        .onChange(of: isInspectorPresented) { _, _ in
+            fitColumnsToWindow()
         }
+        .focusedSceneValue(\.libraryInspector, model.selectedRecording == nil ? nil : $isInspectorPresented)
         .task {
-            if let saved = UserDefaults.standard.string(forKey: "bardo.start-section"),
-               let section = BardoLibrarySection(rawValue: saved) {
-                selectedSection = section
-            }
             await model.reload()
+            selectFirstRecordingIfNeeded()
         }
         .task(id: model.selection) {
             await model.prepareSelection()
         }
         .onChange(of: selectedSection) { _, _ in
-            navigationPath = NavigationPath()
-            transcriptSearchText = ""
-            if globalSearchText.isEmpty {
-                model.selection = nil
-            }
-        }
-        .onChange(of: globalSearchText) { _, value in
-            if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                navigationPath = NavigationPath()
-                isInspectorPresented = false
-            }
+            selectFirstRecordingIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.importAudio)) { _ in
             isFileImporterPresented = true
@@ -140,14 +122,11 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.focusSearch)) { _ in
             isSearchFocused = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.toggleInspector)) { _ in
-            guard !navigationPath.isEmpty else { return }
-            isInspectorPresented.toggle()
-        }
         .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.libraryChanged)) { _ in
-            navigationPath = NavigationPath()
-            model.selection = nil
-            Task { await model.reload() }
+            Task {
+                await model.reload()
+                selectFirstRecordingIfNeeded()
+            }
         }
         .fileImporter(
             isPresented: $isFileImporterPresented,
@@ -188,66 +167,143 @@ struct LibraryView: View {
         } message: {
             Text(model.recordingActionErrorMessage ?? "Inténtalo de nuevo.")
         }
-        .frame(minWidth: 980, minHeight: 620)
+        .frame(minWidth: BardoLayout.windowMinWidth, minHeight: BardoLayout.windowMinHeight)
+        #if DEBUG
+        .onDesignReviewCommand { step in
+            switch step.action {
+            case "section":
+                if let section = BardoLibrarySection(rawValue: step.value) { selectedSection = section }
+            case "open":
+                let list = sort.sorted(model.recordings)
+                if let index = Int(step.value), list.indices.contains(index) { model.selection = list[index].id }
+            case "deselect":
+                model.selection = nil
+            case "search":
+                searchText = step.value
+            case "inspector":
+                isInspectorPresented = true
+            case "sidebar":
+                columnVisibility = step.value == "hidden" ? .doubleColumn : .all
+            case "settings":
+                openSettings()
+            case "mute":
+                model.playback.setVolume(0)
+            case "transcribe":
+                model.beginTranscription()
+            case "trash":
+                if let recording = model.selectedRecording { moveToTrash(recording) }
+            default:
+                break
+            }
+        }
+        #endif
         .enableInjection()
     }
 
-    private var isShowingRecording: Bool {
-        !navigationPath.isEmpty
-    }
-
     @ViewBuilder
-    private var workspaceRoot: some View {
-        let query = globalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !query.isEmpty {
-            BardoSearchResultsView(
-                query: query,
-                model: model,
-                onOpenRecording: openRecording
-            )
+    private var newRecordingButton: some View {
+        if let captureMenu {
+            captureMenu
         } else {
-            BardoWorkspaceSectionView(
-                section: selectedSection,
-                model: model,
-                favorites: favorites,
-                onOpenRecording: openRecording,
-                onNewRecording: onNewRecording,
-                onImport: { isFileImporterPresented = true }
-            )
+            Button(action: onNewRecording) {
+                Label("Nueva grabación", systemImage: "record.circle")
+            }
+            .help("Nueva grabación (⌘N)")
         }
     }
 
     @ViewBuilder
-    private func recordingDestination(_ recordingID: Recording.ID) -> some View {
-        if let recording = model.recordings.first(where: { $0.id == recordingID }) {
+    private var detailColumn: some View {
+        if let recording = model.selectedRecording {
             RecordingDetailView(
                 recording: recording,
                 model: model,
                 playback: model.playback,
-                transcriptSearch: $transcriptSearchText
+                searchQuery: searchQuery,
+                isInspectorPresented: $isInspectorPresented,
+                onMoveToTrash: moveToTrash
             )
-            .onAppear {
-                if model.selection != recordingID {
-                    model.selection = recordingID
-                }
-            }
+        } else if model.recordings.isEmpty {
+            // The list's empty state already invites the first recording; one call to
+            // action is enough.
+            Color.clear
         } else {
             ContentUnavailableView(
-                "Esta conversación ya no está disponible",
-                systemImage: "waveform.badge.exclamationmark",
-                description: Text("Puede haberse movido o eliminado.")
+                "Ninguna conversación seleccionada",
+                systemImage: "text.bubble",
+                description: Text("Elige una conversación de la lista para leer su transcripción.")
             )
         }
     }
 
-    private func openRecording(_ recordingID: Recording.ID) {
-        globalSearchText = ""
-        transcriptSearchText = ""
-        model.selection = recordingID
-
-        if !navigationPath.isEmpty {
-            navigationPath = NavigationPath()
+    @ViewBuilder
+    private var inspectorContent: some View {
+        if let recording = model.selectedRecording {
+            RecordingInspector(
+                recording: recording,
+                transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil
+            )
+        } else {
+            ContentUnavailableView(
+                "Sin información",
+                systemImage: "info.circle",
+                description: Text("Elige una conversación para ver sus detalles.")
+            )
         }
-        navigationPath.append(recordingID)
     }
+
+    /// The transcript needs a readable measure. When the inspector would squeeze it,
+    /// hide the sidebar for as long as the inspector needs the room, as Mail does.
+    private func fitColumnsToWindow() {
+        guard windowWidth > 0 else { return }
+        let needed = BardoLayout.librarySidebarIdealWidth + BardoLayout.listColumnMinWidth
+            + BardoLayout.detailColumnMinWidth + BardoLayout.inspectorMinWidth
+        if isInspectorPresented, windowWidth < needed, columnVisibility == .all {
+            sidebarHiddenForInspector = true
+            columnVisibility = .doubleColumn
+        } else if sidebarHiddenForInspector, !isInspectorPresented || windowWidth >= needed {
+            sidebarHiddenForInspector = false
+            columnVisibility = .all
+        }
+    }
+
+    /// The conversations of the selected filter, in list order.
+    private var sectionRecordings: [Recording] {
+        sort.sorted(model.recordings.filter { selectedSection.contains($0, favorites: favorites) })
+    }
+
+    /// Like Mail and Notes, keep something readable in the detail column: when the
+    /// selection is not part of the current filter, select its first conversation.
+    private func selectFirstRecordingIfNeeded() {
+        guard searchQuery.isEmpty else { return }
+        let visible = sectionRecordings
+        if let selection = model.selection, visible.contains(where: { $0.id == selection }) {
+            return
+        }
+        model.selection = visible.first?.id
+    }
+
+    /// One path for the list, the "More" menu and ⌘⌫: the next conversation takes the
+    /// selection, as in Mail, and the favourite goes with the conversation.
+    private func moveToTrash(_ recording: Recording) {
+        if model.selection == recording.id {
+            let list = sectionRecordings
+            if let index = list.firstIndex(where: { $0.id == recording.id }) {
+                let neighbor = index + 1 < list.count ? list[index + 1] : (index > 0 ? list[index - 1] : nil)
+                model.selection = neighbor?.id
+            }
+        }
+        Task {
+            await model.deleteRecording(recording.id)
+            if !model.recordings.contains(where: { $0.id == recording.id }) {
+                favorites.remove(recording.id)
+            }
+        }
+    }
+}
+
+extension FocusedValues {
+    /// Whether the focused Library window shows its inspector; `nil` when there is
+    /// nothing to inspect.
+    @Entry var libraryInspector: Binding<Bool>?
 }

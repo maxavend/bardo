@@ -43,6 +43,18 @@ extension View {
         }
     }
 
+    /// A floating bar at the bottom of a scrolling document. On macOS 26 the bar
+    /// joins the safe area, so content stops above it and the system scroll edge
+    /// effect keeps text from showing through the glass behind its controls.
+    @ViewBuilder
+    func bardoBottomBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        if #available(macOS 26.0, *) {
+            safeAreaBar(edge: .bottom, spacing: 0, content: bar)
+        } else {
+            overlay(alignment: .bottom, content: bar)
+        }
+    }
+
     // IMPORTANT: SearchToolbarBehavior.minimize is explicitly unavailable on
     // macOS in the Xcode 26 SDK. Do not gate it with #available(macOS:); that
     // still fails to compile. For Bardo's macOS toolbar search, use SwiftUI

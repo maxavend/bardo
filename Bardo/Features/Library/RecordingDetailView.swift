@@ -10,7 +10,10 @@ struct RecordingDetailView: View {
     let playback: AudioPlaybackController
     @ObservedObject private var favorites = BardoFavoritesStore.shared
 
-    @Binding var transcriptSearch: String
+    /// The window's search: matches are highlighted in the transcript.
+    let searchQuery: String
+    @Binding var isInspectorPresented: Bool
+    let onMoveToTrash: (Recording) -> Void
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
     @State private var isSpeakerNamingPresented = false
@@ -30,7 +33,7 @@ struct RecordingDetailView: View {
                 recording: recording,
                 model: model,
                 playback: playback,
-                searchText: $transcriptSearch,
+                searchQuery: searchQuery,
                 editor: $editor,
                 isSpeakerNamingPresented: $isSpeakerNamingPresented,
                 bottomContentInset: playbackContentInset
@@ -38,34 +41,46 @@ struct RecordingDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .toolbar {
-            ToolbarItem(id: "bardo.detail.favorite", placement: .secondaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     favorites.toggle(recording.id)
                 } label: {
                     Label(
-                        favorites.contains(recording.id) ? "Quitar de Favoritos" : "Agregar a Favoritos",
-                        systemImage: favorites.contains(recording.id) ? "star.fill" : "star"
+                        isFavorite ? "Quitar de Favoritas" : "Agregar a Favoritas",
+                        systemImage: isFavorite ? "star.fill" : "star"
                     )
-                    .labelStyle(.iconOnly)
                 }
-                .help(favorites.contains(recording.id) ? "Quitar de Favoritos" : "Agregar a Favoritos")
-            }
+                .help(isFavorite ? "Quitar de Favoritas" : "Agregar a Favoritas")
 
-            ToolbarItem(id: "bardo.detail.more", placement: .primaryAction) {
+                if let transcript = currentTranscript, !transcript.text.isEmpty {
+                    ShareLink(
+                        item: transcriptExport(transcript),
+                        subject: Text(recordingDisplayTitle),
+                        preview: SharePreview(recordingDisplayTitle)
+                    ) {
+                        Label("Compartir transcripción", systemImage: "square.and.arrow.up")
+                    }
+                    .help("Compartir transcripción")
+                }
+
                 recordingActionsMenu
             }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isInspectorPresented.toggle()
+                } label: {
+                    Label("Información", systemImage: "info.circle")
+                }
+                .help(isInspectorPresented ? "Ocultar información (⌥⌘I)" : "Mostrar información (⌥⌘I)")
+            }
         }
-        .background {
-            BardoDetailBackground()
-                .ignoresSafeArea()
-        }
-        .overlay(alignment: .bottom) {
+        .bardoBottomBar {
             if showsPlaybackBar {
                 FloatingPlaybackBar(recording: recording, playback: playback)
             }
         }
         .onChange(of: recording.id) { _, _ in
-            transcriptSearch = ""
             editor = nil
             pendingReplacementAction = nil
             isSpeakerNamingPresented = false
@@ -133,31 +148,40 @@ struct RecordingDetailView: View {
             titleVisibility: .visible
         ) {
             Button(String(localized: "Move to Trash"), role: .destructive) {
-                Task { await model.deleteRecording(recording.id) }
+                onMoveToTrash(recording)
             }
             Button(String(localized: "Cancel"), role: .cancel) {}
         } message: {
             Text("El audio y la transcripción de \"\(recordingDisplayTitle)\" se moverán a la Papelera de macOS, donde podrás recuperarlos.")
         }
+        #if DEBUG
+        .onDesignReviewCommand { step in
+            switch step.action {
+            case "speakers":
+                isSpeakerNamingPresented = true
+            case "rename":
+                isRenamePresented = true
+            case "delete":
+                isDeleteConfirmationPresented = true
+            case "edit":
+                if let segment = model.transcript?.segments.first { editor = .segment(segment) }
+            case "seek":
+                playback.seek(to: TimeInterval(step.value) ?? 10)
+            default:
+                break
+            }
+        }
+        #endif
         .enableInjection()
     }
 
     private var recordingActionsMenu: some View {
         Menu {
             Button {
-                NotificationCenter.default.post(name: BardoCommandNotification.toggleInspector, object: nil)
-            } label: {
-                Label("Más información", systemImage: "info.circle")
-            }
-
-            Divider()
-
-            Button {
                 isRenamePresented = true
             } label: {
                 Label("Renombrar…", systemImage: "pencil")
             }
-            .keyboardShortcut("e", modifiers: [.command])
 
             Button {
                 revealInFinder()
@@ -171,8 +195,7 @@ struct RecordingDetailView: View {
                 Label("Copiar ubicación", systemImage: "doc.on.doc")
             }
 
-            if let transcript = model.transcript,
-               transcript.recordingID == recording.id {
+            if let transcript = currentTranscript {
                 Divider()
 
                 Button {
@@ -215,16 +238,50 @@ struct RecordingDetailView: View {
             Button(role: .destructive) {
                 isDeleteConfirmationPresented = true
             } label: {
-                Label("Mover a la Papelera", systemImage: "trash")
+                Label("Mover a la Papelera…", systemImage: "trash")
             }
             .disabled(model.isProcessing(recording.id))
             .keyboardShortcut(.delete, modifiers: [.command])
         } label: {
-            Label("Más", systemImage: "ellipsis")
-                .labelStyle(.iconOnly)
+            Label("Más acciones", systemImage: "ellipsis")
         }
-        .help(String(localized: "More recording and transcript actions"))
-        .accessibilityLabel(String(localized: "More recording and transcript actions"))
+        .menuIndicator(.hidden)
+        .help("Más acciones")
+    }
+
+    private var isFavorite: Bool {
+        favorites.contains(recording.id)
+    }
+
+    private var currentTranscript: Transcript? {
+        guard let transcript = model.transcript, transcript.recordingID == recording.id else { return nil }
+        return transcript
+    }
+
+    /// Plain text with speaker names and timestamps, ready for Mail, Notes or Messages.
+    private func transcriptExport(_ transcript: Transcript) -> String {
+        let names = Dictionary(
+            transcript.speakers.enumerated().map { index, speaker in
+                let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return (speaker.id, name.isEmpty
+                    ? String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
+                    : name)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var lines = [recordingDisplayTitle, ""]
+        var previousSpeaker: Speaker.ID?
+        for segment in transcript.segments {
+            let text = segment.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            if let speakerID = segment.speakerID, speakerID != previousSpeaker, let name = names[speakerID] {
+                lines.append("")
+                lines.append("\(name) · \(LibraryFormatting.duration(segment.startTime))")
+            }
+            previousSpeaker = segment.speakerID
+            lines.append(text)
+        }
+        return lines.joined(separator: "\n")
     }
 
     private var recordingDisplayTitle: String {
@@ -235,8 +292,11 @@ struct RecordingDetailView: View {
         !recording.audioAssets.isEmpty
     }
 
+    /// macOS 26 reserves the bar's space itself (see `bardoBottomBar`).
     private var playbackContentInset: CGFloat {
-        showsPlaybackBar ? BardoLayout.playbackContentClearance : 0
+        guard showsPlaybackBar else { return 0 }
+        if #available(macOS 26.0, *) { return 0 }
+        return BardoLayout.playbackContentClearance
     }
 
     private func copyTranscript(_ transcript: Transcript) {

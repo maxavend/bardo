@@ -457,3 +457,28 @@
 "Download them to transcribe and identify speakers privately on this Mac." = "Descárgalos para transcribir e identificar hablantes de forma privada en este Mac.";
 "Bardo could not connect to the internet. Check your connection and try again." = "Bardo no pudo conectarse a internet. Revisa tu conexión e inténtalo de nuevo.";
 "The download was interrupted. Try again in a moment." = "La descarga se interrumpió. Inténtalo de nuevo en un momento.";
+
+/* Library redesign */
+"Bardo processes your recordings locally on this Mac. Audio and transcripts stay on your device." = "Bardo procesa tus grabaciones en este Mac. El audio y las transcripciones se quedan en tu dispositivo.";
+"Pause recording" = "Pausar grabación";
+"Resume" = "Reanudar";
+"Resume recording" = "Reanudar grabación";
+"Yesterday" = "Ayer";
+"Rename Recording" = "Renombrar conversación";
+"Choose a name that will be used throughout your Library." = "Este nombre se usará en toda tu biblioteca.";
+"Recording title" = "Nombre de la conversación";
+"Save" = "Guardar";
+"This transcript contains manual corrections. Original recognition text is preserved." = "Esta transcripción tiene correcciones manuales. Bardo conserva el texto reconocido originalmente.";
+"Edit Segment…" = "Editar fragmento…";
+"Edit Segment" = "Editar fragmento";
+"Restore Original" = "Restaurar original";
+"Speaker name" = "Nombre del hablante";
+"Preparing local audio previews…" = "Preparando las muestras de audio…";
+"Audio previews are unavailable. You can still name participants." = "Las muestras de audio no están disponibles. Igual puedes poner nombre a los participantes.";
+"Save Names" = "Guardar nombres";
+"Sample · %@" = "Muestra · %@";
+"Pause Sample" = "Pausar muestra";
+"Play Sample" = "Escuchar muestra";
+"Play a short local sample of this speaker" = "Escucha una muestra breve de esta voz";
+"No representative audio sample" = "No hay una muestra de audio representativa";
+"No representative sample" = "Sin muestra representativa";

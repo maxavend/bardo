@@ -17,35 +17,52 @@ private enum BardoAppearancePreference: String, CaseIterable, Identifiable {
     }
 }
 
+private enum SettingsTab: String {
+    case general
+    case recording
+    case transcription
+    case storage
+    case privacy
+}
+
 struct SettingsView: View {
     @ObserveInjection var redraw
+    @State private var selectedTab: SettingsTab = .general
     @StateObject private var model = ModelSettingsViewModel()
     @State private var pendingReset: PendingModelReset?
     @State private var isLibraryRemovalPresented = false
     @State private var storageUsage = BardoStorageUsage.empty
 
     @AppStorage("bardo.appearance") private var appearanceRaw = BardoAppearancePreference.system.rawValue
-    @AppStorage("bardo.start-section") private var startSectionRaw = BardoLibrarySection.home.rawValue
     @AppStorage("bardo.default-recording-mode") private var recordingModeRaw = BardoRecordingMode.conversation.rawValue
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             generalTab
+                .frame(width: Self.width, height: 130)
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
 
             recordingTab
+                .frame(width: Self.width, height: 350)
                 .tabItem { Label("Grabación", systemImage: "mic") }
+                .tag(SettingsTab.recording)
 
             transcriptionTab
+                .frame(width: Self.width, height: 430)
                 .tabItem { Label("Transcripción", systemImage: "waveform") }
+                .tag(SettingsTab.transcription)
 
             storageTab
+                .frame(width: Self.width, height: 460)
                 .tabItem { Label("Almacenamiento", systemImage: "externaldrive") }
+                .tag(SettingsTab.storage)
 
             privacyTab
+                .frame(width: Self.width, height: 390)
                 .tabItem { Label("Privacidad", systemImage: "hand.raised") }
+                .tag(SettingsTab.privacy)
         }
-        .frame(width: 660, height: 520)
         .task {
             await model.refreshIfNeeded()
             refreshStorageUsage()
@@ -76,29 +93,31 @@ struct SettingsView: View {
         } message: {
             Text("Se moverán a la Papelera de macOS todas las grabaciones y transcripciones guardadas por Bardo. Podrás recuperarlas desde Finder mientras no vacíes la Papelera.")
         }
+        #if DEBUG
+        .onDesignReviewCommand { step in
+            if step.action == "settingsTab", let tab = SettingsTab(rawValue: step.value) {
+                selectedTab = tab
+            }
+        }
+        #endif
         .enableInjection()
     }
 
+    /// Like the Settings of Apple's apps, the window keeps one width and takes the
+    /// height of the selected tab.
+    private static let width: CGFloat = 660
+
     private var generalTab: some View {
         Form {
-            Section("Al abrir Bardo") {
-                Picker("Mostrar", selection: $startSectionRaw) {
-                    Text("Inicio").tag(BardoLibrarySection.home.rawValue)
-                    Text("Grabaciones").tag(BardoLibrarySection.recordings.rawValue)
-                }
-            }
-
-            Section("Apariencia") {
+            Section {
                 Picker("Apariencia", selection: $appearanceRaw) {
                     ForEach(BardoAppearancePreference.allCases) { preference in
                         Text(preference.title).tag(preference.rawValue)
                     }
                 }
                 .pickerStyle(.segmented)
-            }
-
-            Section {
-                Text("Bardo sigue los comportamientos nativos de macOS para ventanas, menús, atajos de teclado y modo de pantalla completa.")
+            } footer: {
+                Text("«Sistema» sigue el aspecto claro u oscuro que elegiste en Ajustes del Sistema.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -201,24 +220,29 @@ struct SettingsView: View {
             }
 
             Section("Ubicaciones") {
-                Button("Mostrar conversaciones en Finder") {
-                    guard let url = try? RecordingStore.defaultLibraryURL() else { return }
-                    NSWorkspace.shared.open(url)
+                LabeledContent("Conversaciones") {
+                    Button("Mostrar en Finder") {
+                        guard let url = try? RecordingStore.defaultLibraryURL() else { return }
+                        NSWorkspace.shared.open(url)
+                    }
                 }
 
-                Button("Mostrar recursos locales en Finder") {
-                    model.revealModelsFolder()
+                LabeledContent("Recursos locales") {
+                    Button("Mostrar en Finder") {
+                        model.revealModelsFolder()
+                    }
                 }
             }
 
             Section("Datos de Bardo") {
-                Button("Mover todas las conversaciones a la Papelera…", role: .destructive) {
-                    isLibraryRemovalPresented = true
+                LabeledContent {
+                    Button("Mover a la Papelera…", role: .destructive) {
+                        isLibraryRemovalPresented = true
+                    }
+                } label: {
+                    Text("Todas las conversaciones")
+                    Text("Los recursos para transcribir se conservan; puedes eliminarlos desde Transcripción.")
                 }
-
-                Text("Los recursos necesarios para transcribir se conservan. Puedes eliminarlos individualmente desde Transcripción.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -244,12 +268,16 @@ struct SettingsView: View {
             }
 
             Section("Permisos") {
-                LabeledContent("Micrófono") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Micrófono")
                     Text("Solo se solicita cuando quieres grabar tu voz.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                LabeledContent("Grabación del sistema") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Grabación del sistema")
                     Text("macOS muestra su selector antes de capturar audio de una app, ventana o pantalla.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -472,7 +500,9 @@ private struct ModelSettingsRow: View {
                 )
                 .labelStyle(.iconOnly)
             }
-            .controlSize(.small)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
             .help(String(localized: "Show more actions"))
 
         case .reveal, .unavailable:

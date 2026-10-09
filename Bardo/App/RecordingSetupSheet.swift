@@ -43,6 +43,7 @@ struct RecordingSetupSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var mode: BardoRecordingMode = .conversation
     @State private var title = ""
+    @FocusState private var isTitleFocused: Bool
 
     private var microphoneName: String {
         AVCaptureDevice.default(for: .audio)?.localizedName ?? "No hay un micrófono disponible"
@@ -58,43 +59,31 @@ struct RecordingSetupSheet: View {
                     .foregroundStyle(.secondary)
             }
 
-            TextField("Nombre de la conversación (opcional)", text: $title)
+            TextField("Nombre de la conversación", text: $title, prompt: Text("Nombre de la conversación (opcional)"))
                 .textFieldStyle(.roundedBorder)
+                .focused($isTitleFocused)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Fuente")
                     .font(.headline)
 
-                ForEach(BardoRecordingMode.allCases) { option in
-                    Button {
-                        mode = option
-                    } label: {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: option.symbol)
-                                .symbolRenderingMode(.hierarchical)
-                                .foregroundStyle(mode == option ? Color.accentColor : Color.secondary)
-                                .frame(width: 24)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(option.title)
-                                    .font(.body.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                Text(option.detail)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-
-                            Spacer(minLength: 12)
-
-                            Image(systemName: mode == option ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(mode == option ? Color.accentColor : Color.secondary)
+                // A native radio group: arrow keys move between sources, and VoiceOver
+                // reads it as one choice.
+                Picker("Fuente", selection: $mode) {
+                    ForEach(BardoRecordingMode.allCases) { option in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(option.title)
+                            Text(option.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .padding(.vertical, 6)
-                        .contentShape(Rectangle())
+                        .padding(.vertical, 3)
+                        .tag(option)
                     }
-                    .buttonStyle(.plain)
                 }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
             }
 
             if mode != .systemAudio {
@@ -158,6 +147,7 @@ struct RecordingSetupSheet: View {
         .padding(24)
         .frame(width: 560)
         .onAppear {
+            isTitleFocused = true
             microphone.refreshPermissionState()
             if let raw = UserDefaults.standard.string(forKey: "bardo.default-recording-mode"),
                let savedMode = BardoRecordingMode(rawValue: raw) {
