@@ -1,5 +1,7 @@
+import AppKit
 import Combine
 import Foundation
+import OSLog
 
 @MainActor
 final class SystemAudioRecordingController: ObservableObject {
@@ -18,7 +20,14 @@ final class SystemAudioRecordingController: ObservableObject {
     @Published private(set) var elapsedTime: TimeInterval = 0
     @Published private(set) var includesMicrophone = false
     @Published private(set) var errorMessage: String?
+    /// A non-fatal problem during an active capture, such as one track stopping.
+    @Published private(set) var captureWarning: String?
     @Published private(set) var recoveryIssues: [RecordingStoreIssue] = []
+    @Published private(set) var isRecovering = false
+
+    /// Called on the main actor for every recording this controller adds to the
+    /// Library: normal stops, interruptions that kept audio, and recoveries.
+    var onRecordingPublished: ((Recording) -> Void)?
 
     var isRecording: Bool { phase == .recording || phase == .changingSelection }
 
@@ -43,9 +52,19 @@ final class SystemAudioRecordingController: ObservableObject {
         let prepared: SystemAudioCaptureStagingStore.PreparedCapture
         let startedAt: Date
         let includeMicrophone: Bool
+        let title: String?
+    }
+
+    /// One source file to publish, with its first-sample time when it is known.
+    private struct StagedTrack {
+        let role: AudioAssetRole
+        let assetID: UUID
+        let url: URL
+        let firstPresentationTime: TimeInterval?
     }
 
     private static weak var activeController: SystemAudioRecordingController?
+    private static let logger = Logger(subsystem: "com.maxavend.bardo", category: "capture.recovery")
 
     private var store: RecordingStore?
     private var stagingStore: SystemAudioCaptureStagingStore?
@@ -58,6 +77,7 @@ final class SystemAudioRecordingController: ObservableObject {
     private var session: Session?
     private var progressTask: Task<Void, Never>?
     private var requestedModeIncludesMicrophone = false
+    private var requestedTitle: String?
     private var backendInterruptionInProgress = false
 
     init(
@@ -91,19 +111,21 @@ final class SystemAudioRecordingController: ObservableObject {
         }
     }
 
-    func start(includeMicrophone: Bool) async {
+    func start(includeMicrophone: Bool, title: String? = nil) async {
         errorMessage = nil
-        guard !isBusy else {
-            errorMessage = "A system-audio recording is already active or changing state."
+        captureWarning = nil
+        guard !isBusy, !isRecovering else {
+            errorMessage = String(localized: "A system-audio recording is already active or changing state.")
             return
         }
         guard RecordingCaptureLease.acquire(ownerID: captureLeaseID) else {
-            errorMessage = "Another Bardo recording is already active."
+            errorMessage = String(localized: "Another Bardo recording is already active.")
             return
         }
 
         Self.activeController = self
         requestedModeIncludesMicrophone = includeMicrophone
+        requestedTitle = title
         includesMicrophone = includeMicrophone
 
         if includeMicrophone {
@@ -132,6 +154,12 @@ final class SystemAudioRecordingController: ObservableObject {
         } catch {
             finishWithoutCapture(message: error.localizedDescription)
         }
+    }
+
+    /// Abandons a capture whose content has not been chosen yet.
+    func cancelContentSelection() {
+        guard phase == .selectingContent else { return }
+        finishWithoutCapture(message: nil)
     }
 
     func changeSelection() {
@@ -171,6 +199,133 @@ final class SystemAudioRecordingController: ObservableObject {
         }
     }
 
+    func discardRecoveryIssue(_ issue: RecordingStoreIssue) async {
+        guard let recordingID = issue.recordingID else { return }
+        do {
+            try await resolveStagingStore().discardCapture(recordingID: recordingID)
+            await refreshRecoveryIssues()
+        } catch {
+            errorMessage = String(localized: "Bardo could not discard \(issue.entryName): \(error.localizedDescription)")
+        }
+    }
+
+    func moveRecoveryIssueToTrash(_ issue: RecordingStoreIssue) async {
+        guard let recordingID = issue.recordingID else { return }
+        do {
+            try await resolveStagingStore().moveToTrash(recordingID: recordingID)
+            await refreshRecoveryIssues()
+        } catch {
+            errorMessage = String(localized: "Bardo could not move \(issue.entryName) to the Trash: \(error.localizedDescription)")
+        }
+    }
+
+    func moveAllRecoveryIssuesToTrash() async {
+        let issuesToMove = recoveryIssues.compactMap { issue -> UUID? in
+            issue.recordingID
+        }
+        guard !issuesToMove.isEmpty else { return }
+
+        do {
+            let store = try resolveStagingStore()
+            for recordingID in issuesToMove {
+                try await store.moveToTrash(recordingID: recordingID)
+            }
+            await refreshRecoveryIssues()
+        } catch {
+            errorMessage = String(localized: "Bardo could not move the recovery captures to the Trash: \(error.localizedDescription)")
+        }
+    }
+
+    /// Publishes the readable audio of an interrupted capture into the Library.
+    ///
+    /// Nothing that was not published is deleted: readable audio left over (for example
+    /// several files from a capture without bookkeeping) stays for another recovery, and
+    /// unreadable leftovers go to the Trash. Sources are aligned with the offsets saved
+    /// when the capture stopped, or at their start if it never stopped cleanly.
+    @discardableResult
+    func recoverRecoveryIssue(_ issue: RecordingStoreIssue) async -> Recording? {
+        guard let stagingID = issue.recordingID, !isBusy, !isRecovering else { return nil }
+        isRecovering = true
+        CaptureRecoveryActivity.begin()
+        defer {
+            isRecovering = false
+            CaptureRecoveryActivity.end()
+        }
+
+        do {
+            let stagingStore = try resolveStagingStore()
+            let store = try resolveStore()
+            guard let staged = await stagingStore.contents(recordingID: stagingID) else {
+                await refreshRecoveryIssues()
+                return nil
+            }
+            // A save that stopped halfway left some sources in the Library folder.
+            if try await store.reclaimIncompletePublication(recordingID: stagingID, into: staged.directoryURL) {
+                Self.logger.info("Reclaimed an incomplete publication for recovery")
+            }
+            guard let contents = await stagingStore.contents(recordingID: stagingID) else {
+                await refreshRecoveryIssues()
+                return nil
+            }
+
+            let manifest = contents.manifest
+            var tracks: [StagedTrack] = []
+            for url in contents.readableAudioFiles(using: metadataReader) {
+                let fileID = UUID(uuidString: url.deletingPathExtension().lastPathComponent)
+                if let manifest {
+                    // Only original sources are recovered; the mix is derived again.
+                    if let fileID, fileID == manifest.systemAssetID {
+                        tracks.append(StagedTrack(role: .systemOriginal, assetID: fileID, url: url,
+                                                  firstPresentationTime: manifest.systemTimelineOffset))
+                    } else if let fileID, fileID == manifest.microphoneAssetID {
+                        tracks.append(StagedTrack(role: .microphoneOriginal, assetID: fileID, url: url,
+                                                  firstPresentationTime: manifest.microphoneTimelineOffset))
+                    }
+                } else if tracks.isEmpty {
+                    // Without bookkeeping the source is unknown: recover one file at a time
+                    // so every readable file becomes its own recording.
+                    tracks.append(StagedTrack(role: .systemOriginal, assetID: UUID(), url: url, firstPresentationTime: nil))
+                }
+            }
+            guard !tracks.isEmpty else { throw CapturePublicationError.noAudioCaptured }
+            tracks.sort { $0.role == .systemOriginal && $1.role != .systemOriginal }
+            if tracks.contains(where: { $0.firstPresentationTime == nil }) {
+                tracks = tracks.map {
+                    StagedTrack(role: $0.role, assetID: $0.assetID, url: $0.url, firstPresentationTime: nil)
+                }
+            }
+
+            // The staging ID may already name a published recording (part of the capture
+            // was saved before); never overwrite or discard it.
+            let recordingID = await store.recordingDirectoryExists(recordingID: stagingID)
+                ? UUID()
+                : stagingID
+            let mixAssetID = UUID()
+            let (recording, _) = try await assembleAndPublish(
+                recordingID: recordingID,
+                tracks: tracks,
+                mixAssetID: mixAssetID,
+                mixURL: contents.directoryURL.appendingPathComponent("\(mixAssetID.uuidString)-recovered.m4a"),
+                title: manifest?.title,
+                startedAt: contents.startedAt
+            )
+            try? await stagingStore.finishRecovery(recordingID: stagingID, reader: metadataReader)
+            await refreshRecoveryIssues()
+            onRecordingPublished?(recording)
+            return recording
+        } catch {
+            errorMessage = String(localized: "Bardo could not recover \(issue.entryName): \(error.localizedDescription)")
+            await refreshRecoveryIssues()
+            return nil
+        }
+    }
+
+    @discardableResult
+    func openRecoveryFolder() -> Bool {
+        guard let root = try? SystemAudioCaptureStagingStore.liveRootURL() else { return false }
+        return NSWorkspace.shared.open(root)
+    }
+
     func clearError() {
         errorMessage = nil
         if phase == .failed {
@@ -187,9 +342,11 @@ final class SystemAudioRecordingController: ObservableObject {
                 phase = .changingSelection
                 do {
                     try await backend.update(selection: selection)
-                    phase = .recording
+                    // Stop may have begun finalizing while the update was in flight.
+                    if phase == .changingSelection { phase = .recording }
                 } catch {
-                    errorMessage = "Bardo kept the current capture because the new selection could not be applied: \(error.localizedDescription)"
+                    guard phase == .changingSelection else { return }
+                    captureWarning = String(localized: "Bardo kept the current capture because the new selection could not be applied: \(error.localizedDescription)")
                     phase = .recording
                 }
                 return
@@ -199,19 +356,22 @@ final class SystemAudioRecordingController: ObservableObject {
             await beginCapture(selection: selection)
 
         case .cancelled(let isUpdate):
-            if phase == .changingSelection || (isUpdate && isRecording) {
+            if phase == .changingSelection {
                 phase = .recording
                 return
             }
+            if isUpdate { return }
             guard phase == .selectingContent else { return }
             finishWithoutCapture(message: nil)
 
         case .failed(let message):
-            if phase == .changingSelection || isRecording {
-                errorMessage = "The system sharing picker could not update the selection: \(message)"
+            if phase == .changingSelection {
+                captureWarning = String(localized: "The system sharing picker could not update the selection: \(message)")
                 phase = .recording
+            } else if isRecording {
+                captureWarning = String(localized: "The system sharing picker could not update the selection: \(message)")
             } else if phase == .selectingContent {
-                finishWithoutCapture(message: "The system sharing picker could not start: \(message)")
+                finishWithoutCapture(message: String(localized: "The system sharing picker could not start: \(message)"))
             }
         }
     }
@@ -222,6 +382,7 @@ final class SystemAudioRecordingController: ObservableObject {
         let systemAssetID = UUID()
         let microphoneAssetID = requestedModeIncludesMicrophone ? UUID() : nil
         let mixAssetID = requestedModeIncludesMicrophone ? UUID() : nil
+        let startedAt = Date()
 
         do {
             let stagingStore = try resolveStagingStore()
@@ -229,7 +390,9 @@ final class SystemAudioRecordingController: ObservableObject {
                 recordingID: recordingID,
                 systemAssetID: systemAssetID,
                 microphoneAssetID: microphoneAssetID,
-                mixAssetID: mixAssetID
+                mixAssetID: mixAssetID,
+                title: requestedTitle,
+                startedAt: startedAt
             )
 
             do {
@@ -246,8 +409,9 @@ final class SystemAudioRecordingController: ObservableObject {
 
             session = Session(
                 prepared: prepared,
-                startedAt: Date(),
-                includeMicrophone: requestedModeIncludesMicrophone
+                startedAt: startedAt,
+                includeMicrophone: requestedModeIncludesMicrophone,
+                title: requestedTitle
             )
             elapsedTime = max(0, backend.currentTime)
             phase = .recording
@@ -263,20 +427,21 @@ final class SystemAudioRecordingController: ObservableObject {
     }
 
     private func handleBackendEvent(_ event: SystemAudioCaptureBackendEvent) async {
-        guard isRecording, session != nil, !backendInterruptionInProgress else { return }
-        backendInterruptionInProgress = true
-        phase = .finalizing
-        stopProgressUpdates()
-
-        let message: String
         switch event {
-        case .interrupted(let detail):
-            message = detail
-        }
+        case .trackFailed(let detail):
+            guard isRecording else { return }
+            captureWarning = String(localized: "\(detail) The other source is still recording.")
 
-        let result = await backend.stop()
-        _ = await publishCapture(result: result, interruptionMessage: message)
-        backendInterruptionInProgress = false
+        case .interrupted(let detail):
+            guard isRecording, session != nil, !backendInterruptionInProgress else { return }
+            backendInterruptionInProgress = true
+            phase = .finalizing
+            stopProgressUpdates()
+
+            let result = await backend.stop()
+            _ = await publishCapture(result: result, interruptionMessage: detail)
+            backendInterruptionInProgress = false
+        }
     }
 
     private func publishCapture(
@@ -285,187 +450,199 @@ final class SystemAudioRecordingController: ObservableObject {
     ) async -> Recording? {
         guard let session else { return nil }
         let prepared = session.prepared
+        let stagingStore = try? resolveStagingStore()
+        await stagingStore?.finishActiveCapture(recordingID: prepared.recordingID)
 
-        do {
-            let store = try resolveStore()
-            let stagingStore = try resolveStagingStore()
-            await stagingStore.finishActiveCapture(recordingID: prepared.recordingID)
+        var warnings: [String] = []
+        var tracks: [StagedTrack] = []
 
-            var sourceAssets: [AudioAsset] = []
-            var sourceFiles: [AudioAsset.ID: URL] = [:]
-            var warnings: [String] = []
+        if let timing = result.systemTrack {
+            tracks.append(StagedTrack(
+                role: .systemOriginal,
+                assetID: prepared.systemAssetID,
+                url: prepared.systemURL,
+                firstPresentationTime: timing.firstPresentationTime
+            ))
+            if let warning = timing.warning { warnings.append(warning) }
+        } else if let error = result.systemError {
+            warnings.append(error)
+        }
 
-            if let timing = result.systemTrack {
-                do {
-                    let metadata = try metadataReader.read(from: prepared.systemURL)
-                    let asset = AudioAsset(
-                        id: prepared.systemAssetID,
-                        originalFileName: "System Audio.m4a",
-                        fileExtension: "m4a",
-                        metadata: metadata,
-                        role: .systemOriginal,
-                        timelineOffset: 0
-                    )
-                    sourceAssets.append(asset)
-                    sourceFiles[asset.id] = prepared.systemURL
-                } catch {
-                    warnings.append("System audio could not be validated: \(error.localizedDescription)")
-                }
-                _ = timing
-            } else if let error = result.systemError {
+        if session.includeMicrophone, let microphoneURL = prepared.microphoneURL {
+            if let timing = result.microphoneTrack {
+                tracks.append(StagedTrack(
+                    role: .microphoneOriginal,
+                    assetID: prepared.microphoneAssetID ?? UUID(),
+                    url: microphoneURL,
+                    firstPresentationTime: timing.firstPresentationTime
+                ))
+                if let warning = timing.warning { warnings.append(warning) }
+            } else if let error = result.microphoneError {
                 warnings.append(error)
             }
+        }
 
-            if session.includeMicrophone, let microphoneURL = prepared.microphoneURL {
-                if let timing = result.microphoneTrack {
-                    do {
-                        let metadata = try metadataReader.read(from: microphoneURL)
-                        let asset = AudioAsset(
-                            id: prepared.microphoneAssetID ?? UUID(),
-                            originalFileName: "Microphone.m4a",
-                            fileExtension: "m4a",
-                            metadata: metadata,
-                            role: .microphoneOriginal,
-                            timelineOffset: 0
-                        )
-                        sourceAssets.append(asset)
-                        sourceFiles[asset.id] = microphoneURL
-                    } catch {
-                        warnings.append("Microphone audio could not be validated: \(error.localizedDescription)")
-                    }
-                    _ = timing
-                } else if let error = result.microphoneError {
-                    warnings.append(error)
-                }
-            }
-
-            guard !sourceAssets.isEmpty else {
-                throw SystemAudioCaptureError.noAudioSamples("system or microphone")
-            }
-
-            // Normalize first-sample PTS values onto a durable recording-relative timeline.
-            // Absolute host-clock values never enter Domain or persistence.
-            let firstPTSValues = [result.systemTrack?.firstPresentationTime, result.microphoneTrack?.firstPresentationTime]
-                .compactMap { $0 }
-                .filter(\.isFinite)
-            let origin = firstPTSValues.min() ?? 0
-            sourceAssets = sourceAssets.map { asset in
-                let firstPTS: TimeInterval?
-                switch asset.role {
-                case .systemOriginal:
-                    firstPTS = result.systemTrack?.firstPresentationTime
-                case .microphoneOriginal:
-                    firstPTS = result.microphoneTrack?.firstPresentationTime
-                default:
-                    firstPTS = nil
-                }
-                return AudioAsset(
-                    id: asset.id,
-                    originalFileName: asset.originalFileName,
-                    fileExtension: asset.fileExtension,
-                    metadata: asset.metadata,
-                    role: asset.role,
-                    timelineOffset: max(0, (firstPTS ?? origin) - origin),
-                    derivedFromAssetIDs: []
-                )
-            }
-
-            var allAssets = sourceAssets
-            var allFiles = sourceFiles
-            let systemAsset = sourceAssets.first(where: { $0.role == .systemOriginal })
-            let microphoneAsset = sourceAssets.first(where: { $0.role == .microphoneOriginal })
-
-            if let systemAsset,
-               let microphoneAsset,
-               let microphoneURL = prepared.microphoneURL,
-               let mixURL = prepared.mixURL,
-               let mixAssetID = prepared.mixAssetID {
-                do {
-                    let mixMetadata = try await mixer.makeMix(
-                        systemURL: prepared.systemURL,
-                        microphoneURL: microphoneURL,
-                        systemOffset: systemAsset.timelineOffset,
-                        microphoneOffset: microphoneAsset.timelineOffset,
-                        outputURL: mixURL
-                    )
-                    let mix = AudioAsset(
-                        id: mixAssetID,
-                        originalFileName: "Conversation Mix.m4a",
-                        fileExtension: "m4a",
-                        metadata: mixMetadata,
-                        role: .conversationMix,
-                        timelineOffset: 0,
-                        derivedFromAssetIDs: [systemAsset.id, microphoneAsset.id]
-                    )
-                    allAssets.append(mix)
-                    allFiles[mix.id] = mixURL
-                } catch {
-                    warnings.append("The original sources were preserved, but the derived conversation mix could not be generated: \(error.localizedDescription)")
-                }
-            }
-
-            if let stopError = result.streamStopError {
-                warnings.append("ScreenCaptureKit reported a stop error after capture: \(stopError)")
-            }
-            if let interruptionMessage {
-                warnings.append("Capture ended unexpectedly: \(interruptionMessage)")
-            }
-
-            let sources = Set(sourceAssets.compactMap { asset -> AudioSource? in
-                switch asset.role {
-                case .systemOriginal: return .systemAudio
-                case .microphoneOriginal: return .microphone
-                default: return nil
-                }
-            })
-            let duration = allAssets.map { $0.timelineOffset + $0.metadata.duration }.max()
-            let title = sources == [.systemAudio, .microphone]
-                ? "System + Microphone Recording"
-                : (sources == [.systemAudio] ? "System Audio Recording" : "Microphone Recording")
-            let recording = Recording(
-                id: prepared.recordingID,
-                title: title,
-                createdAt: session.startedAt,
-                duration: duration,
-                sources: sources,
-                processingState: .pending,
-                audioAssets: allAssets
+        // Save the alignment first: if publishing is interrupted, recovery keeps it.
+        let firstSampleTimes = [result.systemTrack?.firstPresentationTime, result.microphoneTrack?.firstPresentationTime]
+            .compactMap { $0 }
+            .filter(\.isFinite)
+        if let origin = firstSampleTimes.min() {
+            await stagingStore?.recordTimeline(
+                recordingID: prepared.recordingID,
+                systemOffset: result.systemTrack.map { max(0, $0.firstPresentationTime - origin) },
+                microphoneOffset: result.microphoneTrack.map { max(0, $0.firstPresentationTime - origin) }
             )
+        }
 
-            try await store.importRecording(recording, audioFiles: allFiles)
+        if let stopError = result.streamStopError {
+            warnings.append(String(localized: "ScreenCaptureKit reported a stop error after capture: \(stopError)"))
+        }
+        if let interruptionMessage {
+            warnings.append(String(localized: "Capture ended unexpectedly: \(interruptionMessage)"))
+        }
 
-            let capturedBothRequestedSources = !session.includeMicrophone || (systemAsset != nil && microphoneAsset != nil)
-            if capturedBothRequestedSources {
-                try? await stagingStore.discardCapture(recordingID: prepared.recordingID)
+        do {
+            let (recording, assemblyWarnings) = try await assembleAndPublish(
+                recordingID: prepared.recordingID,
+                tracks: tracks,
+                mixAssetID: prepared.mixAssetID,
+                mixURL: prepared.mixURL,
+                title: session.title,
+                startedAt: session.startedAt
+            )
+            warnings.insert(contentsOf: assemblyWarnings, at: 0)
+
+            let publishedRoles = Set(recording.audioAssets.map(\.role))
+            let capturedEveryRequestedSource = publishedRoles.contains(.systemOriginal)
+                && (!session.includeMicrophone || publishedRoles.contains(.microphoneOriginal))
+            if capturedEveryRequestedSource {
+                try? await stagingStore?.discardCapture(recordingID: prepared.recordingID)
             }
 
             self.session = nil
+            // The outcome is published in one step: observers never see an idle capture
+            // without the warnings that explain how it ended.
+            errorMessage = warnings.isEmpty ? nil : warnings.joined(separator: "\n")
             phase = .idle
             elapsedTime = 0
             includesMicrophone = false
+            captureWarning = nil
             picker.deactivate()
             releaseCaptureLease()
             await refreshRecoveryIssues()
-
-            if !warnings.isEmpty {
-                errorMessage = warnings.joined(separator: "\n")
-            } else {
-                errorMessage = nil
-            }
+            onRecordingPublished?(recording)
             return recording
         } catch {
-            if let stagingStore {
-                await stagingStore.finishActiveCapture(recordingID: prepared.recordingID)
-            }
             self.session = nil
             phase = .failed
-            errorMessage = "The capture ended, but Bardo could not safely publish it: \(error.localizedDescription)"
+            let context = warnings.isEmpty ? "" : "\n" + warnings.joined(separator: "\n")
+            errorMessage = String(localized: "The capture ended, but Bardo could not safely publish it: \(error.localizedDescription) It was kept for recovery.\(context)")
             elapsedTime = max(elapsedTime, backend.currentTime)
+            captureWarning = nil
             picker.deactivate()
             releaseCaptureLease()
             await refreshRecoveryIssues()
             return nil
         }
+    }
+
+    /// Validates staged sources, aligns them on one timeline, derives the conversation
+    /// mix when both sources exist, and moves everything into the Library.
+    private func assembleAndPublish(
+        recordingID: UUID,
+        tracks: [StagedTrack],
+        mixAssetID: UUID?,
+        mixURL: URL?,
+        title: String?,
+        startedAt: Date
+    ) async throws -> (Recording, [String]) {
+        let store = try resolveStore()
+        var warnings: [String] = []
+        var validated: [(track: StagedTrack, metadata: AudioMetadata)] = []
+
+        for track in tracks {
+            do {
+                validated.append((track, try metadataReader.read(from: track.url)))
+            } catch {
+                let source = track.role == .systemOriginal ? String(localized: "the system audio") : String(localized: "the microphone audio")
+                warnings.append(String(localized: "Bardo could not validate \(source): \(error.localizedDescription)"))
+            }
+        }
+        guard !validated.isEmpty else {
+            throw SystemAudioCaptureError.noAudioSamples("system or microphone")
+        }
+
+        // Normalize first-sample PTS values onto a durable recording-relative timeline.
+        // Absolute host-clock values never enter Domain or persistence.
+        let origin = validated.compactMap(\.track.firstPresentationTime).filter(\.isFinite).min() ?? 0
+        let sourceAssets = validated.map { item in
+            AudioAsset(
+                id: item.track.assetID,
+                originalFileName: item.track.role == .systemOriginal ? "System Audio.m4a" : "Microphone.m4a",
+                fileExtension: item.track.url.pathExtension,
+                metadata: item.metadata,
+                role: item.track.role,
+                timelineOffset: max(0, (item.track.firstPresentationTime ?? origin) - origin)
+            )
+        }
+
+        var allAssets = sourceAssets
+        var allFiles = Dictionary(uniqueKeysWithValues: zip(sourceAssets.map(\.id), validated.map(\.track.url)))
+        let systemAsset = sourceAssets.first { $0.role == .systemOriginal }
+        let microphoneAsset = sourceAssets.first { $0.role == .microphoneOriginal }
+
+        if let systemAsset, let microphoneAsset,
+           let systemURL = allFiles[systemAsset.id],
+           let microphoneURL = allFiles[microphoneAsset.id],
+           let mixURL, let mixAssetID {
+            do {
+                let mixMetadata = try await mixer.makeMix(
+                    systemURL: systemURL,
+                    microphoneURL: microphoneURL,
+                    systemOffset: systemAsset.timelineOffset,
+                    microphoneOffset: microphoneAsset.timelineOffset,
+                    outputURL: mixURL
+                )
+                let mix = AudioAsset(
+                    id: mixAssetID,
+                    originalFileName: "Conversation Mix.m4a",
+                    fileExtension: "m4a",
+                    metadata: mixMetadata,
+                    role: .conversationMix,
+                    timelineOffset: 0,
+                    derivedFromAssetIDs: [systemAsset.id, microphoneAsset.id]
+                )
+                allAssets.append(mix)
+                allFiles[mix.id] = mixURL
+            } catch {
+                try? FileManager.default.removeItem(at: mixURL)
+                warnings.append(String(localized: "The original sources were preserved, but the derived conversation mix could not be generated: \(error.localizedDescription)"))
+            }
+        }
+
+        let sources = Set(sourceAssets.compactMap { asset -> AudioSource? in
+            switch asset.role {
+            case .systemOriginal: return .systemAudio
+            case .microphoneOriginal: return .microphone
+            default: return nil
+            }
+        })
+        let duration = allAssets.map { $0.timelineOffset + $0.metadata.duration }.max()
+        let defaultTitle = sources == [.systemAudio, .microphone]
+            ? "System + Microphone Recording"
+            : (sources == [.systemAudio] ? "System Audio Recording" : "Microphone Recording")
+        let recording = Recording(
+            id: recordingID,
+            title: title ?? defaultTitle,
+            createdAt: startedAt,
+            duration: duration,
+            sources: sources,
+            processingState: .pending,
+            audioAssets: allAssets
+        )
+
+        try await store.importRecording(recording, audioFiles: allFiles, transferringOwnership: true)
+        return (recording, warnings)
     }
 
     private func resolveStore() throws -> RecordingStore {
@@ -503,7 +680,9 @@ final class SystemAudioRecordingController: ObservableObject {
         phase = .idle
         elapsedTime = 0
         includesMicrophone = false
+        captureWarning = nil
         errorMessage = message
+        requestedTitle = nil
         picker.deactivate()
         releaseCaptureLease()
     }
@@ -518,13 +697,13 @@ final class SystemAudioRecordingController: ObservableObject {
     private func microphonePermissionMessage(_ state: MicrophonePermissionState) -> String {
         switch state {
         case .notDetermined:
-            return "Microphone permission is still awaiting a response."
+            return String(localized: "Microphone permission is still awaiting a response.")
         case .authorized:
             return ""
         case .denied:
-            return "Microphone access is denied. Enable Bardo in System Settings → Privacy & Security → Microphone before recording both sources."
+            return String(localized: "Microphone access is denied. Enable Bardo in System Settings → Privacy & Security → Microphone before recording both sources.")
         case .restricted:
-            return "Microphone access is restricted by macOS, so dual-source recording cannot start."
+            return String(localized: "Microphone access is restricted by macOS, so dual-source recording cannot start.")
         case .error(let message):
             return message
         }

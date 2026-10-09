@@ -31,6 +31,12 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - path: Bardo
+        excludes:
+          - Models
+          - Resources
+      - path: Bardo/Models
+      - path: Bardo/Resources/Assets.xcassets
+        buildPhase: resources
     dependencies:
       - package: ArgmaxOSS
         product: WhisperKit
@@ -49,6 +55,16 @@ targets:
         PRODUCT_NAME: Bardo
         CODE_SIGN_ENTITLEMENTS: Bardo/Bardo.entitlements
         ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Debug:
+          # Hot reload needs debugger attachment and unsigned bundle loading. Those
+          # exceptions must never reach a distributed Release build.
+          CODE_SIGN_ENTITLEMENTS: Bardo/Bardo.Debug.entitlements
+          OTHER_LDFLAGS:
+            - $(inherited)
+            - -Xlinker
+            - -interposable
 
   BardoTests:
     type: bundle.unit-test
@@ -73,6 +89,10 @@ schemes:
       config: Debug
     test:
       config: Debug
+      # Tests assert user-facing text; run them in the development language instead of
+      # the Mac's preferred language.
+      language: en
+      region: US
       targets:
         - BardoTests
     archive:

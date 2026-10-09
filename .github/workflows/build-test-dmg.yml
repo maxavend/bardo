@@ -18,13 +18,15 @@ jobs:
   build-test-dmg:
     name: Build Bardo test DMG
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
 
       - name: Report toolchain
         run: |
@@ -36,76 +38,48 @@ jobs:
           brew install xcodegen
           xcodegen --version
 
-      - name: Generate Xcode project
-        run: xcodegen generate
+      - name: Run DMG verifier fixture
+        run: .github/scripts/test-verify-dmg.sh
 
-      - name: Verify test-build configuration
+      - name: Run unit tests
         run: |
-          test -f Bardo/Bardo.entitlements
-          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' Bardo/Bardo.entitlements)" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' Bardo/Bardo.entitlements)" = "true"
-          BUILD_SETTINGS="$(xcodebuild -project Bardo.xcodeproj -scheme Bardo -configuration Release -showBuildSettings)"
-          grep -Fq 'CODE_SIGN_ENTITLEMENTS = Bardo/Bardo.entitlements' <<< "$BUILD_SETTINGS"
-          grep -Fq 'ENABLE_HARDENED_RUNTIME = YES' <<< "$BUILD_SETTINGS"
-
-      - name: Build Release app
-        run: |
+          set +e
+          xcodegen generate
           xcodebuild \
             -project Bardo.xcodeproj \
             -scheme Bardo \
-            -configuration Release \
+            -configuration Debug \
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath .derived-data \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            test > xcode-test.log 2>&1
+          STATUS=$?
+          if [ "$STATUS" -ne 0 ]; then
+            echo "---- XCTest failure summary ----"
+            grep -E "Test Case .* (failed|passed)|/[A-Za-z0-9_./-]+\.swift:[0-9]+|: error:|XCTAssert|failed -|\*\* TEST FAILED \*\*" xcode-test.log || tail -n 160 xcode-test.log
+          else
+            grep -E "Executed [0-9]+ tests|\*\* TEST SUCCEEDED \*\*" xcode-test.log || true
+          fi
+          exit "$STATUS"
 
-      - name: Verify application bundle
+      - name: Build and verify mounted Test DMG
+        env:
+          DMG_PATH: Bardo-Phase7-Test.dmg
+          DMG_VOLUME_NAME: Bardo Test
         run: |
-          APP=.derived-data/Build/Products/Release/Bardo.app
-          test -f "$APP/Contents/Info.plist"
-          test -x "$APP/Contents/MacOS/Bardo"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$APP/Contents/Info.plist")" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
+          set -o pipefail
+          .github/scripts/verify-dmg.sh 2>&1 | tee mounted-validation.log
 
-      - name: Ad-hoc sign test app
-        run: |
-          APP=.derived-data/Build/Products/Release/Bardo.app
-          codesign \
-            --force \
-            --deep \
-            --sign - \
-            --options runtime \
-            --entitlements Bardo/Bardo.entitlements \
-            "$APP"
-          codesign --verify --deep --strict --verbose=2 "$APP"
-          codesign -d --entitlements :- "$APP" > /tmp/bardo-entitlements.plist
-          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' /tmp/bardo-entitlements.plist)" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' /tmp/bardo-entitlements.plist)" = "true"
-
-      - name: Create test DMG
-        run: |
-          APP=.derived-data/Build/Products/Release/Bardo.app
-          ROOT=.dmg-root
-          DMG=Bardo-Phase7-Test.dmg
-          rm -rf "$ROOT" "$DMG" "$DMG.sha256"
-          mkdir -p "$ROOT"
-          ditto "$APP" "$ROOT/Bardo.app"
-          ln -s /Applications "$ROOT/Applications"
-          hdiutil create \
-            -volname "Bardo Test" \
-            -srcfolder "$ROOT" \
-            -ov \
-            -format UDZO \
-            "$DMG"
-          hdiutil verify "$DMG"
-          shasum -a 256 "$DMG" | tee "$DMG.sha256"
-
-      - name: Upload test DMG artifact
+      - name: Upload Test DMG artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Bardo-Phase7-Test-DMG
+          name: Bardo-Phase7-Test-DMG-${{ github.run_id }}
           path: |
             Bardo-Phase7-Test.dmg
             Bardo-Phase7-Test.dmg.sha256
-          if-no-files-found: error
+            mounted-validation.log
+            xcode-test.log
+          if-no-files-found: warn
           retention-days: 14

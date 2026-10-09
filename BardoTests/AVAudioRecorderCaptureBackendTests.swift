@@ -6,14 +6,14 @@ import XCTest
 
 final class AVAudioRecorderCaptureBackendTests: XCTestCase {
     @MainActor
-    func testProductionRecorderUsesCompactNativeConversationFormat() {
+    func testProductionRecorderStagesCrashSafeLinearPCM() {
         let settings = AVAudioRecorderCaptureBackend.recordingSettings
 
-        XCTAssertEqual(AVAudioRecorderCaptureBackend.recordingFileExtension, "m4a")
-        XCTAssertEqual(settings[AVFormatIDKey] as? Int, Int(kAudioFormatMPEG4AAC))
+        XCTAssertEqual(AVAudioRecorderCaptureBackend.recordingFileExtension, "caf")
+        XCTAssertEqual(settings[AVFormatIDKey] as? Int, Int(kAudioFormatLinearPCM))
         XCTAssertEqual(settings[AVSampleRateKey] as? Int, 48_000)
         XCTAssertEqual(settings[AVNumberOfChannelsKey] as? Int, 1)
-        XCTAssertEqual(settings[AVEncoderBitRateKey] as? Int, 96_000)
-        XCTAssertEqual(settings[AVEncoderAudioQualityKey] as? Int, AVAudioQuality.high.rawValue)
+        XCTAssertEqual(settings[AVLinearPCMBitDepthKey] as? Int, 16)
+        XCTAssertEqual(settings[AVLinearPCMIsFloatKey] as? Bool, false)
     }
 }

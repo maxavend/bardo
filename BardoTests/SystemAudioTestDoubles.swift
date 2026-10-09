@@ -49,7 +49,11 @@ final class FakeSystemAudioCaptureBackend: SystemAudioCapturing {
     var systemError: String?
     var microphoneError: String?
     var streamStopError: String?
+    var systemWarning: String?
     var startError: Error?
+    /// When true, `update(selection:)` suspends until `resumeSuspendedUpdate()`.
+    var suspendsUpdates = false
+    private var suspendedUpdate: CheckedContinuation<Void, Never>?
 
     private(set) var startCount = 0
     private(set) var updateCount = 0
@@ -90,6 +94,18 @@ final class FakeSystemAudioCaptureBackend: SystemAudioCapturing {
 
     func update(selection: SystemContentSelection) async throws {
         updateCount += 1
+        if suspendsUpdates {
+            await withCheckedContinuation { continuation in
+                suspendedUpdate = continuation
+            }
+        }
+    }
+
+    var hasSuspendedUpdate: Bool { suspendedUpdate != nil }
+
+    func resumeSuspendedUpdate() {
+        suspendedUpdate?.resume()
+        suspendedUpdate = nil
     }
 
     func stop() async -> SystemAudioCaptureResult {
@@ -98,7 +114,8 @@ final class FakeSystemAudioCaptureBackend: SystemAudioCapturing {
             systemTrack: produceSystem && systemError == nil
                 ? CapturedAudioTrackTiming(
                     firstPresentationTime: systemFirstPTS,
-                    lastPresentationTime: systemFirstPTS + systemDuration
+                    lastPresentationTime: systemFirstPTS + systemDuration,
+                    warning: systemWarning
                 )
                 : nil,
             microphoneTrack: lastIncludeMicrophone && produceMicrophone && microphoneError == nil
@@ -115,6 +132,10 @@ final class FakeSystemAudioCaptureBackend: SystemAudioCapturing {
 
     func interrupt(_ message: String) {
         eventHandler?(.interrupted(message))
+    }
+
+    func failTrack(_ message: String) {
+        eventHandler?(.trackFailed(message))
     }
 }
 

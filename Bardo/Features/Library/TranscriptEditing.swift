@@ -9,27 +9,27 @@ enum TranscriptReplacementAction: String, Identifiable {
     var title: String {
         switch self {
         case .retranscribe:
-            "Replace Manual Transcript Changes?"
+            "¿Reemplazar los cambios de la transcripción?"
         case .rediarize:
-            "Replace Speaker Names?"
+            "¿Volver a identificar a los hablantes?"
         }
     }
 
     var message: String {
         switch self {
         case .retranscribe:
-            "Transcribing again creates a new transcript and removes manual text corrections and speaker names from the current transcript."
+            "La nueva transcripción reemplazará las correcciones de texto y los nombres de hablantes que hayas hecho manualmente."
         case .rediarize:
-            "Identifying speakers again creates new speaker clusters. Existing speaker names will be removed because the new clusters may represent different people. Manual text corrections are preserved."
+            "Bardo volverá a distinguir las voces desde cero. Se conservarán tus correcciones de texto, pero tendrás que revisar los nombres de los hablantes."
         }
     }
 
     var confirmLabel: String {
         switch self {
         case .retranscribe:
-            "Transcribe Again"
+            "Transcribir de nuevo"
         case .rediarize:
-            "Identify Speakers Again"
+            "Identificar de nuevo"
         }
     }
 }
@@ -51,9 +51,9 @@ struct TranscriptEditorState: Identifiable {
     static func speaker(_ speaker: Speaker, fallbackName: String) -> TranscriptEditorState {
         TranscriptEditorState(
             kind: .speaker(speaker.id),
-            title: "Name Speaker",
+            title: "Nombre del hablante",
             initialValue: speaker.name ?? "",
-            prompt: "Give \(fallbackName) a name. Leave it blank to restore the automatic label.",
+            prompt: "Ponle un nombre a \(fallbackName). Si lo dejas vacío, seguirá usando su nombre automático.",
             canRestore: false,
             isMultiline: false
         )
@@ -62,9 +62,9 @@ struct TranscriptEditorState: Identifiable {
     static func segment(_ segment: TranscriptSegment) -> TranscriptEditorState {
         TranscriptEditorState(
             kind: .segment(segment.id),
-            title: "Edit Transcript",
+            title: "Editar transcripción",
             initialValue: segment.displayText,
-            prompt: "Correct the readable transcript while Bardo preserves the original timing evidence.",
+            prompt: "Corrige el texto sin cambiar el momento del audio al que pertenece.",
             canRestore: segment.editedText != nil,
             isMultiline: true
         )
@@ -78,6 +78,7 @@ struct TranscriptEditorSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var value: String
+    @FocusState private var isEditorFocused: Bool
 
     init(
         state: TranscriptEditorState,
@@ -91,49 +92,338 @@ struct TranscriptEditorSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(state.title)
-                    .font(.title2.weight(.semibold))
+                    .font(.title3.weight(.semibold))
+
                 Text(state.prompt)
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            if state.isMultiline {
-                TextEditor(text: $value)
-                    .font(.body)
-                    .scrollContentBackground(.hidden)
-                    .padding(10)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .frame(minHeight: 170)
-            } else {
-                TextField("Speaker name", text: $value)
-                    .textFieldStyle(.roundedBorder)
-            }
+            editorControl
 
-            HStack {
+            Divider()
+
+            HStack(spacing: 10) {
                 if let onRestore {
-                    Button("Restore Original", role: .destructive) {
+                    Button {
                         onRestore()
+                    } label: {
+                        Label(String(localized: "Restore Original"), systemImage: "arrow.uturn.backward")
                     }
                 }
 
                 Spacer()
 
-                Button("Cancel") {
+                Button(String(localized: "Cancel")) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Save") {
+                Button(String(localized: "Save")) {
                     onSave(value)
                 }
+                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(state.isMultiline && value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(24)
         .frame(minWidth: 520, minHeight: state.isMultiline ? 340 : 190)
+        .task {
+            isEditorFocused = true
+        }
     }
+
+    @ViewBuilder
+    private var editorControl: some View {
+        if state.isMultiline {
+            TextEditor(text: $value)
+                .font(.body)
+                .focused($isEditorFocused)
+                .frame(minHeight: 180)
+        } else {
+            TextField(String(localized: "Speaker name"), text: $value)
+                .focused($isEditorFocused)
+        }
+    }
+}
+
+struct SpeakerNamingSheet: View {
+    let transcript: Transcript
+    @ObservedObject var model: LibraryViewModel
+
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var previewPlayback = AudioPlaybackController()
+    @State private var names: [Speaker.ID: String]
+    @State private var activePreviewSpeakerID: Speaker.ID?
+    @State private var isPreparingPreviewAudio = true
+    @State private var isSaving = false
+    @State private var pendingMerge: SpeakerMergeRequest?
+
+    init(transcript: Transcript, model: LibraryViewModel) {
+        self.transcript = transcript
+        self.model = model
+        _names = State(initialValue: Dictionary(
+            uniqueKeysWithValues: transcript.speakers.map { ($0.id, $0.name ?? "") }
+        ))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            header
+
+            if isPreparingPreviewAudio {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(localized: "Preparing local audio previews…"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let errorMessage = previewPlayback.errorMessage,
+                      !previewPlayback.isLoaded {
+                Label {
+                    Text(String(localized: "Audio previews are unavailable. You can still name participants."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: "speaker.slash")
+                        .foregroundStyle(.secondary)
+                }
+                .help(errorMessage)
+            }
+
+            participantList
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Spacer()
+
+                Button(String(localized: "Cancel")) {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                .disabled(isSaving)
+
+                Button {
+                    isSaving = true
+                    Task {
+                        await model.renameSpeakers(names)
+                        dismiss()
+                    }
+                } label: {
+                    if isSaving {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text(String(localized: "Save Names"))
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(isSaving)
+            }
+        }
+        .padding(24)
+        .frame(width: 620)
+        .task {
+            if model.playback.isPlaying {
+                model.playback.pause()
+            }
+            isPreparingPreviewAudio = true
+            _ = await model.prepareSpeakerPreviewPlayback(previewPlayback)
+            isPreparingPreviewAudio = false
+        }
+        .onDisappear {
+            previewPlayback.unload()
+        }
+        .alert(item: $pendingMerge) { request in
+            Alert(
+                title: Text("¿Fusionar hablantes?"),
+                message: Text("Todos los fragmentos de \(request.sourceLabel) pasarán a \(request.targetLabel). Esta corrección se aplicará a toda la transcripción."),
+                primaryButton: .destructive(Text("Fusionar")) {
+                    Task {
+                        await model.mergeSpeaker(request.sourceID, into: request.targetID)
+                        dismiss()
+                    }
+                },
+                secondaryButton: .cancel()
+            )
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "person.2.wave.2")
+                .font(.title2)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+                .frame(width: 30)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Revisar hablantes")
+                    .font(.title3.weight(.semibold))
+
+                Text("Escucha una muestra de cada voz, pon nombres cuando los conozcas y fusiona hablantes si una misma persona aparece separada por error.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var participantList: some View {
+        GroupBox {
+            // Scroll only when the list would not fit; a short list sizes the sheet.
+            if transcript.speakers.count > 5 {
+                ScrollView {
+                    participantRows
+                }
+                .frame(height: 340)
+            } else {
+                participantRows
+            }
+        } label: {
+            Text("Participantes")
+                .font(.headline)
+        }
+    }
+
+    private var participantRows: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(transcript.speakers.enumerated()), id: \.element.id) { index, speaker in
+                if index > 0 {
+                    Divider()
+                        .padding(.leading, 46)
+                }
+
+                speakerRow(speaker, index: index)
+            }
+        }
+    }
+
+    private func speakerRow(_ speaker: Speaker, index: Int) -> some View {
+        let fallback = String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
+        let preview = model.speakerPreviews.first { $0.speakerID == speaker.id }
+        let isThisPreviewPlaying = activePreviewSpeakerID == speaker.id && previewPlayback.isPlaying
+
+        return HStack(spacing: 12) {
+            // The speaker's colour from the transcript doubles as the sample control.
+            Button {
+                guard let preview else { return }
+
+                if isThisPreviewPlaying {
+                    previewPlayback.pause()
+                } else {
+                    activePreviewSpeakerID = speaker.id
+                    _ = previewPlayback.playPreview(
+                        from: preview.startTime,
+                        to: preview.endTime
+                    )
+                }
+            } label: {
+                Image(systemName: isThisPreviewPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.title)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(SpeakerPalette.color(for: speaker.id, in: transcript))
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 34, height: 34)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(preview == nil || isPreparingPreviewAudio || !previewPlayback.isLoaded)
+            .accessibilityLabel(
+                isThisPreviewPlaying
+                    ? String(localized: "Pause Sample")
+                    : String(localized: "Play Sample")
+            )
+            .help(
+                preview == nil
+                    ? String(localized: "No representative audio sample")
+                    : String(localized: "Play a short local sample of this speaker")
+            )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(fallback)
+                    .font(.callout.weight(.medium))
+
+                if let preview {
+                    Text(
+                        String.localizedStringWithFormat(
+                            String(localized: "Sample · %@"),
+                            LibraryFormatting.duration(preview.endTime - preview.startTime)
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                } else {
+                    Text(String(localized: "No representative sample"))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(minWidth: 110, alignment: .leading)
+
+            Spacer(minLength: 12)
+
+            Menu {
+                let otherSpeakers = transcript.speakers.filter { $0.id != speaker.id }
+                if otherSpeakers.isEmpty {
+                    Text("No hay otros hablantes")
+                } else {
+                    Section("Fusionar con") {
+                        ForEach(Array(otherSpeakers.enumerated()), id: \.element.id) { otherIndex, target in
+                            let targetFallback = transcript.speakers.firstIndex(where: { $0.id == target.id })
+                                .map { String.localizedStringWithFormat(String(localized: "Speaker %lld"), $0 + 1) }
+                                ?? String(localized: "Unassigned Speaker")
+                            let targetName = target.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            Button(targetName.isEmpty ? targetFallback : targetName) {
+                                let sourceName = names[speaker.id, default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+                                pendingMerge = SpeakerMergeRequest(
+                                    sourceID: speaker.id,
+                                    targetID: target.id,
+                                    sourceLabel: sourceName.isEmpty ? fallback : sourceName,
+                                    targetLabel: targetName.isEmpty ? targetFallback : targetName
+                                )
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label("Fusionar con otro hablante", systemImage: "ellipsis.circle")
+                    .labelStyle(.iconOnly)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Fusionar este hablante con otra persona")
+
+            TextField(
+                "Nombre (opcional)",
+                text: Binding(
+                    get: { names[speaker.id, default: ""] },
+                    set: { names[speaker.id] = $0 }
+                )
+            )
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 220)
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 2)
+    }
+}
+
+
+private struct SpeakerMergeRequest: Identifiable {
+    let id = UUID()
+    let sourceID: Speaker.ID
+    let targetID: Speaker.ID
+    let sourceLabel: String
+    let targetLabel: String
 }

@@ -16,7 +16,7 @@ struct AudioMetadataReader: Sendable {
                   sampleRate.isFinite,
                   sampleRate > 0,
                   channelCount > 0 else {
-                throw AudioImportError.invalidAudio("The file does not contain a readable audio stream.")
+                throw AudioImportError.invalidAudio(String(localized: "The file does not contain a readable audio stream."))
             }
 
             let formatID = (fileFormat.settings[AVFormatIDKey] as? NSNumber)?.uint32Value
@@ -116,12 +116,12 @@ enum AudioImportError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .notAFileURL:
-            return "Only local audio files can be imported."
+            return String(localized: "Only local audio files can be imported.")
         case .unsupportedFileExtension(let fileExtension):
             let displayed = fileExtension.isEmpty ? "unknown" : ".\(fileExtension)"
-            return "\(displayed) is not a supported audio format."
+            return String(localized: "\(displayed) is not a supported audio format.")
         case .invalidAudio(let description):
-            return "The selected file is not readable audio: \(description)"
+            return String(localized: "The selected file is not readable audio: \(description)")
         }
     }
 }

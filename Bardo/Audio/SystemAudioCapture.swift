@@ -32,6 +32,8 @@ protocol SystemContentSelecting: AnyObject {
 struct CapturedAudioTrackTiming: Equatable, Sendable {
     let firstPresentationTime: TimeInterval
     let lastPresentationTime: TimeInterval
+    /// Set when the track ended early or skipped audio but still produced a readable file.
+    var warning: String? = nil
 }
 
 struct SystemAudioCaptureResult: Equatable, Sendable {
@@ -43,7 +45,10 @@ struct SystemAudioCaptureResult: Equatable, Sendable {
 }
 
 enum SystemAudioCaptureBackendEvent: Equatable, Sendable {
+    /// Every active track stopped; the capture must be finalized.
     case interrupted(String)
+    /// One track stopped while another keeps recording.
+    case trackFailed(String)
 }
 
 @MainActor
@@ -74,19 +79,19 @@ enum SystemAudioCaptureError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .invalidSelection:
-            return "The selected macOS content is no longer available for capture."
+            return String(localized: "The selected macOS content is no longer available for capture.")
         case .alreadyCapturing:
-            return "A system-audio capture is already active."
+            return String(localized: "A system-audio capture is already active.")
         case .notCapturing:
-            return "No system-audio capture is active."
+            return String(localized: "No system-audio capture is active.")
         case .missingMicrophoneDestination:
-            return "The dual-source capture has no microphone staging destination."
+            return String(localized: "The dual-source capture has no microphone staging destination.")
         case .noAudioSamples(let source):
-            return "No readable \(source) audio samples were received."
+            return String(localized: "No readable \(source) audio samples were received.")
         case .writer(let message):
-            return "Bardo could not write captured audio: \(message)"
+            return String(localized: "Bardo could not write captured audio: \(message)")
         case .screenCapture(let message):
-            return "ScreenCaptureKit could not continue: \(message)"
+            return String(localized: "ScreenCaptureKit could not continue: \(message)")
         }
     }
 }

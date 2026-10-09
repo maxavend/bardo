@@ -91,13 +91,13 @@ enum ConversationMixError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .missingAudioTrack:
-            return "One of the original sources has no readable audio track."
+            return String(localized: "One of the original sources has no readable audio track.")
         case .couldNotCreateComposition:
-            return "Bardo could not create tracks for the conversation mix."
+            return String(localized: "Bardo could not create tracks for the conversation mix.")
         case .couldNotCreateExporter:
-            return "Bardo could not create an audio-only M4A exporter."
+            return String(localized: "Bardo could not create an audio-only M4A exporter.")
         case .exportFailed(let message):
-            return "Bardo could not generate the conversation mix: \(message)"
+            return String(localized: "Bardo could not generate the conversation mix: \(message)")
         }
     }
 }

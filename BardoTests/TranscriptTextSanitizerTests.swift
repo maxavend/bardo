@@ -20,6 +20,22 @@ final class TranscriptTextSanitizerTests: XCTestCase {
         )
     }
 
+    func testNormalizesProductVocabularyAndPunctuationWithoutParaphrasing() {
+        let raw = "  figma tiene un anti-state ... y un support in text , después hand-off.  "
+
+        XCTAssertEqual(
+            TranscriptTextSanitizer.normalizeRecognizedText(raw),
+            "Figma tiene un empty state… Y un supporting text, después handoff."
+        )
+    }
+
+    func testCapitalizesSentenceStartsButPreservesExistingWords() {
+        XCTAssertEqual(
+            TranscriptTextSanitizer.normalizeRecognizedText("hola equipo. revisemos UX y UI."),
+            "Hola equipo. Revisemos UX y UI."
+        )
+    }
+
     func testDisplayTextSanitizesLegacyStoredSegments() {
         let segment = TranscriptSegment(
             startTime: 0,

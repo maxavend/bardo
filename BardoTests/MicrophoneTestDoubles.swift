@@ -59,6 +59,8 @@ final class IncrementalTestCaptureBackend: AudioCapturing {
     var eventHandler: ((AudioCaptureBackendEvent) -> Void)?
 
     var startError: Error?
+    /// When false the backend creates its file but never writes audio into it.
+    var writesAudio = true
     private(set) var startCount = 0
     private(set) var stopCount = 0
     private(set) var lastURL: URL?
@@ -114,7 +116,7 @@ final class IncrementalTestCaptureBackend: AudioCapturing {
     }
 
     private func writeChunk(duration: TimeInterval) throws {
-        guard let file, let format else { return }
+        guard writesAudio, let file, let format else { return }
         let frameCount = AVAudioFrameCount((sampleRate * duration).rounded())
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
               let channels = buffer.floatChannelData else {
@@ -127,5 +129,12 @@ final class IncrementalTestCaptureBackend: AudioCapturing {
         }
         try file.write(from: buffer)
         currentTime += duration
+    }
+}
+
+struct FailingAudioTranscoder: AudioTranscoding {
+    func transcodeToCompactM4A(from sourceURL: URL, to destinationURL: URL) async throws {
+        try Data("not audio".utf8).write(to: destinationURL)
+        throw AudioTranscodingError.couldNotAllocateBuffer
     }
 }

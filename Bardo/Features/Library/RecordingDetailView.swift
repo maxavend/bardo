@@ -2,52 +2,93 @@ import AppKit
 import SwiftUI
 
 struct RecordingDetailView: View {
+    @ObserveInjection var redraw
     let recording: Recording
     @ObservedObject var model: LibraryViewModel
-    @ObservedObject var playback: AudioPlaybackController
+    /// Not observed here: only the playback bar and transcript rows redraw with the
+    /// playhead, instead of the whole document ten times per second.
+    let playback: AudioPlaybackController
+    @ObservedObject private var favorites = BardoFavoritesStore.shared
 
-    @State private var transcriptSearch = ""
+    /// The window's search: matches are highlighted in the transcript.
+    let searchQuery: String
+    @Binding var isInspectorPresented: Bool
+    let onMoveToTrash: (Recording) -> Void
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
-    @State private var isInspectorPresented = false
+    @State private var isSpeakerNamingPresented = false
+    @State private var isRenamePresented = false
+    @State private var isDeleteConfirmationPresented = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                recordingHeader
+        VStack(spacing: 0) {
+            RecordingDocumentHeader(recording: recording)
+                .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
+                .padding(.horizontal, BardoSpacing.detailHorizontal)
+                .padding(.top, BardoSpacing.section)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity, alignment: .top)
 
-                TranscriptContentView(
-                    recording: recording,
-                    model: model,
-                    playback: playback,
-                    searchText: $transcriptSearch,
-                    editor: $editor
-                )
-            }
-            .frame(maxWidth: 880, alignment: .leading)
-            .padding(.horizontal, 36)
-            .padding(.top, 34)
-            .padding(.bottom, 110)
-            .frame(maxWidth: .infinity, alignment: .top)
+            TranscriptContentView(
+                recording: recording,
+                model: model,
+                playback: playback,
+                searchQuery: searchQuery,
+                editor: $editor,
+                isSpeakerNamingPresented: $isSpeakerNamingPresented,
+                bottomContentInset: playbackContentInset
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle("")
-        .searchable(text: $transcriptSearch, placement: .toolbar, prompt: "Search Transcript")
         .toolbar {
-            detailToolbar
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !recording.audioAssets.isEmpty || playback.errorMessage != nil {
-                FloatingPlaybackBar(playback: playback)
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    favorites.toggle(recording.id)
+                } label: {
+                    Label(
+                        isFavorite ? "Quitar de Favoritas" : "Agregar a Favoritas",
+                        systemImage: isFavorite ? "star.fill" : "star"
+                    )
+                }
+                .help(isFavorite ? "Quitar de Favoritas" : "Agregar a Favoritas")
+
+                if let transcript = currentTranscript, !transcript.text.isEmpty {
+                    ShareLink(
+                        item: transcriptExport(transcript),
+                        subject: Text(recordingDisplayTitle),
+                        preview: SharePreview(recordingDisplayTitle)
+                    ) {
+                        Label("Compartir transcripción", systemImage: "square.and.arrow.up")
+                    }
+                    .help("Compartir transcripción")
+                }
+
+                recordingActionsMenu
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isInspectorPresented.toggle()
+                } label: {
+                    Label("Información", systemImage: "info.circle")
+                }
+                .help(isInspectorPresented ? "Ocultar información (⌥⌘I)" : "Mostrar información (⌥⌘I)")
             }
         }
-        .inspector(isPresented: $isInspectorPresented) {
-            RecordingInspector(recording: recording, transcript: model.transcript)
+        .bardoBottomBar {
+            if showsPlaybackBar {
+                FloatingPlaybackBar(recording: recording, playback: playback)
+            }
         }
         .onChange(of: recording.id) { _, _ in
-            transcriptSearch = ""
             editor = nil
             pendingReplacementAction = nil
+            isSpeakerNamingPresented = false
+        }
+        .onChange(of: model.shouldPresentSpeakerNamingSheet) { _, shouldPresent in
+            guard shouldPresent else { return }
+            isSpeakerNamingPresented = true
+            model.consumeSpeakerNamingSheetRequest()
         }
         .sheet(item: $editor) { state in
             TranscriptEditorSheet(
@@ -71,6 +112,11 @@ struct RecordingDetailView: View {
                 } : nil
             )
         }
+        .sheet(isPresented: $isSpeakerNamingPresented) {
+            if let transcript = model.transcript, transcript.recordingID == recording.id {
+                SpeakerNamingSheet(transcript: transcript, model: model)
+            }
+        }
         .alert(item: $pendingReplacementAction) { action in
             Alert(
                 title: Text(action.title),
@@ -86,95 +132,215 @@ struct RecordingDetailView: View {
                 secondaryButton: .cancel()
             )
         }
-    }
-
-    private var recordingHeader: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(recording.title)
-                    .font(.largeTitle.weight(.bold))
-                    .lineLimit(2)
-                    .textSelection(.enabled)
-
-                if recording.processingState == .processing {
-                    ProgressView()
-                        .controlSize(.small)
-                } else if recording.processingState == .failed {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                        .help("This recording needs attention")
-                }
-            }
-
-            HStack(spacing: 7) {
-                Text(recording.createdAt, format: .dateTime.month(.wide).day().year().hour().minute())
-                Text("·")
-                Text(LibraryFormatting.source(recording.sources))
-                Text("·")
-                Text(LibraryFormatting.duration(recording.duration))
-                    .monospacedDigit()
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
+        .sheet(isPresented: $isRenamePresented) {
+            RecordingRenameSheet(
+                recording: recording,
+                onSave: { title in
+                    isRenamePresented = false
+                    Task { await model.renameRecording(recording.id, to: title) }
+                },
+                onCancel: { isRenamePresented = false }
+            )
         }
+        .confirmationDialog(
+            String(localized: "Move Recording to Trash?"),
+            isPresented: $isDeleteConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "Move to Trash"), role: .destructive) {
+                onMoveToTrash(recording)
+            }
+            Button(String(localized: "Cancel"), role: .cancel) {}
+        } message: {
+            Text("El audio y la transcripción de \"\(recordingDisplayTitle)\" se moverán a la Papelera de macOS, donde podrás recuperarlos.")
+        }
+        #if DEBUG
+        .onDesignReviewCommand { step in
+            switch step.action {
+            case "speakers":
+                isSpeakerNamingPresented = true
+            case "rename":
+                isRenamePresented = true
+            case "delete":
+                isDeleteConfirmationPresented = true
+            case "edit":
+                if let segment = model.transcript?.segments.first { editor = .segment(segment) }
+            case "seek":
+                playback.seek(to: TimeInterval(step.value) ?? 10)
+            default:
+                break
+            }
+        }
+        #endif
+        .enableInjection()
     }
 
-    @ToolbarContentBuilder
-    private var detailToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            if let transcript = model.transcript,
-               transcript.recordingID == recording.id {
-                Button {
-                    copyTranscript(transcript)
-                } label: {
-                    Label("Copy Transcript", systemImage: "doc.on.doc")
-                }
-                .disabled(transcript.text.isEmpty)
-                .help("Copy transcript")
-
-                Menu {
-                    Button {
-                        if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
-                            pendingReplacementAction = .rediarize
-                        } else {
-                            model.beginDiarization()
-                        }
-                    } label: {
-                        Label(
-                            transcript.diarizationMetadata == nil ? "Identify Speakers" : "Identify Speakers Again",
-                            systemImage: "person.2.wave.2"
-                        )
-                    }
-                    .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
-
-                    Button {
-                        if transcript.hasManualChanges {
-                            pendingReplacementAction = .retranscribe
-                        } else {
-                            model.beginTranscription()
-                        }
-                    } label: {
-                        Label("Transcribe Again", systemImage: "arrow.clockwise")
-                    }
-                    .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
-                } label: {
-                    Label("Transcript Actions", systemImage: "ellipsis")
-                }
-                .help("Transcript actions")
+    private var recordingActionsMenu: some View {
+        Menu {
+            Button {
+                isRenamePresented = true
+            } label: {
+                Label("Renombrar…", systemImage: "pencil")
             }
 
             Button {
-                isInspectorPresented.toggle()
+                revealInFinder()
             } label: {
-                Label("Recording Info", systemImage: "sidebar.right")
+                Label("Mostrar en Finder", systemImage: "folder")
             }
-            .help(isInspectorPresented ? "Hide recording info" : "Show recording info")
+
+            Button {
+                Task { await model.copyManagedLocation(recording.id) }
+            } label: {
+                Label("Copiar ubicación", systemImage: "doc.on.doc")
+            }
+
+            if let transcript = currentTranscript {
+                Divider()
+
+                Button {
+                    copyTranscript(transcript)
+                } label: {
+                    Label("Copiar transcripción", systemImage: "doc.on.doc")
+                }
+                .disabled(transcript.text.isEmpty)
+
+                Button {
+                    if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
+                        pendingReplacementAction = .rediarize
+                    } else {
+                        model.beginDiarization()
+                    }
+                } label: {
+                    Label(
+                        transcript.diarizationMetadata == nil
+                            ? "Identificar hablantes"
+                            : "Identificar hablantes de nuevo",
+                        systemImage: "person.2.wave.2"
+                    )
+                }
+                .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
+
+                Button {
+                    if transcript.hasManualChanges {
+                        pendingReplacementAction = .retranscribe
+                    } else {
+                        model.beginTranscription()
+                    }
+                } label: {
+                    Label("Transcribir de nuevo…", systemImage: "arrow.clockwise")
+                }
+                .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                isDeleteConfirmationPresented = true
+            } label: {
+                Label("Mover a la Papelera…", systemImage: "trash")
+            }
+            .disabled(model.isProcessing(recording.id))
+            .keyboardShortcut(.delete, modifiers: [.command])
+        } label: {
+            Label("Más acciones", systemImage: "ellipsis")
         }
+        .menuIndicator(.hidden)
+        .help("Más acciones")
+    }
+
+    private var isFavorite: Bool {
+        favorites.contains(recording.id)
+    }
+
+    private var currentTranscript: Transcript? {
+        guard let transcript = model.transcript, transcript.recordingID == recording.id else { return nil }
+        return transcript
+    }
+
+    /// Plain text with speaker names and timestamps, ready for Mail, Notes or Messages.
+    private func transcriptExport(_ transcript: Transcript) -> String {
+        let names = Dictionary(
+            transcript.speakers.enumerated().map { index, speaker in
+                let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return (speaker.id, name.isEmpty
+                    ? String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
+                    : name)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var lines = [recordingDisplayTitle, ""]
+        var previousSpeaker: Speaker.ID?
+        for segment in transcript.segments {
+            let text = segment.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            if let speakerID = segment.speakerID, speakerID != previousSpeaker, let name = names[speakerID] {
+                lines.append("")
+                lines.append("\(name) · \(LibraryFormatting.duration(segment.startTime))")
+            }
+            previousSpeaker = segment.speakerID
+            lines.append(text)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private var recordingDisplayTitle: String {
+        LibraryFormatting.recordingTitle(recording)
+    }
+
+    private var showsPlaybackBar: Bool {
+        !recording.audioAssets.isEmpty
+    }
+
+    /// macOS 26 reserves the bar's space itself (see `bardoBottomBar`).
+    private var playbackContentInset: CGFloat {
+        guard showsPlaybackBar else { return 0 }
+        if #available(macOS 26.0, *) { return 0 }
+        return BardoLayout.playbackContentClearance
     }
 
     private func copyTranscript(_ transcript: Transcript) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(transcript.text, forType: .string)
+        if NSPasteboard.general.setString(transcript.text, forType: .string) {
+            model.reportRecordingActionFeedback(String(localized: "Transcript copied"))
+        }
+    }
+
+    private func revealInFinder() {
+        Task {
+            guard let location = try? await model.managedLocation(for: recording.id) else {
+                model.reportRecordingActionError(String(localized: "Bardo could not locate the managed recording folder."))
+                return
+            }
+            let target = FileManager.default.fileExists(atPath: location.path)
+                ? location
+                : location.deletingLastPathComponent()
+            NSWorkspace.shared.activateFileViewerSelecting([target])
+        }
+    }
+}
+
+struct RecordingDocumentHeader: View {
+    let recording: Recording
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(LibraryFormatting.recordingTitle(recording))
+                .font(.title2.weight(.semibold))
+                .lineLimit(2)
+
+            Text(metadata)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(LibraryFormatting.recordingTitle(recording)), \(metadata)")
+    }
+
+    private var metadata: String {
+        let date = recording.createdAt.formatted(.dateTime.day().month(.wide).year())
+        return "\(date) · \(LibraryFormatting.duration(recording.duration)) · \(LibraryFormatting.source(recording.sources))"
     }
 }
