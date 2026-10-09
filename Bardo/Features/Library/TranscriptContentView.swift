@@ -232,14 +232,11 @@ struct TranscriptContentView: View {
                         }
                     }
                 } else {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(String(localized: "La transcripción aparecerá aquí en cuanto Bardo reconozca las primeras palabras."))
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 8)
+                    // The status row above already shows progress.
+                    Text(String(localized: "La transcripción aparecerá aquí en cuanto Bardo reconozca las primeras palabras."))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 8)
                 }
             }
         }

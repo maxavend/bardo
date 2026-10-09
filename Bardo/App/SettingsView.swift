@@ -39,26 +39,30 @@ struct SettingsView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             generalTab
+                .frame(width: Self.width, height: 130)
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
 
             recordingTab
+                .frame(width: Self.width, height: 350)
                 .tabItem { Label("Grabación", systemImage: "mic") }
                 .tag(SettingsTab.recording)
 
             transcriptionTab
+                .frame(width: Self.width, height: 430)
                 .tabItem { Label("Transcripción", systemImage: "waveform") }
                 .tag(SettingsTab.transcription)
 
             storageTab
+                .frame(width: Self.width, height: 460)
                 .tabItem { Label("Almacenamiento", systemImage: "externaldrive") }
                 .tag(SettingsTab.storage)
 
             privacyTab
+                .frame(width: Self.width, height: 390)
                 .tabItem { Label("Privacidad", systemImage: "hand.raised") }
                 .tag(SettingsTab.privacy)
         }
-        .frame(width: 660, height: 520)
         .task {
             await model.refreshIfNeeded()
             refreshStorageUsage()
@@ -98,6 +102,10 @@ struct SettingsView: View {
         #endif
         .enableInjection()
     }
+
+    /// Like the Settings of Apple's apps, the window keeps one width and takes the
+    /// height of the selected tab.
+    private static let width: CGFloat = 660
 
     private var generalTab: some View {
         Form {
@@ -260,12 +268,16 @@ struct SettingsView: View {
             }
 
             Section("Permisos") {
-                LabeledContent("Micrófono") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Micrófono")
                     Text("Solo se solicita cuando quieres grabar tu voz.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                LabeledContent("Grabación del sistema") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Grabación del sistema")
                     Text("macOS muestra su selector antes de capturar audio de una app, ventana o pantalla.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
