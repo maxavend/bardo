@@ -199,6 +199,28 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    /// Shows the item behind a Library issue in Finder.
+    func revealIssue(_ issue: RecordingStoreIssue) async {
+        guard let url = try? await resolveStore().itemURL(for: issue) else {
+            recordingActionErrorMessage = String(localized: "That item is no longer in the Library.")
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    /// Moves the items behind the given Library issues to the macOS Trash and reloads.
+    func moveIssuesToTrash(_ selected: [RecordingStoreIssue]) async {
+        do {
+            let activeStore = try resolveStore()
+            for issue in selected where issue.canMoveToTrash {
+                try await activeStore.moveIssueItemToTrash(issue)
+            }
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+        }
+        await reload()
+    }
+
     func managedLocation(for recordingID: Recording.ID) async throws -> URL {
         try await resolveStore().recordingDirectoryURL(recordingID: recordingID)
     }

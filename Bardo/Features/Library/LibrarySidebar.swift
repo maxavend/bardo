@@ -5,6 +5,7 @@ struct LibrarySidebar: View {
     @ObservedObject var model: LibraryViewModel
     @ObservedObject var favorites: BardoFavoritesStore
     @Binding var selection: BardoLibrarySection
+    var onReviewIssues: () -> Void = {}
 
     var body: some View {
         List(selection: $selection) {
@@ -31,13 +32,16 @@ struct LibrarySidebar: View {
 
             if !model.issues.isEmpty {
                 Section {
-                    Label(
-                        model.issues.count == 1
-                            ? "1 elemento necesita revisión"
-                            : "\(model.issues.count) elementos necesitan revisión",
-                        systemImage: "exclamationmark.triangle"
-                    )
+                    // A row that opens the review, so the notice always leads somewhere.
+                    Button(action: onReviewIssues) {
+                        Label(
+                            model.issues.count == 1 ? "Revisar 1 elemento" : "Revisar \(model.issues.count) elementos",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                    }
+                    .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
+                    .help("Ver los archivos de la biblioteca que Bardo no puede mostrar")
                     .selectionDisabled()
                 }
             }

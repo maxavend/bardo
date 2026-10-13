@@ -409,6 +409,54 @@ actor RecordingStore {
         }
     }
 
+    /// The file or folder a Library issue refers to, inside the managed Library only.
+    func itemURL(for issue: RecordingStoreIssue) -> URL? {
+        // Names come from listing the Library; still refuse anything that could leave it.
+        guard !issue.entryName.isEmpty,
+              !issue.entryName.contains("/"),
+              issue.entryName != ".",
+              issue.entryName != ".." else {
+            return nil
+        }
+        let url: URL
+        switch issue.kind {
+        case .missingManifest, .corruptManifest, .unsupportedSchemaVersion, .identityMismatch,
+             .unexpectedEntry, .unreadableEntry:
+            url = rootURL.appendingPathComponent(issue.entryName)
+        case .temporaryArtifact:
+            guard let recordingID = issue.recordingID else { return nil }
+            url = recordingDirectoryURL(for: recordingID).appendingPathComponent(issue.entryName)
+        case .temporaryAudioArtifact:
+            guard let recordingID = issue.recordingID else { return nil }
+            url = audioDirectoryURL(for: recordingID).appendingPathComponent(issue.entryName)
+        case .missingAudioFile, .missingDerivedAudioFile:
+            guard let recordingID = issue.recordingID else { return nil }
+            url = recordingDirectoryURL(for: recordingID)
+        }
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Moves what a Library issue refers to into the macOS Trash, where it can be
+    /// recovered. Only issues that cannot take a loadable conversation with them.
+    func moveIssueItemToTrash(_ issue: RecordingStoreIssue) throws {
+        guard issue.canMoveToTrash, let url = itemURL(for: issue) else {
+            throw RecordingStoreError.fileSystem(
+                operation: "move library item to Trash",
+                entry: issue.entryName,
+                description: "This item cannot be moved to the Trash from Bardo."
+            )
+        }
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        } catch {
+            throw RecordingStoreError.fileSystem(
+                operation: "move library item to Trash",
+                entry: issue.entryName,
+                description: error.localizedDescription
+            )
+        }
+    }
+
     private func encode(_ recording: Recording) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

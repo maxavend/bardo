@@ -11,6 +11,9 @@ struct RootView: View {
     @StateObject private var systemAudio = SystemAudioRecordingController()
     @State private var isRecoveryPresented = false
     @State private var isRecordingSetupPresented = false
+    #if DEBUG
+    @State private var previewsRecordingBanner = false
+    #endif
 
     init(
         warmTranscriptionForRecording: @escaping @MainActor () -> Void = {},
@@ -129,6 +132,7 @@ struct RootView: View {
             #if DEBUG
             .onDesignReviewCommand { step in
                 if step.action == "recovery" { isRecoveryPresented = true }
+                if step.action == "recordingBanner" { previewsRecordingBanner = true }
             }
             #endif
             .onDisappear {
@@ -155,6 +159,17 @@ struct RootView: View {
     }
 
     private var activeCaptureBanner: AnyView? {
+        #if DEBUG
+        if previewsRecordingBanner {
+            return AnyView(activeRecordingPill(
+                title: "Grabando",
+                detail: "Tu voz y el audio del Mac se están guardando por separado.",
+                duration: 15,
+                changeSourceAction: {},
+                stopAction: {}
+            ))
+        }
+        #endif
         if microphone.phase != .idle && microphone.phase != .failed {
             return AnyView(microphoneStatusBar)
         } else if systemAudio.phase != .idle && systemAudio.phase != .failed {
@@ -304,7 +319,7 @@ struct RootView: View {
                     .help(String(localized: "Review, open, or discard interrupted capture files"))
                 }
             }
-            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(RecoveryCopy.reviewTitle(total)). \(RecoveryCopy.reviewDetail(total)). \(RecoveryCopy.reviewAction)")
         }
@@ -352,7 +367,6 @@ struct RootView: View {
                     Button(action: pauseAction) {
                         Label(String(localized: "Pause"), systemImage: "pause.fill")
                     }
-                    .controlSize(.small)
                     .help(String(localized: "Pause recording"))
                 }
 
@@ -360,28 +374,28 @@ struct RootView: View {
                     Button(action: resumeAction) {
                         Label(String(localized: "Resume"), systemImage: "play.fill")
                     }
-                    .controlSize(.small)
                     .help(String(localized: "Resume recording"))
                 }
 
                 if let changeSourceAction {
                     Button(String(localized: "Change Source…"), action: changeSourceAction)
-                        .controlSize(.small)
                         .help(String(localized: "Choose different macOS content without restarting the recording"))
                 }
 
+                // A deep red keeps the white label above 4.5:1; the system red does not.
                 Button(action: stopAction) {
                     Label("Finalizar", systemImage: "stop.fill")
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .controlSize(.small)
+                .tint(BardoColor.stopRecording)
                 .help(String(localized: "Stop recording (⌘.)"))
         }
-        .padding(.horizontal, 14)
+        .buttonBorderShape(.capsule)
+        .padding(.leading, 18)
+        .padding(.trailing, 10)
         .padding(.vertical, 10)
-        .frame(maxWidth: 720)
-        .bardoGlassSurface(cornerRadius: 14)
+        .frame(maxWidth: .infinity)
+        .bardoGlassCapsule()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(LibraryFormatting.duration(duration)). \(detail)")
     }
@@ -413,7 +427,7 @@ struct RootView: View {
                 }
             }
         }
-        .frame(maxWidth: 720)
+        .frame(maxWidth: .infinity)
     }
 
     private func presentRecordingSetup() {

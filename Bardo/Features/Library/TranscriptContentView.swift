@@ -116,6 +116,16 @@ struct TranscriptContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .bardoTopBar {
+            if isTranscribingThisRecording && hasLiveText {
+                transcriptionLiveStatus
+                    .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
+                    .padding(.horizontal, BardoSpacing.detailHorizontal)
+                    .padding(.top, 4)
+                    .padding(.bottom, 10)
+                    .frame(maxWidth: .infinity)
+            }
+        }
     }
 
     @ViewBuilder
@@ -200,7 +210,11 @@ struct TranscriptContentView: View {
 
     private var transcriptionLiveView: some View {
         VStack(alignment: .leading, spacing: 18) {
-            transcriptionLiveStatus
+            // Before the first words the status fills the space; afterwards it is pinned
+            // above the transcript (see `transcriptViewport`) so it never scrolls away.
+            if !hasLiveText {
+                transcriptionLiveStatus
+            }
 
             if let live = model.liveTranscription, live.recordingID == recording.id {
                 if !live.segments.isEmpty {
@@ -212,15 +226,6 @@ struct TranscriptContentView: View {
                         }
                     }
 
-                    Label {
-                        ThinkingText(text: "Escuchando la conversación…")
-                            .font(.callout)
-                    } icon: {
-                        Image(systemName: "waveform")
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityElement(children: .combine)
                 } else if !live.provisionalText.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(live.provisionalText)
@@ -294,8 +299,8 @@ struct TranscriptContentView: View {
         return live.segments.map(\.id)
     }
 
-    /// Passages that arrive together reveal one after another, but never more than two
-    /// seconds behind what Whisper has recognised.
+    /// Passages that arrive together start revealing a beat apart rather than waiting for
+    /// each other, so no row ever sits on screen with a timestamp and no words.
     private func scheduleReveal(of current: [TranscriptSegment.ID], after previous: [TranscriptSegment.ID]) {
         guard !reduceMotion, let live = model.liveTranscription, live.recordingID == recording.id else { return }
         let known = Set(previous)
@@ -303,7 +308,7 @@ struct TranscriptContentView: View {
         var cursor = liveRevealCursor > now.addingTimeInterval(2) ? now : max(now, liveRevealCursor)
         for segment in live.segments where !known.contains(segment.id) && liveRevealStarts[segment.id] == nil {
             liveRevealStarts[segment.id] = cursor
-            cursor = cursor.addingTimeInterval(StreamingRevealText.duration(for: segment.displayText))
+            cursor = cursor.addingTimeInterval(0.15)
         }
         liveRevealCursor = cursor
     }

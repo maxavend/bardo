@@ -27,7 +27,7 @@ struct TranscriptionProgressPanel: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(TranscriptionProgressCopy.title(for: state.stage))
-            .accessibilityValue("\(state.line). \(state.detail)")
+            .accessibilityValue([state.line, state.figures, state.detail].compactMap { $0 }.joined(separator: ". "))
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: isCompact)
     }
@@ -81,10 +81,11 @@ struct TranscriptionProgressPanel: View {
                 ThinkingText(text: state.line)
                     .font(.callout.weight(.semibold))
                 Spacer(minLength: 12)
-                if let fraction = state.fraction {
-                    Text("\(Int((fraction * 100).rounded())) %")
-                        .font(.callout.monospacedDigit().weight(.medium))
+                if let figures = state.figures {
+                    Text(figures)
+                        .font(.callout.monospacedDigit())
                         .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
                 }
                 Button("Cancelar", role: .cancel, action: cancelAction)
                     .controlSize(.small)
@@ -112,6 +113,8 @@ struct TranscriptionProgressPanel: View {
         let fraction: Double?
         let line: String
         let detail: String
+        /// The measurable part, shown on the right: audio heard and percentage.
+        let figures: String?
 
         init(panel: TranscriptionProgressPanel, now: Date) {
             stage = panel.progress?.stage ?? .preparingModel
@@ -125,6 +128,7 @@ struct TranscriptionProgressPanel: View {
             )
             line = TranscriptionProgressCopy.thinkingLine(for: context)
             detail = TranscriptionProgressCopy.detail(for: context)
+            figures = TranscriptionProgressCopy.figures(for: context)
         }
     }
 
@@ -155,58 +159,26 @@ enum TranscriptionProgressCopy {
         var stageElapsed: TimeInterval = 0
     }
 
-    /// How long each status line holds before the next one, as in "Thinking states".
-    static let thinkingHold: TimeInterval = 2
+    /// How long each status line rests before the next one: calm, never hurried.
+    static let thinkingHold: TimeInterval = 4.5
 
-    /// The status lines a stage cycles through: what is happening and how far along it
-    /// is, in plain words. Nothing claims progress Bardo cannot measure.
+    /// Two quiet lines per stage that say what Bardo is doing. Numbers live on the
+    /// right (see `figures`), so these stay short and calm.
     static func thinkingLines(for context: Context) -> [String] {
         switch context.stage {
         case .preparingModel:
-            if let fraction = context.fraction {
-                return [
-                    "Descargando el modelo de voz · \(percent(fraction))",
-                    "Se guarda en este Mac para usarlo sin conexión"
-                ]
-            }
-            return [
-                "Revisando lo necesario para transcribir",
-                "Comprobando el modelo de voz en este Mac"
-            ]
+            context.fraction != nil
+                ? ["Descargando el modelo de voz", "Solo se hace una vez"]
+                : ["Preparando todo", "Revisando el modelo de voz"]
         case .loadingModel:
             // A load that takes long is the one-time optimisation for this Mac.
-            if context.stageElapsed >= 12 {
-                return [
-                    "Optimizando el modelo para tu Mac",
-                    "Lleva \(clock(context.stageElapsed)) optimizándose",
-                    "La primera vez puede tardar unos minutos",
-                    "Después, las transcripciones empiezan al instante"
-                ]
-            }
-            return [
-                "Cargando el modelo de voz",
-                "Preparando el Neural Engine de tu Mac"
-            ]
+            context.stageElapsed >= 12
+                ? ["Optimizando el modelo para tu Mac", "Solo pasa la primera vez"]
+                : ["Cargando el modelo de voz", "Preparando el Neural Engine"]
         case .transcribing:
-            guard context.audioDuration > 0, context.processedAudio > 0 else {
-                return [
-                    "Escuchando la conversación",
-                    "Reconociendo las primeras palabras"
-                ]
-            }
-            var lines = [
-                "Transcribiendo · \(clock(context.processedAudio)) de \(clock(context.audioDuration))"
-            ]
-            if let fraction = context.fraction {
-                lines.append("Va en el \(percent(fraction)) de la conversación")
-            }
-            if let remaining = remainingTime(fraction: context.fraction, stageElapsed: context.stageElapsed) {
-                lines.append(remaining.prefix(1).uppercased() + remaining.dropFirst())
-            }
-            lines.append("Reconociendo las palabras de cada frase")
-            return lines
+            ["Escuchando la conversación", "Escribiendo lo que se dice"]
         case .saving:
-            return ["Guardando la transcripción en tu biblioteca"]
+            ["Guardando la transcripción"]
         }
     }
 
@@ -214,6 +186,17 @@ enum TranscriptionProgressCopy {
         let lines = thinkingLines(for: context)
         let index = Int(max(0, context.stageElapsed) / thinkingHold) % lines.count
         return lines[index]
+    }
+
+    /// What can be measured right now: audio heard and percentage while
+    /// transcribing, the percentage while downloading; nothing otherwise.
+    static func figures(for context: Context) -> String? {
+        guard let fraction = context.fraction else { return nil }
+        let percent = "\(Int((fraction * 100).rounded())) %"
+        guard context.stage == .transcribing, context.audioDuration > 0, context.processedAudio > 0 else {
+            return percent
+        }
+        return "\(clock(context.processedAudio)) de \(clock(context.audioDuration)) · \(percent)"
     }
 
     /// The accessibility name of the panel; it does not change while a stage runs.
@@ -246,22 +229,7 @@ enum TranscriptionProgressCopy {
         }
     }
 
-    /// A rough estimate once enough audio has been processed to trust the pace.
-    static func remainingTime(fraction: Double?, stageElapsed: TimeInterval) -> String? {
-        guard let fraction, fraction >= 0.03, fraction < 1, stageElapsed >= 10 else { return nil }
-        let remaining = stageElapsed * (1 - fraction) / fraction
-        if remaining < 60 {
-            return "queda menos de un minuto"
-        }
-        let minutes = max(1, Int((remaining / 60).rounded()))
-        return minutes == 1 ? "queda 1 minuto aproximadamente" : "quedan unos \(minutes) minutos"
-    }
-
     static func clock(_ interval: TimeInterval) -> String {
         LibraryFormatting.duration(max(0, interval))
-    }
-
-    private static func percent(_ fraction: Double) -> String {
-        "\(Int((fraction * 100).rounded())) %"
     }
 }

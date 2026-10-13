@@ -22,6 +22,19 @@ struct RecordingStoreIssue: Identifiable, Equatable, Sendable {
     var id: String {
         "\(entryName)|\(kind.rawValue)|\(recordingID?.uuidString ?? "none")"
     }
+
+    /// Whether the flagged item can go to the Trash without losing a conversation that
+    /// still loads: folders Bardo cannot read as a conversation, unknown entries, and
+    /// leftovers of interrupted writes. Data from a newer Bardo, missing audio and
+    /// inconsistent conversations are only shown in Finder.
+    var canMoveToTrash: Bool {
+        switch kind {
+        case .missingManifest, .corruptManifest, .unexpectedEntry, .temporaryArtifact, .temporaryAudioArtifact:
+            true
+        case .unsupportedSchemaVersion, .identityMismatch, .missingAudioFile, .missingDerivedAudioFile, .unreadableEntry:
+            false
+        }
+    }
 }
 
 struct LibrarySnapshot: Equatable, Sendable {

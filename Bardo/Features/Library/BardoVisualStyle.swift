@@ -31,6 +31,11 @@ enum BardoLayout {
     static let followLiveGapAbovePlayback: CGFloat = 8
 }
 
+enum BardoColor {
+    /// Stop recording: deeper than the system red so its white label reaches 6:1.
+    static let stopRecording = Color(red: 0.76, green: 0.11, blue: 0.13)
+}
+
 enum BardoSpacing {
     static let detailHorizontal: CGFloat = BardoLayout.libraryDetailPadding
     static let section: CGFloat = 20

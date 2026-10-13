@@ -26,6 +26,21 @@ extension View {
         }
     }
 
+    /// A full-radius glass surface for floating status, such as an active recording.
+    @ViewBuilder
+    func bardoGlassCapsule() -> some View {
+        if #available(macOS 26.0, *) {
+            self.glassEffect(.regular, in: .capsule)
+        } else {
+            self
+                .background(.regularMaterial, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(.separator.opacity(0.3), lineWidth: 0.5)
+                }
+        }
+    }
+
     /// A stable Apple Music-like playback surface. The glass container itself
     /// is intentionally non-interactive so button presses never scale or morph
     /// the whole player.
@@ -52,6 +67,19 @@ extension View {
             safeAreaBar(edge: .bottom, spacing: 0, content: bar)
         } else {
             overlay(alignment: .bottom, content: bar)
+        }
+    }
+
+    /// A bar pinned above a scrolling document, with the same scroll-edge treatment as
+    /// `bardoBottomBar` on macOS 26 and a plain material before that.
+    @ViewBuilder
+    func bardoTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        if #available(macOS 26.0, *) {
+            safeAreaBar(edge: .top, spacing: 0, content: bar)
+        } else {
+            safeAreaInset(edge: .top, spacing: 0) {
+                bar().background(.bar)
+            }
         }
     }
 
