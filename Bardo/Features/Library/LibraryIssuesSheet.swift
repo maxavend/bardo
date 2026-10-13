@@ -17,7 +17,7 @@ struct LibraryIssuesSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Elementos que necesitan revisión")
                     .font(.title2.weight(.semibold))
-                Text("Bardo encontró en su biblioteca archivos que no puede mostrar como conversaciones. No afectan a tus conversaciones; puedes revisarlos en Finder o moverlos a la Papelera de macOS, de donde se pueden recuperar.")
+                Text("Bardo encontró en tu biblioteca archivos que no puede mostrar como conversaciones. No afectan a tus conversaciones; puedes revisarlos en Finder o moverlos a la Papelera de macOS, de donde se pueden recuperar.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
