@@ -83,6 +83,17 @@ extension View {
         }
     }
 
+    /// A hard top scroll edge, so text scrolling under a pinned top bar never shows
+    /// above or through it. Earlier systems already back the bar with `.bar`.
+    @ViewBuilder
+    func bardoHardTopEdge(_ isActive: Bool) -> some View {
+        if #available(macOS 26.0, *) {
+            scrollEdgeEffectStyle(isActive ? .hard : .automatic, for: .top)
+        } else {
+            self
+        }
+    }
+
     // IMPORTANT: SearchToolbarBehavior.minimize is explicitly unavailable on
     // macOS in the Xcode 26 SDK. Do not gate it with #available(macOS:); that
     // still fails to compile. For Bardo's macOS toolbar search, use SwiftUI

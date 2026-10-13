@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// What transcription is doing right now, in words and numbers, so a long job never
-/// looks frozen: the step, a bar that moves, the time spent and, while Whisper
-/// listens, how much audio is done and roughly how long is left.
+/// looks frozen: a calm status line and, while Whisper listens, how much audio is
+/// done and the percentage.
 struct TranscriptionProgressPanel: View {
     let progress: TranscriptionProgressSnapshot?
     let live: TranscriptionLiveSnapshot?
@@ -71,34 +71,45 @@ struct TranscriptionProgressPanel: View {
 
     // MARK: While text streams in
 
+    /// The same floating capsule as the recording bar: a moving icon, the status and
+    /// a short note on the left, the measurable part and Cancelar on the right.
     private func compact(_ state: State) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Image(systemName: "waveform")
-                    .foregroundStyle(Color.accentColor)
-                    .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeating, isActive: !reduceMotion)
-                    .accessibilityHidden(true)
+        HStack(spacing: 12) {
+            Image(systemName: "waveform")
+                .foregroundStyle(Color.accentColor)
+                .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeating, isActive: !reduceMotion)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
                 ThinkingText(text: state.line)
                     .font(.callout.weight(.semibold))
-                Spacer(minLength: 12)
-                if let figures = state.figures {
-                    Text(figures)
-                        .font(.callout.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .contentTransition(.numericText())
-                }
-                Button("Cancelar", role: .cancel, action: cancelAction)
-                    .controlSize(.small)
+                Text(state.note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
-            progressBar(state)
-                .controlSize(.small)
+            Spacer(minLength: 16)
+
+            if let figures = state.figures {
+                Text(figures)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+            }
+
+            Button("Cancelar", role: .cancel, action: cancelAction)
         }
-        .padding(.bottom, 4)
+        .buttonBorderShape(.capsule)
+        .padding(.leading, 18)
+        .padding(.trailing, 10)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .bardoGlassCapsule()
     }
 
     /// Only real, measurable progress gets a bar; while a step cannot be measured the
-    /// moving icon, the shimmering line and the step dots carry the activity.
+    /// moving icon and the shimmering line carry the activity.
     @ViewBuilder
     private func progressBar(_ state: State) -> some View {
         if let fraction = state.fraction {
@@ -113,6 +124,8 @@ struct TranscriptionProgressPanel: View {
         let fraction: Double?
         let line: String
         let detail: String
+        /// The quiet second line of the compact capsule.
+        let note: String
         /// The measurable part, shown on the right: audio heard and percentage.
         let figures: String?
 
@@ -128,6 +141,7 @@ struct TranscriptionProgressPanel: View {
             )
             line = TranscriptionProgressCopy.thinkingLine(for: context)
             detail = TranscriptionProgressCopy.detail(for: context)
+            note = TranscriptionProgressCopy.note(for: context)
             figures = TranscriptionProgressCopy.figures(for: context)
         }
     }
@@ -226,6 +240,18 @@ enum TranscriptionProgressCopy {
             "El texto aparecerá aquí a medida que Bardo lo reconozca."
         case .saving:
             "Casi listo: la transcripción se está guardando en tu biblioteca."
+        }
+    }
+
+    /// The second line of the compact capsule, once words are already on screen.
+    static func note(for context: Context) -> String {
+        switch context.stage {
+        case .transcribing:
+            "El texto aparece abajo a medida que Bardo lo reconoce."
+        case .saving:
+            "Casi listo."
+        case .preparingModel, .loadingModel:
+            detail(for: context)
         }
     }
 
