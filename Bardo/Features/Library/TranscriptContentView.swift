@@ -236,12 +236,6 @@ struct TranscriptContentView: View {
                                 .foregroundStyle(.tertiary)
                         }
                     }
-                } else {
-                    // The status row above already shows progress.
-                    Text(String(localized: "La transcripción aparecerá aquí en cuanto Bardo reconozca las primeras palabras."))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
                 }
             }
         }
@@ -253,6 +247,7 @@ struct TranscriptContentView: View {
             live: model.liveTranscription?.recordingID == recording.id ? model.liveTranscription : nil,
             startedAt: model.transcriptionStartedAt,
             stageStartedAt: model.transcriptionStageStartedAt,
+            isCompact: hasLiveText,
             cancelAction: { model.cancelTranscription() }
         )
     }
@@ -288,6 +283,11 @@ struct TranscriptContentView: View {
                 proxy.scrollTo(paragraph.id, anchor: .center)
             }
         }
+    }
+
+    private var hasLiveText: Bool {
+        guard let live = model.liveTranscription, live.recordingID == recording.id else { return false }
+        return !live.segments.isEmpty || !live.provisionalText.isEmpty
     }
 
     private var liveSegmentIDs: [TranscriptSegment.ID] {

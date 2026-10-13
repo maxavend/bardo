@@ -8,73 +8,150 @@ struct TranscriptionProgressPanel: View {
     let live: TranscriptionLiveSnapshot?
     let startedAt: Date?
     let stageStartedAt: Date?
+    /// Text is already streaming in: step aside into a slim header so the words lead.
+    var isCompact = false
     let cancelAction: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // Redraw once a second so the elapsed time and estimate keep moving even
         // while the engine reports nothing (loading a model can take minutes).
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            panel(now: context.date)
+            let state = State(panel: self, now: context.date)
+            Group {
+                if isCompact {
+                    compact(state)
+                } else {
+                    hero(state)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(TranscriptionProgressCopy.title(for: state.stage))
+            .accessibilityValue("\(state.status). \(state.detail)")
         }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: isCompact)
     }
 
-    private func panel(now: Date) -> some View {
-        let stage = progress?.stage ?? .preparingModel
-        let stageElapsed = stageStartedAt.map { now.timeIntervalSince($0) } ?? 0
-        let detail = TranscriptionProgressCopy.detail(
-            stage: stage,
-            fraction: fraction,
-            processedAudio: live?.processedAudioTime ?? 0,
-            audioDuration: live?.audioDuration ?? 0,
-            stageElapsed: stageElapsed
-        )
+    // MARK: Waiting for the first words
 
-        return GroupBox {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Label {
-                        ThinkingText(text: TranscriptionProgressCopy.thinkingLine(
-                            for: stage,
-                            fraction: fraction,
-                            stageElapsed: stageElapsed
-                        ))
-                        .font(.callout.weight(.semibold))
-                    } icon: {
-                        Image(systemName: "waveform")
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(Color.accentColor)
-                    }
+    /// Nothing is on screen yet, which is when a job looks frozen: give the moment
+    /// the whole space, with something that visibly moves.
+    private func hero(_ state: State) -> some View {
+        VStack(spacing: 20) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.12))
+                    .frame(width: 76, height: 76)
+                Image(systemName: "waveform")
+                    .font(.system(size: 30, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+                    .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeating, isActive: !reduceMotion)
+            }
+            .accessibilityHidden(true)
 
-                    Spacer(minLength: 12)
+            VStack(spacing: 8) {
+                ThinkingText(text: state.line, alignment: .center)
+                    .font(.title3.weight(.semibold))
+                Text(state.detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 440)
+            }
 
-                    Text(statusLine(stage: stage, now: now))
+            VStack(spacing: 10) {
+                progressBar(state)
+                    .frame(maxWidth: 320)
+                HStack(spacing: 10) {
+                    StepDots(current: state.step, total: 4)
+                    Text(state.status)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
+            }
 
-                if let fraction {
-                    ProgressView(value: fraction)
-                        .progressViewStyle(.linear)
-                } else {
-                    ProgressView()
-                        .progressViewStyle(.linear)
-                }
+            Button("Cancelar", role: .cancel, action: cancelAction)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 56)
+    }
 
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(detail)
-                        .font(.callout)
+    // MARK: While text streams in
+
+    private func compact(_ state: State) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "waveform")
+                    .foregroundStyle(Color.accentColor)
+                    .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeating, isActive: !reduceMotion)
+                    .accessibilityHidden(true)
+                ThinkingText(text: state.line)
+                    .font(.callout.weight(.semibold))
+                Spacer(minLength: 12)
+                if let fraction = state.fraction {
+                    Text("\(Int((fraction * 100).rounded())) %")
+                        .font(.callout.monospacedDigit().weight(.medium))
                         .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button("Cancelar", role: .cancel, action: cancelAction)
+                    .controlSize(.small)
+            }
 
-                    Spacer(minLength: 12)
+            progressBar(state)
+                .controlSize(.small)
 
-                    Button("Cancelar", role: .cancel, action: cancelAction)
+            HStack(spacing: 12) {
+                Text(state.detail)
+                Spacer(minLength: 12)
+                if let elapsed = state.elapsed {
+                    Text(elapsed)
+                        .monospacedDigit()
                 }
             }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(TranscriptionProgressCopy.title(for: stage))
-        .accessibilityValue("\(statusLine(stage: stage, now: now)). \(detail)")
+        .padding(.bottom, 4)
+    }
+
+    /// Only real, measurable progress gets a bar; while a step cannot be measured the
+    /// moving icon, the shimmering line and the step dots carry the activity.
+    @ViewBuilder
+    private func progressBar(_ state: State) -> some View {
+        if let fraction = state.fraction {
+            ProgressView(value: fraction)
+                .progressViewStyle(.linear)
+        }
+    }
+
+    /// Everything the panel shows at one moment.
+    private struct State {
+        let stage: TranscriptionStage
+        let step: Int
+        let fraction: Double?
+        let line: String
+        let detail: String
+        let status: String
+        let elapsed: String?
+
+        init(panel: TranscriptionProgressPanel, now: Date) {
+            stage = panel.progress?.stage ?? .preparingModel
+            step = TranscriptionProgressCopy.step(for: stage)
+            fraction = panel.fraction
+            let stageElapsed = panel.stageStartedAt.map { now.timeIntervalSince($0) } ?? 0
+            line = TranscriptionProgressCopy.thinkingLine(for: stage, fraction: fraction, stageElapsed: stageElapsed)
+            detail = TranscriptionProgressCopy.detail(
+                stage: stage,
+                fraction: fraction,
+                processedAudio: panel.live?.processedAudioTime ?? 0,
+                audioDuration: panel.live?.audioDuration ?? 0,
+                stageElapsed: stageElapsed
+            )
+            elapsed = panel.startedAt.map { TranscriptionProgressCopy.clock(now.timeIntervalSince($0)) }
+            status = panel.statusLine(stage: stage, now: now)
+        }
     }
 
     /// Determinate only when the engine reports real progress.
@@ -220,5 +297,24 @@ enum TranscriptionProgressCopy {
 
     static func clock(_ interval: TimeInterval) -> String {
         LibraryFormatting.duration(max(0, interval))
+    }
+}
+
+/// Where the job is among its steps: done steps solid, the current one stretched.
+private struct StepDots: View {
+    let current: Int
+    let total: Int
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(1...total, id: \.self) { step in
+                Capsule()
+                    .fill(step <= current ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
+                    .opacity(step == current ? 1 : (step < current ? 0.55 : 1))
+                    .frame(width: step == current ? 16 : 6, height: 6)
+            }
+        }
+        .animation(.smooth(duration: 0.3), value: current)
+        .accessibilityHidden(true)
     }
 }

@@ -30,12 +30,13 @@ enum TranscriptionMotion {
 /// and blur whenever the status really changes.
 struct ThinkingText: View {
     let text: String
+    var alignment: Alignment = .leading
     var isActive = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ZStack(alignment: .leading) {
+        ZStack(alignment: alignment) {
             line
                 .id(text)
                 .transition(reduceMotion ? .identity : .thinkingSwap)
