@@ -201,6 +201,8 @@ struct LibraryView: View {
                 model.playback.setVolume(0)
             case "transcribe":
                 model.beginTranscription()
+            case "identify":
+                model.beginDiarization()
             case "import":
                 Task { await model.importAudio(from: [URL(fileURLWithPath: step.value)]) }
             case "trash":

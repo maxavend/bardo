@@ -225,6 +225,10 @@ final class LibraryViewModel: ObservableObject {
         try await resolveStore().recordingDirectoryURL(recordingID: recordingID)
     }
 
+    func managedAudioURL(for asset: AudioAsset, in recordingID: Recording.ID) async throws -> URL {
+        try await resolveStore().managedAudioURL(recordingID: recordingID, audioAssetID: asset.id)
+    }
+
     func playRecording(_ recordingID: Recording.ID) async {
         guard recordings.contains(where: { $0.id == recordingID }) else {
             recordingActionErrorMessage = String(localized: "That recording is no longer available.")
@@ -315,6 +319,24 @@ final class LibraryViewModel: ObservableObject {
         let recordingID = recording.id
         var lastError: String?
 
+        // A recording with both originals plays them as separate tracks, so either
+        // voice can be heard alone; the mix remains the fallback.
+        if let tracks = TranscriptionAudioSelection.separateTracks(for: recording, mode: .perTrack),
+           let activeStore = try? resolveStore(),
+           let systemURL = try? await activeStore.managedAudioURL(recordingID: recordingID, audioAssetID: tracks.system.id),
+           let microphoneURL = try? await activeStore.managedAudioURL(recordingID: recordingID, audioAssetID: tracks.microphone.id) {
+            guard selection == recordingID else { return false }
+            let loaded = controller.load(
+                tracks: [
+                    PlaybackTrack(url: microphoneURL, offset: tracks.microphone.timelineOffset, source: .microphone),
+                    PlaybackTrack(url: systemURL, offset: tracks.system.timelineOffset, source: .system)
+                ],
+                metadata: AudioPlaybackMetadata(title: recording.title, trackLabel: String(localized: "Separate tracks"))
+            )
+            if loaded { return true }
+            lastError = controller.errorMessage
+        }
+
         for asset in recording.playbackAudioAssets {
             do {
                 let activeStore = try resolveStore()
@@ -389,10 +411,13 @@ final class LibraryViewModel: ObservableObject {
         return nil
     }
 
-    func beginTranscription() {
+    /// Starts transcribing the selection. `trackMode` overrides the Settings choice for
+    /// a recording with a microphone and Mac audio track.
+    func beginTranscription(trackMode: TranscriptionTrackMode? = nil) {
         guard let recording = startTranscriptionIfPossible() else { return }
+        let mode = trackMode ?? .preferred
         transcriptionTask = Task { [weak self] in
-            await self?.runTranscription(of: recording)
+            await self?.runTranscription(of: recording, trackMode: mode)
         }
     }
 
@@ -412,9 +437,9 @@ final class LibraryViewModel: ObservableObject {
         transcriptEditErrorMessage = nil
     }
 
-    func performSelectedTranscription() async {
+    func performSelectedTranscription(trackMode: TranscriptionTrackMode = .preferred) async {
         guard let recording = startTranscriptionIfPossible() else { return }
-        await runTranscription(of: recording)
+        await runTranscription(of: recording, trackMode: trackMode)
     }
 
     /// Marks transcription as running synchronously, so a second start in the same
@@ -441,7 +466,7 @@ final class LibraryViewModel: ObservableObject {
         transcriptionProgress = snapshot
     }
 
-    private func runTranscription(of startingRecording: Recording) async {
+    private func runTranscription(of startingRecording: Recording, trackMode: TranscriptionTrackMode) async {
         var recording = startingRecording
         let recordingID = recording.id
         defer {
@@ -462,6 +487,7 @@ final class LibraryViewModel: ObservableObject {
             let generated = try await activeTranscriber.transcribe(
                 recording: recording,
                 store: activeRecordingStore,
+                trackMode: trackMode,
                 progress: { [weak self] snapshot in
                     Task { @MainActor in
                         guard let self, self.transcriptionRecordingID == recordingID else { return }
@@ -797,11 +823,8 @@ final class LibraryViewModel: ObservableObject {
                 loadedTranscript = nil
             }
 
-            let names: [String] = loadedTranscript?.speakers.enumerated().map { index, speaker -> String in
-                let trimmed = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return trimmed.isEmpty
-                    ? String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
-                    : trimmed
+            let names: [String] = loadedTranscript.map { transcript in
+                transcript.speakers.map { transcript.displayName(for: $0) }
             } ?? []
 
             documents.append(
@@ -812,9 +835,10 @@ final class LibraryViewModel: ObservableObject {
                     duration: recording.duration,
                     source: LibraryFormatting.source(recording.sources),
                     participantNames: names,
+                    // The microphone speaker counts as named once the person set their name.
                     namedParticipants: loadedTranscript?.speakers.compactMap { speaker in
-                        let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        return name.isEmpty ? nil : name
+                        speaker.name?.nonEmptyTrimmed
+                            ?? (speaker.role == .localUser ? LocalSpeakerName.current : nil)
                     } ?? [],
                     transcriptText: loadedTranscript?.text ?? ""
                 )

@@ -35,6 +35,8 @@ struct SettingsView: View {
 
     @AppStorage("bardo.appearance") private var appearanceRaw = BardoAppearancePreference.system.rawValue
     @AppStorage("bardo.default-recording-mode") private var recordingModeRaw = BardoRecordingMode.conversation.rawValue
+    @AppStorage(TranscriptionTrackMode.defaultsKey) private var trackModeRaw = TranscriptionTrackMode.perTrack.rawValue
+    @AppStorage(LocalSpeakerName.defaultsKey) private var localSpeakerName = ""
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -49,7 +51,7 @@ struct SettingsView: View {
                 .tag(SettingsTab.recording)
 
             transcriptionTab
-                .frame(width: Self.width, height: 430)
+                .frame(width: Self.width, height: 600)
                 .tabItem { Label("Transcripción", systemImage: "waveform") }
                 .tag(SettingsTab.transcription)
 
@@ -171,6 +173,20 @@ struct SettingsView: View {
                 Text("Bardo reconoce el idioma a partir del audio y mantiene la transcripción en ese idioma.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("Transcribir", selection: $trackModeRaw) {
+                    Text("Cada pista por separado").tag(TranscriptionTrackMode.perTrack.rawValue)
+                    Text("La mezcla de la conversación").tag(TranscriptionTrackMode.mix.rawValue)
+                }
+                TextField("Tu nombre", text: $localSpeakerName, prompt: Text("Tú"))
+            } header: {
+                Text("Reuniones en este Mac")
+            } footer: {
+                Text(trackModeRaw == TranscriptionTrackMode.mix.rawValue
+                    ? "Bardo transcribe la conversación como una sola pista. Las voces que se superponen pueden mezclarse."
+                    : "Tu micrófono y el audio del Mac se transcriben por separado: las voces no se pisan y lo que dices tú queda con tu nombre. Si la llamada sonó por los parlantes, Bardo descarta el eco que captó el micrófono.")
             }
 
             Section {

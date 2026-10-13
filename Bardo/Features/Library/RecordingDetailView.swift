@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct RecordingDetailView: View {
     @ObserveInjection var redraw
@@ -16,6 +17,7 @@ struct RecordingDetailView: View {
     let onMoveToTrash: (Recording) -> Void
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
+    @State private var pendingRetranscriptionMode: TranscriptionTrackMode?
     @State private var isSpeakerNamingPresented = false
     @State private var isRenamePresented = false
     @State private var isDeleteConfirmationPresented = false
@@ -124,7 +126,7 @@ struct RecordingDetailView: View {
                 primaryButton: .destructive(Text(action.confirmLabel)) {
                     switch action {
                     case .retranscribe:
-                        model.beginTranscription()
+                        model.beginTranscription(trackMode: pendingRetranscriptionMode)
                     case .rediarize:
                         model.beginDiarization()
                     }
@@ -221,17 +223,28 @@ struct RecordingDetailView: View {
                 }
                 .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
 
-                Button {
-                    if transcript.hasManualChanges {
-                        pendingReplacementAction = .retranscribe
+                Group {
+                    if hasSeparateTracks {
+                        Menu {
+                            Button("Cada pista por separado") { retranscribe(transcript, mode: .perTrack) }
+                            Button("La mezcla de la conversación") { retranscribe(transcript, mode: .mix) }
+                        } label: {
+                            Label("Transcribir de nuevo", systemImage: "arrow.clockwise")
+                        }
                     } else {
-                        model.beginTranscription()
+                        Button {
+                            retranscribe(transcript, mode: nil)
+                        } label: {
+                            Label("Transcribir de nuevo…", systemImage: "arrow.clockwise")
+                        }
                     }
-                } label: {
-                    Label("Transcribir de nuevo…", systemImage: "arrow.clockwise")
                 }
                 .disabled(recording.audioAssets.isEmpty || model.isDiarizing || model.isTranscribing)
             }
+
+            Divider()
+
+            exportMenu
 
             Divider()
 
@@ -249,6 +262,84 @@ struct RecordingDetailView: View {
         .help("Más acciones")
     }
 
+    /// Save the transcript, the conversation's audio or one of its tracks.
+    private var exportMenu: some View {
+        Menu {
+            if let transcript = currentTranscript, !transcript.text.isEmpty {
+                Button("Transcripción…") { exportTranscript(transcript) }
+                Divider()
+            }
+            if let conversation = conversationAudio {
+                Button("Audio de la conversación…") {
+                    exportAudio(conversation, name: recordingDisplayTitle)
+                }
+            }
+            if let tracks = TranscriptionAudioSelection.separateTracks(for: recording, mode: .perTrack) {
+                Button("Solo tu micrófono…") {
+                    exportAudio(tracks.microphone, name: "\(recordingDisplayTitle) – \(String(localized: "Microphone"))")
+                }
+                Button("Solo el audio del Mac…") {
+                    exportAudio(tracks.system, name: "\(recordingDisplayTitle) – \(String(localized: "Mac audio"))")
+                }
+            }
+        } label: {
+            Label("Exportar", systemImage: "square.and.arrow.up.on.square")
+        }
+        .disabled(recording.audioAssets.isEmpty && currentTranscript == nil)
+    }
+
+    private var hasSeparateTracks: Bool {
+        TranscriptionAudioSelection.separateTracks(for: recording, mode: .perTrack) != nil
+    }
+
+    /// The mix of a recording with separate tracks, or its only audio otherwise.
+    private var conversationAudio: AudioAsset? {
+        recording.playbackAudioAssets.first
+    }
+
+    private func retranscribe(_ transcript: Transcript, mode: TranscriptionTrackMode?) {
+        pendingRetranscriptionMode = mode
+        if transcript.hasManualChanges {
+            pendingReplacementAction = .retranscribe
+        } else {
+            model.beginTranscription(trackMode: mode)
+        }
+    }
+
+    private func exportTranscript(_ transcript: Transcript) {
+        let text = transcriptExport(transcript)
+        Task {
+            report(await RecordingExporter.save(suggestedName: recordingDisplayTitle, contentType: .plainText) { url in
+                try text.write(to: url, atomically: true, encoding: .utf8)
+            })
+        }
+    }
+
+    private func exportAudio(_ asset: AudioAsset, name: String) {
+        Task {
+            do {
+                let source = try await model.managedAudioURL(for: asset, in: recording.id)
+                let type = UTType(filenameExtension: source.pathExtension) ?? .audio
+                report(await RecordingExporter.save(suggestedName: name, contentType: type) { destination in
+                    try RecordingExporter.copy(source, to: destination)
+                })
+            } catch {
+                model.reportRecordingActionError(error.localizedDescription)
+            }
+        }
+    }
+
+    private func report(_ outcome: RecordingExporter.Outcome) {
+        switch outcome {
+        case .saved:
+            model.reportRecordingActionFeedback(String(localized: "Exported"))
+        case .cancelled:
+            break
+        case .failed(let message):
+            model.reportRecordingActionError(message)
+        }
+    }
+
     private var isFavorite: Bool {
         favorites.contains(recording.id)
     }
@@ -261,12 +352,7 @@ struct RecordingDetailView: View {
     /// Plain text with speaker names and timestamps, ready for Mail, Notes or Messages.
     private func transcriptExport(_ transcript: Transcript) -> String {
         let names = Dictionary(
-            transcript.speakers.enumerated().map { index, speaker in
-                let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return (speaker.id, name.isEmpty
-                    ? String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
-                    : name)
-            },
+            transcript.speakers.map { ($0.id, transcript.displayName(for: $0)) },
             uniquingKeysWith: { first, _ in first }
         )
         var lines = [recordingDisplayTitle, ""]

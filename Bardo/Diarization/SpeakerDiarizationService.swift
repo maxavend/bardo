@@ -150,6 +150,47 @@ enum TranscriptSpeakerAligner {
         return updated
     }
 
+    /// For a transcript whose tracks were transcribed apart: tells apart the participants
+    /// heard on the Mac's audio and leaves the microphone's turns with the person
+    /// recording. `intervals` must be on the recording's timeline.
+    static func applyingToOthers(
+        intervals: [DiarizationInterval],
+        to transcript: Transcript,
+        metadata: DiarizationMetadata
+    ) throws -> Transcript {
+        let local = transcript.speakers.filter { $0.role == .localUser }
+        let own = transcript.segments.filter { $0.source == .microphone }
+
+        var others = transcript
+        others.segments = transcript.segments.filter { $0.source != .microphone }
+        // The undifferentiated "Others" gives way to the participants found, unless
+        // someone already named it; then that name is kept for the first of them.
+        others.speakers = transcript.speakers.compactMap { speaker in
+            switch speaker.role {
+            case .localUser:
+                return nil
+            case .others:
+                guard speaker.name?.nonEmptyTrimmed != nil else { return nil }
+                var named = speaker
+                named.role = nil
+                return named
+            case nil:
+                return speaker
+            }
+        }
+
+        var aligned = try applying(intervals: intervals, to: others, metadata: metadata)
+        for index in aligned.segments.indices {
+            aligned.segments[index].source = .system
+        }
+        aligned.speakers = local + aligned.speakers
+        aligned.segments = (own + aligned.segments).sorted {
+            if $0.startTime == $1.startTime { return $0.endTime < $1.endTime }
+            return $0.startTime < $1.startTime
+        }
+        return aligned
+    }
+
     private static func orderedSpeakerIndices(from intervals: [DiarizationInterval]) -> [Int] {
         var seen = Set<Int>()
         return intervals.compactMap { seen.insert($0.speakerIndex).inserted ? $0.speakerIndex : nil }
@@ -294,8 +335,14 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         }
 
         let overallStart = ProcessInfo.processInfo.systemUptime
-        let (audioURL, duration) = try await resolveAudio(recording: recording, store: store)
+        // A transcript made per track already knows the microphone is the person
+        // recording, so only the Mac's audio needs its participants told apart.
+        let othersTrack = transcript.isPerTrack
+            ? recording.audioAssets.first { $0.role == .systemOriginal }
+            : nil
+        let (audioURL, duration) = try await resolveAudio(recording: recording, store: store, track: othersTrack)
         guard duration.isFinite, duration > 0 else { throw RecordingDiarizationError.invalidDuration }
+        let timelineOffset = othersTrack?.timelineOffset ?? 0
 
         try await prepareForUse { snapshot in
             let stage: DiarizationStage = snapshot.stage == .downloading
@@ -324,13 +371,17 @@ actor SpeakerDiarizationService: RecordingDiarizing {
 
         let intervals = result.segments.compactMap { segment -> DiarizationInterval? in
             guard let index = segment.speaker.speakerId else { return nil }
-            return DiarizationInterval(speakerIndex: index, startTime: TimeInterval(segment.startTime), endTime: TimeInterval(segment.endTime))
+            return DiarizationInterval(
+                speakerIndex: index,
+                startTime: TimeInterval(segment.startTime) + timelineOffset,
+                endTime: TimeInterval(segment.endTime) + timelineOffset
+            )
         }
         let alignmentStart = ProcessInfo.processInfo.systemUptime
-        let aligned = try TranscriptSpeakerAligner.applying(
-            intervals: intervals, to: transcript,
-            metadata: DiarizationMetadata(engine: "SpeakerKit", engineVersion: Self.engineVersion, modelID: Self.modelID)
-        )
+        let metadata = DiarizationMetadata(engine: "SpeakerKit", engineVersion: Self.engineVersion, modelID: Self.modelID)
+        let aligned = othersTrack == nil
+            ? try TranscriptSpeakerAligner.applying(intervals: intervals, to: transcript, metadata: metadata)
+            : try TranscriptSpeakerAligner.applyingToOthers(intervals: intervals, to: transcript, metadata: metadata)
         let alignmentMilliseconds = max(0, ProcessInfo.processInfo.systemUptime - alignmentStart) * 1_000
         let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
         var finalized = aligned
@@ -557,7 +608,15 @@ actor SpeakerDiarizationService: RecordingDiarizing {
         }
     }
 
-    private func resolveAudio(recording: Recording, store: RecordingStore) async throws -> (URL, TimeInterval) {
+    private func resolveAudio(
+        recording: Recording,
+        store: RecordingStore,
+        track: AudioAsset? = nil
+    ) async throws -> (URL, TimeInterval) {
+        if let track {
+            let url = try await store.managedAudioURL(recordingID: recording.id, audioAssetID: track.id)
+            return (url, track.metadata.duration)
+        }
         let candidates = TranscriptionAudioSelection.candidates(for: recording)
         let isDualCapture = recording.sources.contains(.systemAudio) && recording.sources.contains(.microphone)
         guard !isDualCapture || !candidates.isEmpty else { throw RecordingDiarizationError.combinedAudioUnavailable(recording.id) }

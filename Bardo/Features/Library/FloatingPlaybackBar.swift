@@ -6,6 +6,7 @@ struct FloatingPlaybackBar: View {
     @ObservedObject var playback: AudioPlaybackController
 
     @State private var isVolumePresented = false
+    @State private var isTracksPresented = false
     @State private var availableWidth: CGFloat = .infinity
 
     /// Speed and volume step aside before the timeline gets too short to scrub.
@@ -29,6 +30,11 @@ struct FloatingPlaybackBar: View {
         .padding(.horizontal, BardoLayout.playbackHorizontalPadding)
         .padding(.bottom, BardoLayout.playbackBottomPadding)
         .frame(maxWidth: .infinity)
+        #if DEBUG
+        .onDesignReviewCommand { step in
+            if step.action == "tracks" { isTracksPresented = true }
+        }
+        #endif
         .enableInjection()
     }
 
@@ -80,6 +86,10 @@ struct FloatingPlaybackBar: View {
         Divider()
             .frame(height: 24)
 
+        if playback.hasSeparateTracks {
+            tracksButton
+        }
+
         playbackRateMenu
 
         Button {
@@ -113,6 +123,61 @@ struct FloatingPlaybackBar: View {
             }
             .padding(14)
         }
+    }
+
+    /// Hear everyone, only yourself or only the others, and balance the two tracks.
+    private var tracksButton: some View {
+        Button {
+            isTracksPresented.toggle()
+        } label: {
+            Label("Pistas", systemImage: "slider.vertical.3")
+                .labelStyle(.iconOnly)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(playback.focus == .everyone ? Color.primary : Color.accentColor)
+        .help("Pistas: escucha a todos, solo a ti o solo a los demás")
+        .popover(isPresented: $isTracksPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Pistas")
+                    .font(.headline)
+
+                Picker("Escuchar", selection: Binding(
+                    get: { playback.focus },
+                    set: { playback.setFocus($0) }
+                )) {
+                    Text("Todos").tag(PlaybackFocus.everyone)
+                    Text("Solo yo").tag(PlaybackFocus.microphone)
+                    Text("Solo los demás").tag(PlaybackFocus.system)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                trackGainSlider("Tu micrófono", systemImage: "mic", source: .microphone)
+                trackGainSlider("Audio del Mac", systemImage: "macbook", source: .system)
+            }
+            .padding(14)
+            .frame(minWidth: 320)
+            // The popover takes the content's full width, so no label is ever clipped.
+            .fixedSize()
+        }
+    }
+
+    private func trackGainSlider(_ title: LocalizedStringKey, systemImage: String, source: TranscriptSource) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(title, systemImage: systemImage)
+                .font(.callout)
+            Slider(
+                value: Binding(
+                    get: { Double(source == .microphone ? playback.microphoneGain : playback.systemGain) },
+                    set: { playback.setGain(Float($0), for: source) }
+                ),
+                in: 0...1
+            )
+            .accessibilityLabel(Text(title))
+        }
+        .disabled(!playback.focus.includes(source))
     }
 
     private var transportControls: some View {
