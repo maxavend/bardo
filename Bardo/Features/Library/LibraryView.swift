@@ -18,6 +18,7 @@ struct LibraryView: View {
     @AppStorage("bardo.library.sort") private var sort: BardoLibrarySort = .newest
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isFileImporterPresented = false
+    @State private var isIssuesReviewPresented = false
     @State private var searchText = ""
     @State private var windowWidth: CGFloat = 0
     @State private var sidebarHiddenForInspector = false
@@ -47,7 +48,12 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebar(model: model, favorites: favorites, selection: $selectedSection)
+            LibrarySidebar(
+                model: model,
+                favorites: favorites,
+                selection: $selectedSection,
+                onReviewIssues: { isIssuesReviewPresented = true }
+            )
         } content: {
             RecordingListView(
                 section: selectedSection,
@@ -79,7 +85,7 @@ struct LibraryView: View {
                 .safeAreaInset(edge: .top, spacing: 0) {
                     if let activeCaptureBanner {
                         activeCaptureBanner
-                            .padding(.horizontal, 20)
+                            .padding(.horizontal, 8)
                             .padding(.top, 4)
                             .padding(.bottom, 8)
                     }
@@ -127,6 +133,9 @@ struct LibraryView: View {
                 await model.reload()
                 selectFirstRecordingIfNeeded()
             }
+        }
+        .sheet(isPresented: $isIssuesReviewPresented) {
+            LibraryIssuesSheet(model: model)
         }
         .fileImporter(
             isPresented: $isFileImporterPresented,
@@ -186,10 +195,14 @@ struct LibraryView: View {
                 columnVisibility = step.value == "hidden" ? .doubleColumn : .all
             case "settings":
                 openSettings()
+            case "issues":
+                isIssuesReviewPresented = true
             case "mute":
                 model.playback.setVolume(0)
             case "transcribe":
                 model.beginTranscription()
+            case "import":
+                Task { await model.importAudio(from: [URL(fileURLWithPath: step.value)]) }
             case "trash":
                 if let recording = model.selectedRecording { moveToTrash(recording) }
             default:

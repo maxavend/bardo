@@ -21,9 +21,9 @@ enum BardoRecordingMode: String, CaseIterable, Identifiable {
         case .microphone:
             "Graba lo que escucha el micrófono."
         case .conversation:
-            "Graba el audio del Mac y tu micrófono en pistas separadas."
+            "Graba lo que suena en el Mac, como una llamada, y tu micrófono en pistas separadas."
         case .systemAudio:
-            "Graba solamente el audio de la app, ventana o pantalla que elijas."
+            "Graba todo lo que suena en el Mac, como una llamada o un video."
         }
     }
 

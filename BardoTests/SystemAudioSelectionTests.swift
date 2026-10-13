@@ -47,6 +47,52 @@ final class SystemAudioSelectionTests: XCTestCase {
     }
 
     @MainActor
+    func testWholeSystemSelectionStartsRecordingWithoutAPicker() async throws {
+        let baseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BardoWholeSystem-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: baseURL) }
+
+        let backend = FakeSystemAudioCaptureBackend()
+        let controller = SystemAudioRecordingController(
+            store: RecordingStore(rootURL: baseURL.appendingPathComponent("Library", isDirectory: true)),
+            stagingStore: SystemAudioCaptureStagingStore(
+                rootURL: baseURL.appendingPathComponent("SystemStaging", isDirectory: true)
+            ),
+            picker: WholeSystemAudioSelection(),
+            backend: backend,
+            microphonePermission: TestMicrophonePermissionAuthorizer(status: .authorized)
+        )
+
+        // Nothing to choose: starting goes straight to recording the whole Mac.
+        await controller.start(includeMicrophone: true)
+        await waitUntil { controller.phase == .recording }
+        XCTAssertEqual(backend.startCount, 1)
+
+        let recording = await controller.stop()
+        XCTAssertNotNil(recording)
+        XCTAssertEqual(controller.phase, .idle)
+    }
+
+    @MainActor
+    func testWholeSystemSelectionReportsUpdatesOnlyWhileActive() {
+        let selection = WholeSystemAudioSelection()
+        var events: [Bool] = []
+        selection.eventHandler = { event in
+            if case .selected(let content, let isUpdate) = event {
+                XCTAssertTrue(content === SystemContentSelection.entireSystem)
+                events.append(isUpdate)
+            }
+        }
+
+        selection.present()
+        selection.present()
+        selection.deactivate()
+        selection.present()
+
+        XCTAssertEqual(events, [false, true, false])
+    }
+
+    @MainActor
     private func waitUntil(
         _ condition: @escaping @MainActor () -> Bool,
         file: StaticString = #filePath,

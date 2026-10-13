@@ -186,6 +186,11 @@ enum ScreenCaptureKitCompletionBridge {
 }
 
 final class SystemAudioSampleProcessor: @unchecked Sendable {
+    enum Track: Sendable {
+        case system
+        case microphone
+    }
+
     enum AppendResult: Equatable, Sendable {
         case recording
         /// One track stopped; the other configured track keeps recording.
@@ -213,18 +218,24 @@ final class SystemAudioSampleProcessor: @unchecked Sendable {
     }
 
     func append(_ sampleBuffer: CMSampleBuffer, type: SCStreamOutputType) -> AppendResult {
+        switch type {
+        case .audio: append(sampleBuffer, track: .system)
+        case .microphone: append(sampleBuffer, track: .microphone)
+        default: .recording
+        }
+    }
+
+    func append(_ sampleBuffer: CMSampleBuffer, track: Track) -> AppendResult {
         let writers = lock.bardoWithLock { (systemWriter, microphoneWriter) }
         let writer: CMSampleBufferAudioWriter?
         let sourceName: String
-        switch type {
-        case .audio:
+        switch track {
+        case .system:
             writer = writers.0
             sourceName = String(localized: "System audio")
         case .microphone:
             writer = writers.1
             sourceName = String(localized: "Microphone")
-        default:
-            return .recording
         }
 
         guard let writer,

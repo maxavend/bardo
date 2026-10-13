@@ -35,7 +35,7 @@ struct SetupStatusBanner: View {
                     .controlSize(.small)
             }
         }
-        .frame(maxWidth: 720)
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title). \(detail)")
     }

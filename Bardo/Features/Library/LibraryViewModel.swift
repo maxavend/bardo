@@ -16,6 +16,9 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var transcriptionProgress: TranscriptionProgressSnapshot?
     @Published private(set) var liveTranscription: TranscriptionLiveSnapshot?
     @Published private(set) var transcriptionRecordingID: Recording.ID?
+    /// When the running transcription's current stage began, so the interface can show
+    /// estimates and timed messages that survive leaving the view.
+    @Published private(set) var transcriptionStageStartedAt: Date?
     @Published private(set) var diarizationErrorMessage: String?
     @Published private(set) var diarizationProgress: DiarizationProgressSnapshot?
     @Published private(set) var diarizationRecordingID: Recording.ID?
@@ -196,6 +199,28 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    /// Shows the item behind a Library issue in Finder.
+    func revealIssue(_ issue: RecordingStoreIssue) async {
+        guard let url = try? await resolveStore().itemURL(for: issue) else {
+            recordingActionErrorMessage = String(localized: "That item is no longer in the Library.")
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    /// Moves the items behind the given Library issues to the macOS Trash and reloads.
+    func moveIssuesToTrash(_ selected: [RecordingStoreIssue]) async {
+        do {
+            let activeStore = try resolveStore()
+            for issue in selected where issue.canMoveToTrash {
+                try await activeStore.moveIssueItemToTrash(issue)
+            }
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+        }
+        await reload()
+    }
+
     func managedLocation(for recordingID: Recording.ID) async throws -> URL {
         try await resolveStore().recordingDirectoryURL(recordingID: recordingID)
     }
@@ -321,14 +346,14 @@ final class LibraryViewModel: ObservableObject {
         transcriptErrorMessage = nil
         transcriptEditErrorMessage = nil
         diarizationErrorMessage = nil
+        // Live text belongs to the running job; keep it while the person looks at other
+        // conversations so coming back shows everything recognized so far.
+        if liveTranscription?.recordingID != transcriptionRecordingID {
+            liveTranscription = nil
+        }
         guard let recordingID = selection else {
             transcript = nil
-            liveTranscription = nil
             return
-        }
-
-        if transcriptionRecordingID != recordingID {
-            liveTranscription = nil
         }
 
         do {
@@ -404,8 +429,16 @@ final class LibraryViewModel: ObservableObject {
         transcriptEditErrorMessage = nil
         diarizationErrorMessage = nil
         transcriptionProgress = .init(stage: .preparingModel, fractionCompleted: 0)
+        transcriptionStageStartedAt = .now
         liveTranscription = .empty(recordingID: recording.id, audioDuration: recording.duration ?? 0)
         return recording
+    }
+
+    private func setTranscriptionProgress(_ snapshot: TranscriptionProgressSnapshot) {
+        if transcriptionProgress?.stage != snapshot.stage {
+            transcriptionStageStartedAt = .now
+        }
+        transcriptionProgress = snapshot
     }
 
     private func runTranscription(of startingRecording: Recording) async {
@@ -415,6 +448,7 @@ final class LibraryViewModel: ObservableObject {
             isTranscribing = false
             transcriptionRecordingID = nil
             transcriptionProgress = nil
+            transcriptionStageStartedAt = nil
             liveTranscription = nil
             transcriptionTask = nil
         }
@@ -430,19 +464,14 @@ final class LibraryViewModel: ObservableObject {
                 store: activeRecordingStore,
                 progress: { [weak self] snapshot in
                     Task { @MainActor in
-                        guard let self,
-                              self.transcriptionRecordingID == recordingID,
-                              self.selection == recordingID else {
-                            return
-                        }
-                        self.transcriptionProgress = snapshot
+                        guard let self, self.transcriptionRecordingID == recordingID else { return }
+                        self.setTranscriptionProgress(snapshot)
                     }
                 },
                 liveUpdate: { [weak self] snapshot in
                     Task { @MainActor in
                         guard let self,
                               self.transcriptionRecordingID == recordingID,
-                              self.selection == recordingID,
                               snapshot.recordingID == recordingID else {
                             return
                         }
@@ -452,7 +481,7 @@ final class LibraryViewModel: ObservableObject {
             )
             try Task.checkCancellation()
 
-            transcriptionProgress = .init(stage: .saving, fractionCompleted: 0)
+            setTranscriptionProgress(.init(stage: .saving, fractionCompleted: 0))
             let activeTranscriptStore = try resolveTranscriptStore()
             try await activeTranscriptStore.save(generated)
 

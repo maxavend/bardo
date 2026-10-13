@@ -26,6 +26,9 @@ enum DesignReview {
 
     static var isActive: Bool { captureDirectory != nil }
 
+    /// `-BardoDesignWelcome YES` shows the first-run welcome without resetting setup.
+    static var showsWelcome: Bool { isActive && arguments.bool(forKey: "BardoDesignWelcome") }
+
     private static var captureDirectory: URL? {
         arguments.string(forKey: "BardoDesignCapture").map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
@@ -55,7 +58,8 @@ enum DesignReview {
             try? await Task.sleep(for: .seconds(1.2))
             NSApp.activate()
             try? await Task.sleep(for: .seconds(0.3))
-            let name = scenario.replacingOccurrences(of: ":", with: "-")
+            // File names stop at 255 bytes; scenarios with paths can be longer.
+            let name = String(scenario.replacingOccurrences(of: ":", with: "-").suffix(120))
             if steps.contains(where: { $0.action == "menus" }) {
                 writeMenus(into: directory, name: name)
             }

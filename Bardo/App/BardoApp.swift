@@ -32,6 +32,7 @@ struct BardoApp: App {
                     BardoLaunchView()
                 }
             }
+            .groupBoxStyle(.bardoCard)
             .frame(minWidth: 920, minHeight: 600)
         }
         .defaultSize(width: BardoLayout.windowDefaultWidth, height: 800)

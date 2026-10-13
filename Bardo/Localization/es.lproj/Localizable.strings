@@ -482,3 +482,17 @@
 "Play a short local sample of this speaker" = "Escucha una muestra breve de esta voz";
 "No representative audio sample" = "No hay una muestra de audio representativa";
 "No representative sample" = "Sin muestra representativa";
+
+
+/* Welcome */
+"Welcome to Bardo" = "Te damos la bienvenida a Bardo";
+"Record or import conversations and turn them into text you can read, search and share." = "Graba o importa conversaciones y conviértelas en texto que puedes leer, buscar y compartir.";
+"Turn recordings into clear text, with the moment of every sentence." = "Convierte tus grabaciones en texto claro, con el momento exacto de cada frase.";
+"Everything stays on your Mac" = "Todo se queda en tu Mac";
+"Audio and transcripts are processed here and are never sent to an online service." = "El audio y las transcripciones se procesan aquí y nunca se envían a un servicio en línea.";
+"Bardo will download about 650 MB of voice resources so it can work offline." = "Bardo descargará unos 650 MB de recursos de voz para poder trabajar sin conexión.";
+"That item is no longer in the Library." = "Ese elemento ya no está en la biblioteca.";
+"Bardo did not hear any Mac audio. If something was playing, allow Bardo in System Settings › Privacy & Security › Screen & System Audio Recording." = "Bardo no escuchó audio del Mac. Si algo estaba sonando, permite a Bardo en Ajustes del Sistema › Privacidad y seguridad › Grabación de pantalla y audio del sistema.";
+"Bardo could not listen to the Mac's audio (Core Audio error %d)." = "Bardo no pudo escuchar el audio del Mac (error de Core Audio %d).";
+"No microphone is available." = "No hay ningún micrófono disponible.";
+"The microphone could not be connected." = "No se pudo conectar el micrófono.";

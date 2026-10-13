@@ -31,6 +31,11 @@ enum BardoLayout {
     static let followLiveGapAbovePlayback: CGFloat = 8
 }
 
+enum BardoColor {
+    /// Stop recording: deeper than the system red so its white label reaches 6:1.
+    static let stopRecording = Color(red: 0.76, green: 0.11, blue: 0.13)
+}
+
 enum BardoSpacing {
     static let detailHorizontal: CGFloat = BardoLayout.libraryDetailPadding
     static let section: CGFloat = 20
@@ -39,4 +44,24 @@ enum BardoSpacing {
 enum BardoCornerRadius {
     /// Reserved for the one legitimate floating glass control: playback.
     static let floating: CGFloat = 12
+}
+
+/// The system group box with room to breathe: AppKit's default inset leaves text and
+/// buttons close to the edge, which reads as cramped in Bardo's progress and notice
+/// cards. The box itself stays native.
+struct BardoCardGroupBoxStyle: GroupBoxStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        GroupBox {
+            configuration.content
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+        } label: {
+            configuration.label
+        }
+        .groupBoxStyle(.automatic)
+    }
+}
+
+extension GroupBoxStyle where Self == BardoCardGroupBoxStyle {
+    static var bardoCard: BardoCardGroupBoxStyle { BardoCardGroupBoxStyle() }
 }

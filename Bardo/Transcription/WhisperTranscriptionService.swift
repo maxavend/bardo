@@ -452,10 +452,12 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         }
 
         progress(.init(stage: .preparingModel, fractionCompleted: 0))
+        Self.logger.notice("Transcription started: \(duration, format: .fixed(precision: 1)) s of audio")
         let resources = try await modelManager.ensureResourcesAvailable { fraction in
             progress(.init(stage: .preparingModel, fractionCompleted: Self.clamped(fraction)))
         }
         try checkCancellation(cancellation)
+        Self.logger.notice("Transcription resources ready after \(ProcessInfo.processInfo.systemUptime - overallStart, format: .fixed(precision: 1)) s")
 
         let whisper: WhisperKit
         do {
@@ -471,6 +473,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         }
         try checkCancellation(cancellation)
         progress(.init(stage: .transcribing, fractionCompleted: 0))
+        Self.logger.notice("Whisper is listening after \(ProcessInfo.processInfo.systemUptime - overallStart, format: .fixed(precision: 1)) s")
 
         let options = Self.decodingOptions(for: performanceProfile)
         let audioInputOptions = Self.audioInputOptions(for: performanceProfile)
@@ -643,6 +646,8 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         }
 
         progress(.init(stage: .loadingModel, fractionCompleted: 0))
+        let loadStart = ProcessInfo.processInfo.systemUptime
+        Self.logger.notice("Loading the Whisper model; the first load on a Mac compiles it for the Neural Engine")
         let load: Task<LoadedWhisperEngine, Error>
         if let engineLoad {
             load = engineLoad
@@ -672,6 +677,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         // a finished load is kept warm by `engineLoadFinished`.
         let engine = try await CancellableAwait.value(of: load, cancelUnderlyingTask: false)
         engineLoadFinished(load, engine: engine)
+        Self.logger.notice("Whisper model ready in \(ProcessInfo.processInfo.systemUptime - loadStart, format: .fixed(precision: 1)) s")
         progress(.init(stage: .loadingModel, fractionCompleted: 1))
         return loadedWhisper ?? engine.whisper
     }

@@ -14,6 +14,14 @@ final class SystemContentSelection: @unchecked Sendable {
         self.filter = nil
         self.testIdentifier = testIdentifier
     }
+
+    private init() {
+        self.filter = nil
+        self.testIdentifier = nil
+    }
+
+    /// Everything the Mac plays, for backends that need no picked content.
+    static let entireSystem = SystemContentSelection()
 }
 
 enum SystemContentSelectionEvent: @unchecked Sendable {
@@ -75,6 +83,7 @@ enum SystemAudioCaptureError: Error, LocalizedError, Equatable, Sendable {
     case noAudioSamples(String)
     case writer(String)
     case screenCapture(String)
+    case systemAudio(String)
 
     var errorDescription: String? {
         switch self {
@@ -92,6 +101,8 @@ enum SystemAudioCaptureError: Error, LocalizedError, Equatable, Sendable {
             return String(localized: "Bardo could not write captured audio: \(message)")
         case .screenCapture(let message):
             return String(localized: "ScreenCaptureKit could not continue: \(message)")
+        case .systemAudio(let message):
+            return message
         }
     }
 }

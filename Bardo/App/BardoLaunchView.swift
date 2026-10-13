@@ -5,6 +5,18 @@ struct BardoLaunchView: View {
     @AppStorage("Bardo.WelcomeCompleted.v1") private var hasCompletedWelcome = false
 
     var body: some View {
+        #if DEBUG
+        if DesignReview.showsWelcome {
+            BardoWelcomeView {}
+        } else {
+            launchContent
+        }
+        #else
+        launchContent
+        #endif
+    }
+
+    private var launchContent: some View {
         Group {
             // Once unlocked, the Library never goes away again during a session: missing
             // or failing models only affect transcription, shown in a banner.
@@ -41,64 +53,87 @@ struct BardoLaunchView: View {
 private struct BardoWelcomeView: View {
     let continueAction: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hasAppeared = false
+
     var body: some View {
-        VStack {
-            Spacer(minLength: 32)
+        ScrollView {
+            VStack(spacing: 0) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 96, height: 96)
+                    .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
+                    .accessibilityHidden(true)
+                    .entrance(step: 0, isVisible: isVisible)
 
-            GroupBox {
-                VStack(alignment: .leading, spacing: 26) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(String(localized: "Welcome to"))
-                            .foregroundStyle(Color.accentColor)
-                        Text("Bardo")
-                    }
-                    .font(.title2.weight(.bold))
+                VStack(spacing: 8) {
+                    Text(String(localized: "Welcome to Bardo"))
+                        .font(.largeTitle.weight(.bold))
+                        .multilineTextAlignment(.center)
 
-                    VStack(alignment: .leading, spacing: 18) {
-                        WelcomeFeatureRow(
-                            systemImage: "waveform.and.mic",
-                            title: String(localized: "Transcribe conversations"),
-                            detail: String(localized: "Turn recordings into readable text locally on your Mac.")
-                        )
-
-                        WelcomeFeatureRow(
-                            systemImage: "person.2.wave.2",
-                            title: String(localized: "Identify participants"),
-                            detail: String(localized: "Organize conversations by speaker so each voice has its own place.")
-                        )
-                    }
-
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "lock.shield")
-                            .font(.title3)
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 34)
-                            .accessibilityHidden(true)
-
-                        Text(String(localized: "Bardo processes your recordings locally on this Mac. Audio and transcripts stay on your device."))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    HStack {
-                        Spacer()
-
-                        Button(String(localized: "Continue"), action: continueAction)
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
-                            .keyboardShortcut(.defaultAction)
-                    }
+                    Text(String(localized: "Record or import conversations and turn them into text you can read, search and share."))
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(14)
-            }
-            .frame(maxWidth: 500)
+                .padding(.top, 16)
+                .entrance(step: 1, isVisible: isVisible)
 
-            Spacer(minLength: 32)
+                VStack(alignment: .leading, spacing: 18) {
+                    WelcomeFeatureRow(
+                        systemImage: "waveform.and.mic",
+                        title: String(localized: "Transcribe conversations"),
+                        detail: String(localized: "Turn recordings into clear text, with the moment of every sentence.")
+                    )
+                    .entrance(step: 2, isVisible: isVisible)
+
+                    WelcomeFeatureRow(
+                        systemImage: "person.2.wave.2",
+                        title: String(localized: "Identify participants"),
+                        detail: String(localized: "Organize conversations by speaker so each voice has its own place.")
+                    )
+                    .entrance(step: 3, isVisible: isVisible)
+
+                    WelcomeFeatureRow(
+                        systemImage: "lock.shield",
+                        title: String(localized: "Everything stays on your Mac"),
+                        detail: String(localized: "Audio and transcripts are processed here and are never sent to an online service.")
+                    )
+                    .entrance(step: 4, isVisible: isVisible)
+                }
+                .padding(.top, 28)
+
+                VStack(spacing: 12) {
+                    Button(action: continueAction) {
+                        Text(String(localized: "Continue"))
+                            .frame(minWidth: 180)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.extraLarge)
+                    .keyboardShortcut(.defaultAction)
+
+                    Text(String(localized: "Bardo will download about 650 MB of voice resources so it can work offline."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 32)
+                .entrance(step: 5, isVisible: isVisible)
+            }
+            .frame(maxWidth: 460)
+            .padding(.horizontal, 32)
+            .padding(.vertical, 32)
+            .frame(maxWidth: .infinity)
         }
-        .padding(32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .scrollBounceBehavior(.basedOnSize)
+        .defaultScrollAnchor(.center)
+        .onAppear { hasAppeared = true }
     }
+
+    private var isVisible: Bool { reduceMotion || hasAppeared }
 }
 
 private struct WelcomeFeatureRow: View {
@@ -107,24 +142,34 @@ private struct WelcomeFeatureRow: View {
     let detail: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: 16) {
             Image(systemName: systemImage)
-                .font(.title2)
+                .font(.system(size: 28, weight: .regular))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Color.accentColor)
-                .frame(width: 42)
+                .frame(width: 44, height: 30)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.headline)
 
                 Text(detail)
-                    .font(.callout)
+                    .font(.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+}
+
+private extension View {
+    /// Elements settle in one after another: a short rise and fade, staggered.
+    func entrance(step: Int, isVisible: Bool) -> some View {
+        opacity(isVisible ? 1 : 0)
+            .offset(y: isVisible ? 0 : 10)
+            .animation(.easeOut(duration: 0.45).delay(0.08 * Double(step)), value: isVisible)
     }
 }

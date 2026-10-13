@@ -44,10 +44,10 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 
 ### 4. System audio
 
-- Start a system-audio recording.
-- Choose a display, app, or window in the macOS sharing picker.
-- Grant Screen & System Audio Recording permission if required.
-- Confirm the resulting recording plays back.
+- Play something with sound (a video, or a Meet, Zoom or Discord call) and start an **Audio interno** recording. Recording starts at once; there is nothing to choose.
+- The first time, macOS asks to let Bardo record system audio; allow it.
+- Confirm the resulting recording plays back what was playing.
+- Deny or revoke the permission in System Settings › Privacy & Security › Screen & System Audio Recording and record again: Bardo must warn that it heard no Mac audio.
 
 ### 5. System + microphone
 
@@ -59,8 +59,6 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 - Start a microphone recording, speak for 20 seconds, then force quit Bardo (⌥⌘⎋).
 - Relaunch: a banner reports an interrupted recording. Open it, choose **Recuperar**, and confirm the recording appears with its title and plays the 20 seconds.
 - Repeat with system + microphone; the recovered recording must contain both sources and the mix.
-- During a system-audio recording choose **Cambiar fuente…** and immediately **Finalizar**: the recording must be saved once and the status must not return to "Grabando".
-- While choosing content in the macOS picker, use **Cancelar** in Bardo's status pill.
 - Quit Bardo with ⌘Q during a recording: it is saved before the app closes.
 
 ### 6. Real transcription

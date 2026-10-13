@@ -83,8 +83,8 @@ final class SystemAudioRecordingController: ObservableObject {
     init(
         store: RecordingStore? = nil,
         stagingStore: SystemAudioCaptureStagingStore? = nil,
-        picker: any SystemContentSelecting = ScreenCapturePickerCoordinator(),
-        backend: any SystemAudioCapturing = ScreenCaptureKitAudioBackend(),
+        picker: any SystemContentSelecting = WholeSystemAudioSelection(),
+        backend: any SystemAudioCapturing = CoreAudioTapCaptureBackend(),
         microphonePermission: any MicrophonePermissionAuthorizing = SystemMicrophonePermissionAuthorizer(),
         metadataReader: AudioMetadataReader = AudioMetadataReader(),
         mixer: any ConversationMixing = AVFoundationConversationMixer()

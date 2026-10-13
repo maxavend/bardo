@@ -13,5 +13,5 @@ Bardo is a macOS app built with Swift 6 / SwiftUI. The project targets macOS 15+
 
 ## UI refactor principle
 
-- Do not animate live transcription word-by-word with blur/opacity/stagger effects. Live ASR updates are frequent and must render as lightweight plain text to protect UI responsiveness. Karaoke highlighting, if used, is reserved for playback of completed transcripts.
+- Live transcription must stay lightweight: settled text renders as plain `Text`. Only a passage that has just arrived may reveal its words, once, by changing their opacity inside a single `Text` (`StreamingRevealText`: 60 ms per word, 350 ms fade, at most 1.5 s per passage, still under Reduce Motion). Never add per-word views, blur or replays to live text. Karaoke highlighting is reserved for playback of completed transcripts.
 - Prefer native SwiftUI/AppKit macOS controls and behavior over visual emulation. Preserve working behavior and avoid redesigning stable UI unless the change is a clear usability or platform-consistency improvement.
