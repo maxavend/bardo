@@ -54,6 +54,15 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 - Record system audio and microphone together.
 - Confirm Bardo preserves both original sources and produces a playable conversation recording.
 
+### 5a. Tracks of a meeting
+
+- Record a call with **Reunión en este Mac**, talking over the other person at least once, then transcribe it.
+- With **Ajustes › Transcripción › Transcribir: Cada pista por separado** (the default), your words appear under **Tú** (or the name set in **Tu nombre**) and the call under **Los demás**; overlapping speech keeps both turns.
+- Record a call with the Mac's speakers instead of headphones: the microphone's echo of the call must not appear as your words.
+- **Identificar participantes** tells apart only the people on the call; **Tú** stays as it is. In the naming sheet, each sample plays only its own track.
+- In the player, **Pistas** switches between **Todos**, **Solo yo** and **Solo los demás** and balances the two tracks without losing sync, also after seeking and changing speed.
+- **Más acciones › Transcribir de nuevo** offers each track apart or the mix; **Más acciones › Exportar** saves the transcript, the conversation audio, or each track alone.
+
 ### 5b. Interruptions and recovery
 
 - Start a microphone recording, speak for 20 seconds, then force quit Bardo (⌥⌘⎋).

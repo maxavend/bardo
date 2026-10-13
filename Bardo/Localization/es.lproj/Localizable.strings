@@ -496,3 +496,8 @@
 "Bardo could not listen to the Mac's audio (Core Audio error %d)." = "Bardo no pudo escuchar el audio del Mac (error de Core Audio %d).";
 "No microphone is available." = "No hay ningún micrófono disponible.";
 "The microphone could not be connected." = "No se pudo conectar el micrófono.";
+"You" = "Tú";
+"Others" = "Los demás";
+"Separate tracks" = "Pistas separadas";
+"Mac audio" = "Audio del Mac";
+"Exported" = "Exportado";

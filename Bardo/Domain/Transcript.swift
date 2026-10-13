@@ -1,12 +1,45 @@
 import Foundation
 
+/// Who a speaker is when Bardo knows it from the track they were heard on.
+enum SpeakerRole: String, Codable, Sendable {
+    /// The person recording, heard on the microphone track.
+    case localUser
+    /// Everyone heard on the Mac's audio before participants are told apart.
+    case others
+}
+
 struct Speaker: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var name: String?
+    var role: SpeakerRole?
 
-    init(id: UUID = UUID(), name: String? = nil) {
+    init(id: UUID = UUID(), name: String? = nil, role: SpeakerRole? = nil) {
         self.id = id
         self.name = name
+        self.role = role
+    }
+}
+
+/// The original track a segment was recognised from, when tracks were transcribed apart.
+enum TranscriptSource: String, Codable, Sendable {
+    case microphone
+    case system
+}
+
+/// How a recording with a microphone and Mac audio track is transcribed.
+enum TranscriptionTrackMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// Each track on its own: no overlapping voices, and the microphone is always you.
+    case perTrack
+    /// The combined conversation mix, as one recording.
+    case mix
+
+    var id: String { rawValue }
+
+    static let defaultsKey = "bardo.transcription.track-mode"
+
+    /// The mode chosen in Settings; per track unless the person picked the mix.
+    static var preferred: TranscriptionTrackMode {
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .perTrack
     }
 }
 
@@ -40,6 +73,7 @@ struct TranscriptSegment: Identifiable, Codable, Equatable, Sendable {
     var text: String
     var words: [TranscriptWord]
     var editedText: String?
+    var source: TranscriptSource?
 
     init(
         id: UUID = UUID(),
@@ -48,7 +82,8 @@ struct TranscriptSegment: Identifiable, Codable, Equatable, Sendable {
         speakerID: Speaker.ID? = nil,
         text: String,
         words: [TranscriptWord] = [],
-        editedText: String? = nil
+        editedText: String? = nil,
+        source: TranscriptSource? = nil
     ) {
         self.id = id
         self.startTime = startTime
@@ -57,6 +92,7 @@ struct TranscriptSegment: Identifiable, Codable, Equatable, Sendable {
         self.text = text
         self.words = words
         self.editedText = editedText
+        self.source = source
     }
 
     var displayText: String {
@@ -71,6 +107,8 @@ struct TranscriptMetadata: Codable, Equatable, Sendable {
     let selection: TranscriptionSelection?
     let createdAt: Date
     let processingDuration: TimeInterval?
+    /// Set when a recording's tracks were transcribed apart or as their mix.
+    let trackMode: TranscriptionTrackMode?
 
     init(
         engine: String,
@@ -78,7 +116,8 @@ struct TranscriptMetadata: Codable, Equatable, Sendable {
         modelID: String,
         selection: TranscriptionSelection? = nil,
         createdAt: Date = Date(),
-        processingDuration: TimeInterval? = nil
+        processingDuration: TimeInterval? = nil,
+        trackMode: TranscriptionTrackMode? = nil
     ) {
         self.engine = engine
         self.engineVersion = engineVersion
@@ -86,6 +125,7 @@ struct TranscriptMetadata: Codable, Equatable, Sendable {
         self.selection = selection
         self.createdAt = createdAt
         self.processingDuration = processingDuration
+        self.trackMode = trackMode
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -95,6 +135,7 @@ struct TranscriptMetadata: Codable, Equatable, Sendable {
         case selection
         case createdAt
         case processingDuration
+        case trackMode
     }
 
     init(from decoder: Decoder) throws {
@@ -105,6 +146,7 @@ struct TranscriptMetadata: Codable, Equatable, Sendable {
         selection = try container.decodeIfPresent(TranscriptionSelection.self, forKey: .selection)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         processingDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .processingDuration)
+        trackMode = try container.decodeIfPresent(TranscriptionTrackMode.self, forKey: .trackMode)
     }
 }
 
@@ -177,5 +219,10 @@ struct Transcript: Codable, Equatable, Sendable {
 
     var hasManualChanges: Bool {
         hasManualTextEdits || hasNamedSpeakers
+    }
+
+    /// Whether the microphone and the Mac's audio were transcribed apart.
+    var isPerTrack: Bool {
+        metadata.trackMode == .perTrack
     }
 }

@@ -309,7 +309,7 @@ struct SpeakerNamingSheet: View {
     }
 
     private func speakerRow(_ speaker: Speaker, index: Int) -> some View {
-        let fallback = String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
+        let fallback = transcript.defaultName(for: speaker)
         let preview = model.speakerPreviews.first { $0.speakerID == speaker.id }
         let isThisPreviewPlaying = activePreviewSpeakerID == speaker.id && previewPlayback.isPlaying
 
@@ -322,6 +322,10 @@ struct SpeakerNamingSheet: View {
                     previewPlayback.pause()
                 } else {
                     activePreviewSpeakerID = speaker.id
+                    // With separate tracks, a sample plays only the track that voice is on.
+                    previewPlayback.setFocus(
+                        speaker.role == .localUser ? .microphone : (transcript.isPerTrack ? .system : .everyone)
+                    )
                     _ = previewPlayback.playPreview(
                         from: preview.startTime,
                         to: preview.endTime
@@ -379,9 +383,7 @@ struct SpeakerNamingSheet: View {
                 } else {
                     Section("Fusionar con") {
                         ForEach(Array(otherSpeakers.enumerated()), id: \.element.id) { otherIndex, target in
-                            let targetFallback = transcript.speakers.firstIndex(where: { $0.id == target.id })
-                                .map { String.localizedStringWithFormat(String(localized: "Speaker %lld"), $0 + 1) }
-                                ?? String(localized: "Unassigned Speaker")
+                            let targetFallback = transcript.defaultName(for: target)
                             let targetName = target.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                             Button(targetName.isEmpty ? targetFallback : targetName) {
                                 let sourceName = names[speaker.id, default: ""].trimmingCharacters(in: .whitespacesAndNewlines)

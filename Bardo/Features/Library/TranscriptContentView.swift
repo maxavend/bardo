@@ -13,6 +13,8 @@ struct TranscriptContentView: View {
     let searchQuery: String
     @Binding var editor: TranscriptEditorState?
     @Binding var isSpeakerNamingPresented: Bool
+    /// Read by the speaker labels; observed so a new name in Settings shows at once.
+    @AppStorage(LocalSpeakerName.defaultsKey) private var localSpeakerName = ""
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var followsLiveTranscription = true
@@ -423,16 +425,8 @@ struct TranscriptContentView: View {
                             playback: playback,
                             canEdit: !model.isTranscribing && !model.isDiarizing,
                             searchQuery: searchQuery,
-                            speakerChoices: transcript.speakers.enumerated().map { index, speaker in
-                                TranscriptSpeakerChoice(
-                                    id: speaker.id,
-                                    label: {
-                                        let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                                        return name.isEmpty
-                                            ? String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
-                                            : name
-                                    }()
-                                )
+                            speakerChoices: transcript.speakers.map { speaker in
+                                TranscriptSpeakerChoice(id: speaker.id, label: transcript.displayName(for: speaker))
                             },
                             onEditSegment: { segment in editor = .segment(segment) },
                             onAssignSpeaker: { speakerID in
@@ -478,27 +472,17 @@ struct TranscriptContentView: View {
     }
 
     private func speakerEditorState(speakerID: Speaker.ID, transcript: Transcript) -> TranscriptEditorState? {
-        guard let speaker = transcript.speakers.first(where: { $0.id == speakerID }) else { return nil }
-        let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) ?? 0
-        return .speaker(
-            speaker,
-            fallbackName: String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
-        )
+        guard let speaker = transcript.speaker(withID: speakerID) else { return nil }
+        return .speaker(speaker, fallbackName: transcript.defaultName(for: speaker))
     }
 
     private func speakerLabel(for speakerID: Speaker.ID?, in transcript: Transcript) -> String {
-        guard let speakerID,
-              let index = transcript.speakers.firstIndex(where: { $0.id == speakerID }) else {
+        guard let speaker = transcript.speaker(withID: speakerID) else {
             return transcript.speakers.isEmpty
                 ? String(localized: "Transcript")
                 : String(localized: "Unassigned Speaker")
         }
-
-        let speaker = transcript.speakers[index]
-        if let name = speaker.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
-            return name
-        }
-        return String.localizedStringWithFormat(String(localized: "Speaker %lld"), index + 1)
+        return transcript.displayName(for: speaker)
     }
 }
 
