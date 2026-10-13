@@ -86,8 +86,9 @@ struct RecordingListView: View {
     }
 
     private var recordingList: some View {
-        List(selection: $model.selection) {
-            ForEach(visibleRecordings) { recording in
+        let recordings = visibleRecordings
+        return List(selection: $model.selection) {
+            ForEach(recordings) { recording in
                 RecordingListRow(
                     recording: recording,
                     isFavorite: favorites.contains(recording.id),
@@ -99,6 +100,11 @@ struct RecordingListView: View {
             }
         }
         .listStyle(.inset)
+        // Rows the macOS List inserts after its first layout keep a one-line default
+        // height, clipping the second line of a recording that was just made or
+        // imported. Rebuilding the list when its rows change measures every row again;
+        // the selection lives in the model, so it survives.
+        .id(recordings.map(\.id))
         .contextMenu(forSelectionType: Recording.ID.self) { ids in
             if let id = ids.first, let recording = model.recordings.first(where: { $0.id == id }) {
                 contextMenu(for: recording)

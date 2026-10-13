@@ -201,6 +201,8 @@ struct LibraryView: View {
                 model.playback.setVolume(0)
             case "transcribe":
                 model.beginTranscription()
+            case "import":
+                Task { await model.importAudio(from: [URL(fileURLWithPath: step.value)]) }
             case "trash":
                 if let recording = model.selectedRecording { moveToTrash(recording) }
             default:
