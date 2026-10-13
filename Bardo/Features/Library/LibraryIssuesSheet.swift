@@ -17,9 +17,12 @@ struct LibraryIssuesSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Elementos que necesitan revisión")
                     .font(.title2.weight(.semibold))
-                Text("Bardo encontró en tu biblioteca archivos que no puede mostrar como conversaciones. No afectan a tus conversaciones; puedes revisarlos en Finder o moverlos a la Papelera de macOS, de donde se pueden recuperar.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                // Once everything is resolved the explanation no longer applies.
+                if !model.issues.isEmpty {
+                    Text("Bardo encontró en tu biblioteca archivos que no puede mostrar como conversaciones. No afectan a tus conversaciones; puedes revisarlos en Finder o moverlos a la Papelera de macOS, de donde se pueden recuperar.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(24)
 
@@ -29,7 +32,8 @@ struct LibraryIssuesSheet: View {
                     systemImage: "checkmark.circle",
                     description: Text("No queda nada por revisar en tu biblioteca.")
                 )
-                .frame(minHeight: 180)
+                .frame(maxWidth: .infinity, minHeight: 180)
+                .padding(.bottom, 24)
             } else {
                 List(model.issues) { issue in
                     LibraryIssueRow(
