@@ -133,6 +133,10 @@ struct RootView: View {
             .onDesignReviewCommand { step in
                 if step.action == "recovery" { isRecoveryPresented = true }
                 if step.action == "recordingBanner" { previewsRecordingBanner = true }
+                if step.action == "record" {
+                    Task { await startSystemRecording(includeMicrophone: step.value == "conversation", title: "Prueba de audio") }
+                }
+                if step.action == "stopRecording" { Task { await stopSystemRecording() } }
             }
             #endif
             .onDisappear {
@@ -165,7 +169,6 @@ struct RootView: View {
                 title: "Grabando",
                 detail: "Tu voz y el audio del Mac se están guardando por separado.",
                 duration: 15,
-                changeSourceAction: {},
                 stopAction: {}
             ))
         }
@@ -244,8 +247,8 @@ struct RootView: View {
             )
         case .selectingContent:
             transitionPill(
-                title: "Elige qué quieres grabar",
-                detail: "Selecciona una app, ventana o pantalla en el selector de macOS.",
+                title: "Preparando la grabación",
+                detail: "Conectando con el audio del Mac.",
                 cancelAction: { systemAudio.cancelContentSelection() }
             )
         case .preparing:
@@ -260,12 +263,9 @@ struct RootView: View {
                 title: "Grabando",
                 detail: systemAudio.captureWarning ?? (systemAudio.includesMicrophone
                     ? "Tu voz y el audio del Mac se están guardando por separado."
-                    : "Grabando el audio del contenido que elegiste."),
+                    : "Todo lo que suena en el Mac se está guardando."),
                 duration: systemAudio.elapsedTime,
                 isWarning: systemAudio.captureWarning != nil,
-                changeSourceAction: {
-                    systemAudio.changeSelection()
-                },
                 stopAction: {
                     Task { await stopSystemRecording() }
                 }
@@ -333,7 +333,6 @@ struct RootView: View {
         isWarning: Bool = false,
         pauseAction: (() -> Void)? = nil,
         resumeAction: (() -> Void)? = nil,
-        changeSourceAction: (() -> Void)? = nil,
         stopAction: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 12) {
@@ -375,11 +374,6 @@ struct RootView: View {
                         Label(String(localized: "Resume"), systemImage: "play.fill")
                     }
                     .help(String(localized: "Resume recording"))
-                }
-
-                if let changeSourceAction {
-                    Button(String(localized: "Change Source…"), action: changeSourceAction)
-                        .help(String(localized: "Choose different macOS content without restarting the recording"))
                 }
 
                 // A deep red keeps the white label above 4.5:1; the system red does not.

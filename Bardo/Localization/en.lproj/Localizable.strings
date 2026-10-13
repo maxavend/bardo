@@ -492,3 +492,7 @@
 "Audio and transcripts are processed here and are never sent to an online service." = "Audio and transcripts are processed here and are never sent to an online service.";
 "Bardo will download about 650 MB of voice resources so it can work offline." = "Bardo will download about 650 MB of voice resources so it can work offline.";
 "That item is no longer in the Library." = "That item is no longer in the Library.";
+"Bardo did not hear any Mac audio. If something was playing, allow Bardo in System Settings › Privacy & Security › Screen & System Audio Recording." = "Bardo did not hear any Mac audio. If something was playing, allow Bardo in System Settings › Privacy & Security › Screen & System Audio Recording.";
+"Bardo could not listen to the Mac's audio (Core Audio error %d)." = "Bardo could not listen to the Mac's audio (Core Audio error %d).";
+"No microphone is available." = "No microphone is available.";
+"The microphone could not be connected." = "The microphone could not be connected.";

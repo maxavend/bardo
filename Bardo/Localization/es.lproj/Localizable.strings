@@ -492,3 +492,7 @@
 "Audio and transcripts are processed here and are never sent to an online service." = "El audio y las transcripciones se procesan aquí y nunca se envían a un servicio en línea.";
 "Bardo will download about 650 MB of voice resources so it can work offline." = "Bardo descargará unos 650 MB de recursos de voz para poder trabajar sin conexión.";
 "That item is no longer in the Library." = "Ese elemento ya no está en la biblioteca.";
+"Bardo did not hear any Mac audio. If something was playing, allow Bardo in System Settings › Privacy & Security › Screen & System Audio Recording." = "Bardo no escuchó audio del Mac. Si algo estaba sonando, permite a Bardo en Ajustes del Sistema › Privacidad y seguridad › Grabación de pantalla y audio del sistema.";
+"Bardo could not listen to the Mac's audio (Core Audio error %d)." = "Bardo no pudo escuchar el audio del Mac (error de Core Audio %d).";
+"No microphone is available." = "No hay ningún micrófono disponible.";
+"The microphone could not be connected." = "No se pudo conectar el micrófono.";

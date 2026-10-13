@@ -73,6 +73,7 @@ jobs:
           test -f "$BUNDLE/Contents/Info.plist"
           test -x "$BUNDLE/Contents/MacOS/Bardo"
           test -f "$BUNDLE/Contents/Resources/Assets.car"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSAudioCaptureUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo records the audio your Mac plays, such as a call, only when you choose to start a recording."
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo records microphone audio only when you choose to start a local recording."
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$BUNDLE/Contents/Info.plist")" = "Bardo captures audio from content you explicitly choose using the macOS system sharing picker."
 
