@@ -40,3 +40,23 @@ enum BardoCornerRadius {
     /// Reserved for the one legitimate floating glass control: playback.
     static let floating: CGFloat = 12
 }
+
+/// The system group box with room to breathe: AppKit's default inset leaves text and
+/// buttons close to the edge, which reads as cramped in Bardo's progress and notice
+/// cards. The box itself stays native.
+struct BardoCardGroupBoxStyle: GroupBoxStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        GroupBox {
+            configuration.content
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+        } label: {
+            configuration.label
+        }
+        .groupBoxStyle(.automatic)
+    }
+}
+
+extension GroupBoxStyle where Self == BardoCardGroupBoxStyle {
+    static var bardoCard: BardoCardGroupBoxStyle { BardoCardGroupBoxStyle() }
+}

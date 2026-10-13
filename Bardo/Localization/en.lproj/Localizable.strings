@@ -482,3 +482,12 @@
 "Play a short local sample of this speaker" = "Play a short local sample of this speaker";
 "No representative audio sample" = "No representative audio sample";
 "No representative sample" = "No representative sample";
+
+
+/* Welcome */
+"Welcome to Bardo" = "Welcome to Bardo";
+"Record or import conversations and turn them into text you can read, search and share." = "Record or import conversations and turn them into text you can read, search and share.";
+"Turn recordings into clear text, with the moment of every sentence." = "Turn recordings into clear text, with the moment of every sentence.";
+"Everything stays on your Mac" = "Everything stays on your Mac";
+"Audio and transcripts are processed here and are never sent to an online service." = "Audio and transcripts are processed here and are never sent to an online service.";
+"Bardo will download about 650 MB of voice resources so it can work offline." = "Bardo will download about 650 MB of voice resources so it can work offline.";

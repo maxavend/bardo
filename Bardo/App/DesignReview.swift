@@ -26,6 +26,9 @@ enum DesignReview {
 
     static var isActive: Bool { captureDirectory != nil }
 
+    /// `-BardoDesignWelcome YES` shows the first-run welcome without resetting setup.
+    static var showsWelcome: Bool { isActive && arguments.bool(forKey: "BardoDesignWelcome") }
+
     private static var captureDirectory: URL? {
         arguments.string(forKey: "BardoDesignCapture").map { URL(fileURLWithPath: $0, isDirectory: true) }
     }

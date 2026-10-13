@@ -482,3 +482,12 @@
 "Play a short local sample of this speaker" = "Escucha una muestra breve de esta voz";
 "No representative audio sample" = "No hay una muestra de audio representativa";
 "No representative sample" = "Sin muestra representativa";
+
+
+/* Welcome */
+"Welcome to Bardo" = "Te damos la bienvenida a Bardo";
+"Record or import conversations and turn them into text you can read, search and share." = "Graba o importa conversaciones y conviértelas en texto que puedes leer, buscar y compartir.";
+"Turn recordings into clear text, with the moment of every sentence." = "Convierte tus grabaciones en texto claro, con el momento exacto de cada frase.";
+"Everything stays on your Mac" = "Todo se queda en tu Mac";
+"Audio and transcripts are processed here and are never sent to an online service." = "El audio y las transcripciones se procesan aquí y nunca se envían a un servicio en línea.";
+"Bardo will download about 650 MB of voice resources so it can work offline." = "Bardo descargará unos 650 MB de recursos de voz para poder trabajar sin conexión.";

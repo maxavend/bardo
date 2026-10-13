@@ -16,6 +16,9 @@ struct TranscriptContentView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var followsLiveTranscription = true
+    /// When each live passage started revealing; passages already on screen have none.
+    @State private var liveRevealStarts: [TranscriptSegment.ID: Date] = [:]
+    @State private var liveRevealCursor = Date.distantPast
 
     var bottomContentInset: CGFloat = 0
 
@@ -68,6 +71,13 @@ struct TranscriptContentView: View {
             }
             .onChange(of: liveSegmentCount) { _, _ in
                 followLiveTranscript(using: proxy)
+            }
+            .onChange(of: liveSegmentIDs) { previous, current in
+                scheduleReveal(of: current, after: previous)
+            }
+            .onChange(of: recording.id) { _, _ in
+                liveRevealStarts = [:]
+                liveRevealCursor = .distantPast
             }
             .onChange(of: searchQuery) { _, query in
                 scrollToFirstMatch(of: query, using: proxy)
@@ -193,26 +203,21 @@ struct TranscriptContentView: View {
             transcriptionLiveStatus
 
             if let live = model.liveTranscription, live.recordingID == recording.id {
-                let paragraphs = buildParagraphs(from: live.segments)
-
-                if !paragraphs.isEmpty {
-                    LazyVStack(alignment: .leading, spacing: 20) {
-                        ForEach(paragraphs) { paragraph in
-                            TranscriptParagraphRow(
-                                paragraph: paragraph,
-                                playback: playback,
-                                canEdit: false,
-                                usesKaraoke: false,
-                                onEditSegment: { _ in }
-                            )
+                if !live.segments.isEmpty {
+                    // Each recognised passage resolves into place once, as it arrives;
+                    // the text itself stays plain so frequent updates remain cheap.
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(live.segments) { segment in
+                            LiveTranscriptSegmentRow(segment: segment, revealStart: liveRevealStarts[segment.id])
                         }
                     }
 
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(String(localized: "Continuando la transcripción…"))
-                            .font(.caption)
+                    Label {
+                        ThinkingText(text: "Escuchando la conversación…")
+                            .font(.callout)
+                    } icon: {
+                        Image(systemName: "waveform")
+                            .symbolRenderingMode(.hierarchical)
                             .foregroundStyle(.secondary)
                     }
                     .accessibilityElement(children: .combine)
@@ -283,6 +288,25 @@ struct TranscriptContentView: View {
                 proxy.scrollTo(paragraph.id, anchor: .center)
             }
         }
+    }
+
+    private var liveSegmentIDs: [TranscriptSegment.ID] {
+        guard let live = model.liveTranscription, live.recordingID == recording.id else { return [] }
+        return live.segments.map(\.id)
+    }
+
+    /// Passages that arrive together reveal one after another, but never more than two
+    /// seconds behind what Whisper has recognised.
+    private func scheduleReveal(of current: [TranscriptSegment.ID], after previous: [TranscriptSegment.ID]) {
+        guard !reduceMotion, let live = model.liveTranscription, live.recordingID == recording.id else { return }
+        let known = Set(previous)
+        let now = Date.now
+        var cursor = liveRevealCursor > now.addingTimeInterval(2) ? now : max(now, liveRevealCursor)
+        for segment in live.segments where !known.contains(segment.id) && liveRevealStarts[segment.id] == nil {
+            liveRevealStarts[segment.id] = cursor
+            cursor = cursor.addingTimeInterval(StreamingRevealText.duration(for: segment.displayText))
+        }
+        liveRevealCursor = cursor
     }
 
     private var diarizationProgressView: some View {
@@ -485,6 +509,28 @@ enum SpeakerPalette {
             return .secondary
         }
         return colors[index % colors.count]
+    }
+}
+
+/// One passage of the transcript while Whisper is still listening.
+private struct LiveTranscriptSegmentRow: View {
+    let segment: TranscriptSegment
+    let revealStart: Date?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(LibraryFormatting.duration(segment.startTime))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(Color.secondary.opacity(0.72))
+                .frame(width: 44, alignment: .trailing)
+
+            StreamingRevealText(text: segment.displayText, revealStart: revealStart)
+                .font(.body)
+                .lineSpacing(4)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -33,8 +33,12 @@ struct TranscriptionProgressPanel: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Label {
-                        Text(TranscriptionProgressCopy.title(for: stage))
-                            .font(.callout.weight(.semibold))
+                        ThinkingText(text: TranscriptionProgressCopy.thinkingLine(
+                            for: stage,
+                            fraction: fraction,
+                            stageElapsed: stageElapsed
+                        ))
+                        .font(.callout.weight(.semibold))
                     } icon: {
                         Image(systemName: "waveform")
                             .symbolRenderingMode(.hierarchical)
@@ -109,6 +113,55 @@ enum TranscriptionProgressCopy {
         case .transcribing: 3
         case .saving: 4
         }
+    }
+
+    /// How long each status line holds before the next one, as in "Thinking states".
+    static let thinkingHold: TimeInterval = 2
+
+    /// The plain-language lines a stage cycles through while it runs. They describe
+    /// what is really happening; none of them promises progress Bardo cannot measure.
+    static func thinkingLines(for stage: TranscriptionStage, fraction: Double?, stageElapsed: TimeInterval) -> [String] {
+        switch stage {
+        case .preparingModel:
+            if fraction != nil {
+                return [
+                    "Descargando el modelo de voz",
+                    "Se guarda en este Mac para usarlo sin conexión"
+                ]
+            }
+            return [
+                "Revisando lo necesario para transcribir",
+                "Comprobando los archivos del modelo de voz"
+            ]
+        case .loadingModel:
+            // A load that takes long is the one-time optimisation for this Mac.
+            if stageElapsed >= 12 {
+                return [
+                    "Optimizando el modelo para este Mac",
+                    "Adaptándolo al chip de tu Mac",
+                    "Esto solo pasa la primera vez",
+                    "Tus conversaciones no salen de este Mac"
+                ]
+            }
+            return [
+                "Cargando el modelo de voz",
+                "Preparando el Neural Engine"
+            ]
+        case .transcribing:
+            return [
+                "Escuchando la conversación",
+                "Reconociendo las palabras",
+                "Marcando el momento de cada frase"
+            ]
+        case .saving:
+            return ["Guardando la transcripción"]
+        }
+    }
+
+    static func thinkingLine(for stage: TranscriptionStage, fraction: Double?, stageElapsed: TimeInterval) -> String {
+        let lines = thinkingLines(for: stage, fraction: fraction, stageElapsed: stageElapsed)
+        let index = Int(max(0, stageElapsed) / thinkingHold) % lines.count
+        return lines[index]
     }
 
     static func title(for stage: TranscriptionStage) -> String {
