@@ -245,7 +245,6 @@ struct TranscriptContentView: View {
         TranscriptionProgressPanel(
             progress: model.transcriptionProgress,
             live: model.liveTranscription?.recordingID == recording.id ? model.liveTranscription : nil,
-            startedAt: model.transcriptionStartedAt,
             stageStartedAt: model.transcriptionStageStartedAt,
             isCompact: hasLiveText,
             cancelAction: { model.cancelTranscription() }

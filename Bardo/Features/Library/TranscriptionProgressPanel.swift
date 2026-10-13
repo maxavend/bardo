@@ -6,7 +6,6 @@ import SwiftUI
 struct TranscriptionProgressPanel: View {
     let progress: TranscriptionProgressSnapshot?
     let live: TranscriptionLiveSnapshot?
-    let startedAt: Date?
     let stageStartedAt: Date?
     /// Text is already streaming in: step aside into a slim header so the words lead.
     var isCompact = false
@@ -28,7 +27,7 @@ struct TranscriptionProgressPanel: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(TranscriptionProgressCopy.title(for: state.stage))
-            .accessibilityValue("\(state.status). \(state.detail)")
+            .accessibilityValue("\(state.line). \(state.detail)")
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: isCompact)
     }
@@ -61,16 +60,8 @@ struct TranscriptionProgressPanel: View {
                     .frame(maxWidth: 440)
             }
 
-            VStack(spacing: 10) {
-                progressBar(state)
-                    .frame(maxWidth: 320)
-                HStack(spacing: 10) {
-                    StepDots(current: state.step, total: 4)
-                    Text(state.status)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
+            progressBar(state)
+                .frame(maxWidth: 320)
 
             Button("Cancelar", role: .cancel, action: cancelAction)
         }
@@ -101,17 +92,6 @@ struct TranscriptionProgressPanel: View {
 
             progressBar(state)
                 .controlSize(.small)
-
-            HStack(spacing: 12) {
-                Text(state.detail)
-                Spacer(minLength: 12)
-                if let elapsed = state.elapsed {
-                    Text(elapsed)
-                        .monospacedDigit()
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
         .padding(.bottom, 4)
     }
@@ -129,28 +109,22 @@ struct TranscriptionProgressPanel: View {
     /// Everything the panel shows at one moment.
     private struct State {
         let stage: TranscriptionStage
-        let step: Int
         let fraction: Double?
         let line: String
         let detail: String
-        let status: String
-        let elapsed: String?
 
         init(panel: TranscriptionProgressPanel, now: Date) {
             stage = panel.progress?.stage ?? .preparingModel
-            step = TranscriptionProgressCopy.step(for: stage)
             fraction = panel.fraction
-            let stageElapsed = panel.stageStartedAt.map { now.timeIntervalSince($0) } ?? 0
-            line = TranscriptionProgressCopy.thinkingLine(for: stage, fraction: fraction, stageElapsed: stageElapsed)
-            detail = TranscriptionProgressCopy.detail(
+            let context = TranscriptionProgressCopy.Context(
                 stage: stage,
                 fraction: fraction,
                 processedAudio: panel.live?.processedAudioTime ?? 0,
                 audioDuration: panel.live?.audioDuration ?? 0,
-                stageElapsed: stageElapsed
+                stageElapsed: panel.stageStartedAt.map { now.timeIntervalSince($0) } ?? 0
             )
-            elapsed = panel.startedAt.map { TranscriptionProgressCopy.clock(now.timeIntervalSince($0)) }
-            status = panel.statusLine(stage: stage, now: now)
+            line = TranscriptionProgressCopy.thinkingLine(for: context)
+            detail = TranscriptionProgressCopy.detail(for: context)
         }
     }
 
@@ -169,78 +143,80 @@ struct TranscriptionProgressPanel: View {
             return nil
         }
     }
-
-    private func statusLine(stage: TranscriptionStage, now: Date) -> String {
-        var parts = ["Paso \(TranscriptionProgressCopy.step(for: stage)) de 4"]
-        if let fraction, stage == .transcribing {
-            parts.append("\(Int((fraction * 100).rounded())) %")
-        }
-        if let startedAt {
-            parts.append(TranscriptionProgressCopy.clock(now.timeIntervalSince(startedAt)))
-        }
-        return parts.joined(separator: " · ")
-    }
 }
 
 enum TranscriptionProgressCopy {
-    static func step(for stage: TranscriptionStage) -> Int {
-        switch stage {
-        case .preparingModel: 1
-        case .loadingModel: 2
-        case .transcribing: 3
-        case .saving: 4
-        }
+    /// Everything the copy can draw on at one moment.
+    struct Context {
+        var stage: TranscriptionStage
+        var fraction: Double?
+        var processedAudio: TimeInterval = 0
+        var audioDuration: TimeInterval = 0
+        var stageElapsed: TimeInterval = 0
     }
 
     /// How long each status line holds before the next one, as in "Thinking states".
     static let thinkingHold: TimeInterval = 2
 
-    /// The plain-language lines a stage cycles through while it runs. They describe
-    /// what is really happening; none of them promises progress Bardo cannot measure.
-    static func thinkingLines(for stage: TranscriptionStage, fraction: Double?, stageElapsed: TimeInterval) -> [String] {
-        switch stage {
+    /// The status lines a stage cycles through: what is happening and how far along it
+    /// is, in plain words. Nothing claims progress Bardo cannot measure.
+    static func thinkingLines(for context: Context) -> [String] {
+        switch context.stage {
         case .preparingModel:
-            if fraction != nil {
+            if let fraction = context.fraction {
                 return [
-                    "Descargando el modelo de voz",
+                    "Descargando el modelo de voz · \(percent(fraction))",
                     "Se guarda en este Mac para usarlo sin conexión"
                 ]
             }
             return [
                 "Revisando lo necesario para transcribir",
-                "Comprobando los archivos del modelo de voz"
+                "Comprobando el modelo de voz en este Mac"
             ]
         case .loadingModel:
             // A load that takes long is the one-time optimisation for this Mac.
-            if stageElapsed >= 12 {
+            if context.stageElapsed >= 12 {
                 return [
-                    "Optimizando el modelo para este Mac",
-                    "Adaptándolo al chip de tu Mac",
-                    "Esto solo pasa la primera vez",
-                    "Tus conversaciones no salen de este Mac"
+                    "Optimizando el modelo para tu Mac",
+                    "Lleva \(clock(context.stageElapsed)) optimizándose",
+                    "La primera vez puede tardar unos minutos",
+                    "Después, las transcripciones empiezan al instante"
                 ]
             }
             return [
                 "Cargando el modelo de voz",
-                "Preparando el Neural Engine"
+                "Preparando el Neural Engine de tu Mac"
             ]
         case .transcribing:
-            return [
-                "Escuchando la conversación",
-                "Reconociendo las palabras",
-                "Marcando el momento de cada frase"
+            guard context.audioDuration > 0, context.processedAudio > 0 else {
+                return [
+                    "Escuchando la conversación",
+                    "Reconociendo las primeras palabras"
+                ]
+            }
+            var lines = [
+                "Transcribiendo · \(clock(context.processedAudio)) de \(clock(context.audioDuration))"
             ]
+            if let fraction = context.fraction {
+                lines.append("Va en el \(percent(fraction)) de la conversación")
+            }
+            if let remaining = remainingTime(fraction: context.fraction, stageElapsed: context.stageElapsed) {
+                lines.append(remaining.prefix(1).uppercased() + remaining.dropFirst())
+            }
+            lines.append("Reconociendo las palabras de cada frase")
+            return lines
         case .saving:
-            return ["Guardando la transcripción"]
+            return ["Guardando la transcripción en tu biblioteca"]
         }
     }
 
-    static func thinkingLine(for stage: TranscriptionStage, fraction: Double?, stageElapsed: TimeInterval) -> String {
-        let lines = thinkingLines(for: stage, fraction: fraction, stageElapsed: stageElapsed)
-        let index = Int(max(0, stageElapsed) / thinkingHold) % lines.count
+    static func thinkingLine(for context: Context) -> String {
+        let lines = thinkingLines(for: context)
+        let index = Int(max(0, context.stageElapsed) / thinkingHold) % lines.count
         return lines[index]
     }
 
+    /// The accessibility name of the panel; it does not change while a stage runs.
     static func title(for stage: TranscriptionStage) -> String {
         switch stage {
         case .preparingModel: "Preparando la transcripción"
@@ -250,37 +226,23 @@ enum TranscriptionProgressCopy {
         }
     }
 
-    static func detail(
-        stage: TranscriptionStage,
-        fraction: Double?,
-        processedAudio: TimeInterval,
-        audioDuration: TimeInterval,
-        stageElapsed: TimeInterval
-    ) -> String {
-        switch stage {
+    /// The explanation under the status line while nothing is on screen yet.
+    static func detail(for context: Context) -> String {
+        switch context.stage {
         case .preparingModel:
-            if let fraction {
-                return "Descargando lo necesario para transcribir en este Mac · \(Int((fraction * 100).rounded())) %"
-            }
-            return "Comprobando los recursos de transcripción de este Mac."
+            context.fraction != nil
+                ? "Bardo descarga el modelo de voz una sola vez; después transcribe sin conexión."
+                : "Bardo comprueba que el modelo de voz esté listo en este Mac."
         case .loadingModel:
             // Core ML compiles the model for this Mac the first time, which takes
             // minutes; say so before anyone wonders whether Bardo is stuck.
-            if stageElapsed < 12 {
-                return "Bardo está cargando el modelo de voz en este Mac."
-            }
-            return "La primera vez después de instalar o actualizar Bardo o macOS, el Mac optimiza el modelo de voz y puede tardar unos minutos. Las siguientes transcripciones empiezan casi de inmediato."
+            context.stageElapsed < 12
+                ? "Bardo está cargando el modelo de voz en este Mac."
+                : "La primera vez después de instalar o actualizar Bardo o macOS, el Mac optimiza el modelo de voz. Las siguientes transcripciones empiezan casi de inmediato."
         case .transcribing:
-            guard audioDuration > 0, processedAudio > 0 else {
-                return "Escuchando la conversación. El texto aparecerá aquí a medida que Bardo lo reconozca."
-            }
-            let heard = "\(LibraryFormatting.duration(processedAudio)) de \(LibraryFormatting.duration(audioDuration))"
-            guard let remaining = remainingTime(fraction: fraction, stageElapsed: stageElapsed) else {
-                return heard
-            }
-            return "\(heard) · \(remaining)"
+            "El texto aparecerá aquí a medida que Bardo lo reconozca."
         case .saving:
-            return "Guardando la transcripción en tu biblioteca."
+            "Casi listo: la transcripción se está guardando en tu biblioteca."
         }
     }
 
@@ -292,29 +254,14 @@ enum TranscriptionProgressCopy {
             return "queda menos de un minuto"
         }
         let minutes = max(1, Int((remaining / 60).rounded()))
-        return minutes == 1 ? "queda 1 minuto aproximadamente" : "quedan unos \(minutes) min"
+        return minutes == 1 ? "queda 1 minuto aproximadamente" : "quedan unos \(minutes) minutos"
     }
 
     static func clock(_ interval: TimeInterval) -> String {
         LibraryFormatting.duration(max(0, interval))
     }
-}
 
-/// Where the job is among its steps: done steps solid, the current one stretched.
-private struct StepDots: View {
-    let current: Int
-    let total: Int
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(1...total, id: \.self) { step in
-                Capsule()
-                    .fill(step <= current ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
-                    .opacity(step == current ? 1 : (step < current ? 0.55 : 1))
-                    .frame(width: step == current ? 16 : 6, height: 6)
-            }
-        }
-        .animation(.smooth(duration: 0.3), value: current)
-        .accessibilityHidden(true)
+    private static func percent(_ fraction: Double) -> String {
+        "\(Int((fraction * 100).rounded())) %"
     }
 }

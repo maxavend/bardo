@@ -16,9 +16,8 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var transcriptionProgress: TranscriptionProgressSnapshot?
     @Published private(set) var liveTranscription: TranscriptionLiveSnapshot?
     @Published private(set) var transcriptionRecordingID: Recording.ID?
-    /// When the running transcription started and when its current stage began, so the
-    /// interface can show elapsed time and estimates that survive leaving the view.
-    @Published private(set) var transcriptionStartedAt: Date?
+    /// When the running transcription's current stage began, so the interface can show
+    /// estimates and timed messages that survive leaving the view.
     @Published private(set) var transcriptionStageStartedAt: Date?
     @Published private(set) var diarizationErrorMessage: String?
     @Published private(set) var diarizationProgress: DiarizationProgressSnapshot?
@@ -408,7 +407,6 @@ final class LibraryViewModel: ObservableObject {
         transcriptEditErrorMessage = nil
         diarizationErrorMessage = nil
         transcriptionProgress = .init(stage: .preparingModel, fractionCompleted: 0)
-        transcriptionStartedAt = .now
         transcriptionStageStartedAt = .now
         liveTranscription = .empty(recordingID: recording.id, audioDuration: recording.duration ?? 0)
         return recording
@@ -428,7 +426,6 @@ final class LibraryViewModel: ObservableObject {
             isTranscribing = false
             transcriptionRecordingID = nil
             transcriptionProgress = nil
-            transcriptionStartedAt = nil
             transcriptionStageStartedAt = nil
             liveTranscription = nil
             transcriptionTask = nil
