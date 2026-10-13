@@ -259,6 +259,9 @@ struct RecordingListView: View {
 
     private func status(for recording: Recording) -> RecordingListRow.Status {
         if model.transcriptionRecordingID == recording.id {
+            if let progress = model.transcriptionProgress, progress.stage == .transcribing, progress.fractionCompleted > 0 {
+                return .working("Transcribiendo · \(Int((progress.fractionCompleted * 100).rounded())) %")
+            }
             return .working("Transcribiendo")
         }
         if model.diarizationRecordingID == recording.id {

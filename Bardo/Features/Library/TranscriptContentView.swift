@@ -243,22 +243,13 @@ struct TranscriptContentView: View {
     }
 
     private var transcriptionLiveStatus: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Label {
-                Text(transcriptionStatusText(model.transcriptionProgress))
-                    .font(.callout.weight(.semibold))
-            } icon: {
-                ProgressView()
-                    .controlSize(.small)
-            }
-
-            Spacer(minLength: 12)
-
-            Button(String(localized: "Cancel"), role: .cancel) {
-                model.cancelTranscription()
-            }
-        }
-        .accessibilityElement(children: .combine)
+        TranscriptionProgressPanel(
+            progress: model.transcriptionProgress,
+            live: model.liveTranscription?.recordingID == recording.id ? model.liveTranscription : nil,
+            startedAt: model.transcriptionStartedAt,
+            stageStartedAt: model.transcriptionStageStartedAt,
+            cancelAction: { model.cancelTranscription() }
+        )
     }
 
     private func followLiveTranscript(using proxy: ScrollViewProxy, force: Bool = false) {
@@ -895,27 +886,6 @@ private struct InlineIssueView: View {
             .font(.callout)
             .foregroundStyle(.orange)
             .fixedSize(horizontal: false, vertical: true)
-    }
-}
-
-/// Model preparation can include a first download when setup was skipped or the
-/// models were removed; show how far along it is.
-private func transcriptionStatusText(_ progress: TranscriptionProgressSnapshot?) -> String {
-    if let progress, progress.stage == .preparingModel,
-       progress.fractionCompleted > 0, progress.fractionCompleted < 1 {
-        let percentage = Int((progress.fractionCompleted * 100).rounded())
-        return "Preparando lo necesario para transcribir · \(percentage) %"
-    }
-    return transcriptionStageText(progress?.stage)
-}
-
-private func transcriptionStageText(_ stage: TranscriptionStage?) -> String {
-    switch stage {
-    case .preparingModel: "Preparando la transcripción…"
-    case .loadingModel: "Dejando todo listo…"
-    case .transcribing: "Transcribiendo la conversación…"
-    case .saving: "Guardando la transcripción…"
-    case nil: "Preparando la transcripción…"
     }
 }
 
