@@ -16,9 +16,6 @@ enum BardoLayout {
     static let listColumnIdealWidth: CGFloat = 310
     static let listColumnMaxWidth: CGFloat = 460
     static let detailColumnMinWidth: CGFloat = 420
-    static let inspectorMinWidth: CGFloat = 250
-    static let inspectorIdealWidth: CGFloat = 290
-    static let inspectorMaxWidth: CGFloat = 380
     static let libraryDetailPadding: CGFloat = 28
     /// Keeps transcript lines near a comfortable reading measure.
     static let detailContentMaxWidth: CGFloat = 720
