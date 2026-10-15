@@ -25,7 +25,7 @@ extension FocusedValues {
 }
 
 struct BardoCommands: Commands {
-    @FocusedBinding(\.libraryInspector) private var isInspectorPresented
+    @FocusedBinding(\.libraryInspector) private var isInfoPresented
     @FocusedValue(\.captureCommands) private var capture
 
     var body: some Commands {
@@ -50,11 +50,11 @@ struct BardoCommands: Commands {
         }
 
         CommandGroup(after: .sidebar) {
-            Button(isInspectorPresented == true ? "Ocultar información" : "Mostrar información") {
-                isInspectorPresented?.toggle()
+            Button("Mostrar información") {
+                isInfoPresented = true
             }
             .keyboardShortcut("i", modifiers: [.command, .option])
-            .disabled(isInspectorPresented == nil)
+            .disabled(isInfoPresented == nil)
         }
 
         // Bardo has no Help book; keep the menu's search field without a dead item.

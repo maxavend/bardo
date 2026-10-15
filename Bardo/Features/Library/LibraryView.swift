@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The main window: Library filters, the conversations they contain, and the
-/// selected conversation with an optional inspector — the same three-column
+/// selected conversation, whose details open as a sheet — the same three-column
 /// shape as Mail, Notes and Voice Memos.
 struct LibraryView: View {
     @ObserveInjection var redraw
@@ -14,14 +14,12 @@ struct LibraryView: View {
 
     @ObservedObject private var favorites = BardoFavoritesStore.shared
     @SceneStorage("bardo.library.section") private var selectedSection: BardoLibrarySection = .all
-    @SceneStorage("bardo.library.inspector") private var isInspectorPresented = false
+    @State private var isInfoPresented = false
     @AppStorage("bardo.library.sort") private var sort: BardoLibrarySort = .newest
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isFileImporterPresented = false
     @State private var isIssuesReviewPresented = false
     @State private var searchText = ""
-    @State private var windowWidth: CGFloat = 0
-    @State private var sidebarHiddenForInspector = false
     @FocusState private var isSearchFocused: Bool
     #if DEBUG
     @Environment(\.openSettings) private var openSettings
@@ -46,20 +44,6 @@ struct LibraryView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// ⌘F: search is offered only while the inspector is closed, so close it first and
-    /// focus the field once it is back.
-    private func revealSearch() {
-        guard isInspectorPresented else {
-            isSearchFocused = true
-            return
-        }
-        isInspectorPresented = false
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
-            isSearchFocused = true
-        }
-    }
-
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             LibrarySidebar(
@@ -68,14 +52,6 @@ struct LibraryView: View {
                 selection: $selectedSection,
                 onReviewIssues: { isIssuesReviewPresented = true }
             )
-            // Declared on the sidebar, the lightest column, because showing and hiding
-            // the field rebuilds the view it is attached to; it still appears at the
-            // window toolbar's trailing edge.
-            .modifier(LibrarySearchField(
-                text: $searchText,
-                isFocused: $isSearchFocused,
-                isAvailable: !isInspectorPresented
-            ))
         } content: {
             RecordingListView(
                 section: selectedSection,
@@ -112,27 +88,23 @@ struct LibraryView: View {
                             .padding(.bottom, 8)
                     }
                 }
-                .inspector(isPresented: $isInspectorPresented) {
-                    inspectorContent
-                        .inspectorColumnWidth(
-                            min: BardoLayout.inspectorMinWidth,
-                            ideal: BardoLayout.inspectorIdealWidth,
-                            max: BardoLayout.inspectorMaxWidth
-                        )
-                }
         }
+        // One toolbar search field for the window; it searches the whole Library.
+        // Keep the prompt short so it never truncates in a narrow toolbar.
+        .searchable(text: $searchText, placement: .toolbar, prompt: Text("Buscar"))
+        .searchFocused($isSearchFocused)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-            windowWidth = width
-            fitColumnsToWindow()
+        // Details open as a sheet: nothing slides in beside the transcript, so the
+        // columns and the search field never move.
+        .sheet(isPresented: $isInfoPresented) {
+            if let recording = model.selectedRecording {
+                RecordingInfoSheet(
+                    recording: recording,
+                    transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil
+                )
+            }
         }
-        .onChange(of: isInspectorPresented) { _, isPresented in
-            fitColumnsToWindow()
-            // Search steps aside with the inspector open; a hidden query must not keep
-            // filtering the list.
-            if isPresented { searchText = "" }
-        }
-        .focusedSceneValue(\.libraryInspector, model.selectedRecording == nil ? nil : $isInspectorPresented)
+        .focusedSceneValue(\.libraryInspector, model.selectedRecording == nil ? nil : $isInfoPresented)
         .task {
             await model.reload()
             selectFirstRecordingIfNeeded()
@@ -147,7 +119,7 @@ struct LibraryView: View {
             isFileImporterPresented = true
         }
         .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.focusSearch)) { _ in
-            revealSearch()
+            isSearchFocused = true
         }
         .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.libraryChanged)) { _ in
             Task {
@@ -211,9 +183,7 @@ struct LibraryView: View {
             case "search":
                 searchText = step.value
             case "inspector":
-                isInspectorPresented = true
-            case "closeInspector":
-                isInspectorPresented = false
+                isInfoPresented = true
             case "sidebar":
                 columnVisibility = step.value == "hidden" ? .doubleColumn : .all
             case "settings":
@@ -258,7 +228,7 @@ struct LibraryView: View {
                 model: model,
                 playback: model.playback,
                 searchQuery: searchQuery,
-                isInspectorPresented: $isInspectorPresented,
+                isInfoPresented: $isInfoPresented,
                 onMoveToTrash: moveToTrash
             )
         } else if model.recordings.isEmpty {
@@ -271,37 +241,6 @@ struct LibraryView: View {
                 systemImage: "text.bubble",
                 description: Text("Elige una conversación de la lista para leer su transcripción.")
             )
-        }
-    }
-
-    @ViewBuilder
-    private var inspectorContent: some View {
-        if let recording = model.selectedRecording {
-            RecordingInspector(
-                recording: recording,
-                transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil
-            )
-        } else {
-            ContentUnavailableView(
-                "Sin información",
-                systemImage: "info.circle",
-                description: Text("Elige una conversación para ver sus detalles.")
-            )
-        }
-    }
-
-    /// The transcript needs a readable measure. When the inspector would squeeze it,
-    /// hide the sidebar for as long as the inspector needs the room, as Mail does.
-    private func fitColumnsToWindow() {
-        guard windowWidth > 0 else { return }
-        let needed = BardoLayout.librarySidebarIdealWidth + BardoLayout.listColumnMinWidth
-            + BardoLayout.detailColumnMinWidth + BardoLayout.inspectorMinWidth
-        if isInspectorPresented, windowWidth < needed, columnVisibility == .all {
-            sidebarHiddenForInspector = true
-            columnVisibility = .doubleColumn
-        } else if sidebarHiddenForInspector, !isInspectorPresented || windowWidth >= needed {
-            sidebarHiddenForInspector = false
-            columnVisibility = .all
         }
     }
 
@@ -341,26 +280,7 @@ struct LibraryView: View {
 }
 
 extension FocusedValues {
-    /// Whether the focused Library window shows its inspector; `nil` when there is
-    /// nothing to inspect.
+    /// Whether the focused Library window shows a conversation's details; `nil` when
+    /// there is nothing to show.
     @Entry var libraryInspector: Binding<Bool>?
-}
-
-/// The window's one search field, searching the whole Library. It sits at the toolbar's
-/// trailing edge, which is over the inspector when that is open, so it is offered only
-/// while the inspector is closed. The prompt stays short so it never truncates.
-private struct LibrarySearchField: ViewModifier {
-    @Binding var text: String
-    var isFocused: FocusState<Bool>.Binding
-    let isAvailable: Bool
-
-    func body(content: Content) -> some View {
-        if isAvailable {
-            content
-                .searchable(text: $text, placement: .toolbar, prompt: Text("Buscar"))
-                .searchFocused(isFocused)
-        } else {
-            content
-        }
-    }
 }

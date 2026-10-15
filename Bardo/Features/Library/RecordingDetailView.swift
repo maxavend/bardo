@@ -13,7 +13,7 @@ struct RecordingDetailView: View {
 
     /// The window's search: matches are highlighted in the transcript.
     let searchQuery: String
-    @Binding var isInspectorPresented: Bool
+    @Binding var isInfoPresented: Bool
     let onMoveToTrash: (Recording) -> Void
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
@@ -70,11 +70,11 @@ struct RecordingDetailView: View {
 
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    isInspectorPresented.toggle()
+                    isInfoPresented = true
                 } label: {
                     Label("Información", systemImage: "info.circle")
                 }
-                .help(isInspectorPresented ? "Ocultar información (⌥⌘I)" : "Mostrar información (⌥⌘I)")
+                .help("Mostrar información (⌥⌘I)")
             }
         }
         .bardoBottomBar {
