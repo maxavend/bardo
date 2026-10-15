@@ -126,3 +126,7 @@ TEST_RUNNER_BARDO_E2E_MODELS_ROOT=/tmp/bardo-models TEST_RUNNER_BARDO_E2E_AUDIO=
 The long-recording check also takes `TEST_RUNNER_BARDO_E2E_LONG_AUDIO` and `TEST_RUNNER_BARDO_E2E_LONG_WORDS` (one keyword per turn, in order).
 
 See `TESTING.md` for the physical macOS smoke-test checklist.
+
+## License
+
+Bardo is © 2026 Maximiliano Avendaño ([maxavend](https://github.com/maxavend)), released under the [MIT License](LICENSE). The open-source software it builds on is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

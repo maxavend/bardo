@@ -50,6 +50,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
+        NSHumanReadableCopyright: © 2026 Maximiliano Avendaño (maxavend). MIT License.
         NSAudioCaptureUsageDescription: Bardo records the audio your Mac plays, such as a call, only when you choose to start a recording.
         NSMicrophoneUsageDescription: Bardo records microphone audio only when you choose to start a local recording.
         NSScreenCaptureUsageDescription: Bardo captures audio from content you explicitly choose using the macOS system sharing picker.
