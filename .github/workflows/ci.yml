@@ -43,7 +43,7 @@ jobs:
           test -f Bardo/Bardo.entitlements
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' Bardo/Bardo.entitlements)" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' Bardo/Bardo.entitlements)" = "true"
-          test -f Bardo/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json
+          test -f Bardo/Resources/AppIcon.icon/icon.json
           # Release entitlements must not carry the debugging/hot-reload exceptions.
           ! /usr/libexec/PlistBuddy -c 'Print :com.apple.security.get-task-allow' Bardo/Bardo.entitlements >/dev/null 2>&1
           ! /usr/libexec/PlistBuddy -c 'Print :com.apple.security.cs.disable-library-validation' Bardo/Bardo.entitlements >/dev/null 2>&1
