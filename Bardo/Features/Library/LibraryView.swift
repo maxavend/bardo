@@ -46,6 +46,20 @@ struct LibraryView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// ⌘F: search is offered only while the inspector is closed, so close it first and
+    /// focus the field once it is back.
+    private func revealSearch() {
+        guard isInspectorPresented else {
+            isSearchFocused = true
+            return
+        }
+        isInspectorPresented = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            isSearchFocused = true
+        }
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             LibrarySidebar(
@@ -54,6 +68,14 @@ struct LibraryView: View {
                 selection: $selectedSection,
                 onReviewIssues: { isIssuesReviewPresented = true }
             )
+            // Declared on the sidebar, the lightest column, because showing and hiding
+            // the field rebuilds the view it is attached to; it still appears at the
+            // window toolbar's trailing edge.
+            .modifier(LibrarySearchField(
+                text: $searchText,
+                isFocused: $isSearchFocused,
+                isAvailable: !isInspectorPresented
+            ))
         } content: {
             RecordingListView(
                 section: selectedSection,
@@ -99,17 +121,16 @@ struct LibraryView: View {
                         )
                 }
         }
-        // One toolbar search field for the window; it searches the whole Library.
-        // Keep the prompt short so it never truncates in a narrow toolbar.
-        .searchable(text: $searchText, placement: .toolbar, prompt: Text("Buscar"))
-        .searchFocused($isSearchFocused)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
             windowWidth = width
             fitColumnsToWindow()
         }
-        .onChange(of: isInspectorPresented) { _, _ in
+        .onChange(of: isInspectorPresented) { _, isPresented in
             fitColumnsToWindow()
+            // Search steps aside with the inspector open; a hidden query must not keep
+            // filtering the list.
+            if isPresented { searchText = "" }
         }
         .focusedSceneValue(\.libraryInspector, model.selectedRecording == nil ? nil : $isInspectorPresented)
         .task {
@@ -126,7 +147,7 @@ struct LibraryView: View {
             isFileImporterPresented = true
         }
         .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.focusSearch)) { _ in
-            isSearchFocused = true
+            revealSearch()
         }
         .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.libraryChanged)) { _ in
             Task {
@@ -191,6 +212,8 @@ struct LibraryView: View {
                 searchText = step.value
             case "inspector":
                 isInspectorPresented = true
+            case "closeInspector":
+                isInspectorPresented = false
             case "sidebar":
                 columnVisibility = step.value == "hidden" ? .doubleColumn : .all
             case "settings":
@@ -321,4 +344,23 @@ extension FocusedValues {
     /// Whether the focused Library window shows its inspector; `nil` when there is
     /// nothing to inspect.
     @Entry var libraryInspector: Binding<Bool>?
+}
+
+/// The window's one search field, searching the whole Library. It sits at the toolbar's
+/// trailing edge, which is over the inspector when that is open, so it is offered only
+/// while the inspector is closed. The prompt stays short so it never truncates.
+private struct LibrarySearchField: ViewModifier {
+    @Binding var text: String
+    var isFocused: FocusState<Bool>.Binding
+    let isAvailable: Bool
+
+    func body(content: Content) -> some View {
+        if isAvailable {
+            content
+                .searchable(text: $text, placement: .toolbar, prompt: Text("Buscar"))
+                .searchFocused(isFocused)
+        } else {
+            content
+        }
+    }
 }
