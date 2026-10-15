@@ -1,0 +1,35 @@
+{
+  "fill" : {
+    "automatic-gradient" : "srgb:0.97647,0.96471,0.99216,1.00000"
+  },
+  "fill-specializations" : [
+    {
+      "appearance" : "dark",
+      "value" : {
+        "automatic-gradient" : "srgb:0.17647,0.11373,0.26275,1.00000"
+      }
+    }
+  ],
+  "groups" : [
+    {
+      "name" : "Bardo",
+      "layers" : [
+        {
+          "name" : "Bardo",
+          "image-name" : "character.png",
+          "glass" : false
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : false
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}

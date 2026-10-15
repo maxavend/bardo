@@ -37,6 +37,11 @@ targets:
       - path: Bardo/Models
       - path: Bardo/Resources/Assets.xcassets
         buildPhase: resources
+      # The app icon is an Icon Composer document: macOS 26 and later draw its layers
+      # with the system shape, Liquid Glass and the dark, tinted and clear looks; Xcode
+      # flattens it for macOS 15.
+      - path: Bardo/Resources/AppIcon.icon
+        buildPhase: resources
     dependencies:
       - package: ArgmaxOSS
         product: WhisperKit
