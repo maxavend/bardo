@@ -69,7 +69,7 @@ The DMG workflows continue to validate bundle structure and signing separately.
 
 ## Releases
 
-Version 1.0.2 (build 3) is current; it keeps the toolbar search from covering the inspector. 1.0.1 (build 2) records the Mac's audio with a Core Audio process tap, transcribes a meeting's microphone and Mac audio apart, and plays, identifies and exports them per track. 1.0.0 (build 1) was the first release. `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml` are the only source of the app's version. Pushing a `v*` tag runs the Release workflow, which checks the tag against the version, runs the tests, builds and verifies `Bardo-<version>.dmg` and attaches it with its SHA-256 to a draft GitHub release. Every push to `main` also builds `Bardo-Latest.dmg` as a workflow artifact.
+Version 1.0.3 (build 4) is current: conversation details open as a sheet, and the app icon is an Icon Composer document. 1.0.2 (build 3) kept the toolbar search from covering the inspector. 1.0.1 (build 2) records the Mac's audio with a Core Audio process tap, transcribes a meeting's microphone and Mac audio apart, and plays, identifies and exports them per track. 1.0.0 (build 1) was the first release. `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml` are the only source of the app's version. Pushing a `v*` tag runs the Release workflow, which checks the tag against the version, runs the tests, builds and verifies `Bardo-<version>.dmg` and attaches it with its SHA-256 to a draft GitHub release. Every push to `main` also builds `Bardo-Latest.dmg` as a workflow artifact.
 
 ## Physical validation still required
 
