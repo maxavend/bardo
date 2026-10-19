@@ -166,9 +166,13 @@ struct RecordingDetailView: View {
             case "delete":
                 isDeleteConfirmationPresented = true
             case "edit":
-                if let segment = model.transcript?.segments.first { editor = .segment(segment) }
+                if let segments = model.transcript?.segments, !segments.isEmpty {
+                    editor = .segment(segments[min(Int(step.value) ?? 0, segments.count - 1)])
+                }
             case "seek":
                 playback.seek(to: TimeInterval(step.value) ?? 10)
+            case "play":
+                _ = playback.play()
             default:
                 break
             }

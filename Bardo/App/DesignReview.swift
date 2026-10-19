@@ -7,11 +7,14 @@ import SwiftUI
 ///
 ///     -BardoDesignCapture <folder> -BardoDesignScenario <steps>
 ///     [-BardoDesignAppearance light|dark] [-BardoDesignWindowSize 1240x800]
+///     [-BardoDesignScreen sharpest] [-BardoDesignComposite YES] [-BardoDesignForceActive YES]
+///     [-BardoDesignMicrophone <name>]
 ///
 /// to drive the real windows into a known state, capture each visible window to PNG
 /// and quit. `<steps>` is a `+`-separated list such as `section:recordings` or
 /// `open:0+inspector`. Use an isolated `CFFIXED_USER_HOME` and bundle identifier so
-/// the review never reads or changes a real Library.
+/// the review never reads or changes a real Library; `tools/portfolio/capture.py`
+/// shows a complete run.
 @MainActor
 enum DesignReview {
     struct Step: Sendable {
@@ -28,6 +31,16 @@ enum DesignReview {
 
     /// `-BardoDesignWelcome YES` shows the first-run welcome without resetting setup.
     static var showsWelcome: Bool { isActive && arguments.bool(forKey: "BardoDesignWelcome") }
+
+    /// Whether `-BardoDesignAppearance` chose the appearance, over the app's own setting.
+    static var forcesAppearance: Bool {
+        isActive && arguments.string(forKey: "BardoDesignAppearance") != nil
+    }
+
+    /// `-BardoDesignMicrophone <name>` shows that input device instead of the Mac's own.
+    static var microphoneName: String? {
+        isActive ? arguments.string(forKey: "BardoDesignMicrophone") : nil
+    }
 
     private static var captureDirectory: URL? {
         arguments.string(forKey: "BardoDesignCapture").map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -47,23 +60,40 @@ enum DesignReview {
         default: break
         }
 
+        if arguments.bool(forKey: "BardoDesignForceActive") { drawFrontWindowAsActive() }
+
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(2.5))
             NSApp.activate()
             resizeMainWindow()
+            refreshActiveAppearance()
             for step in steps {
                 perform(step)
+                refreshActiveAppearance()
                 try? await Task.sleep(for: .seconds(step.action == "wait" ? Double(step.value) ?? 1 : 0.9))
             }
             try? await Task.sleep(for: .seconds(1.2))
+            if placeWindowsOnSharpestScreen() {
+                try? await Task.sleep(for: .seconds(0.8))
+            }
+            // Capture the window as active even if another app took focus meanwhile.
+            for _ in 0..<10 where !NSApp.isActive {
+                NSRunningApplication.current.activate(options: [.activateAllWindows])
+                try? await Task.sleep(for: .seconds(0.3))
+            }
             NSApp.activate()
-            try? await Task.sleep(for: .seconds(0.3))
+            refreshActiveAppearance()
+            try? await Task.sleep(for: .seconds(0.4))
             // File names stop at 255 bytes; scenarios with paths can be longer.
             let name = String(scenario.replacingOccurrences(of: ":", with: "-").suffix(120))
             if steps.contains(where: { $0.action == "menus" }) {
                 writeMenus(into: directory, name: name)
             }
-            capture(into: directory, name: name)
+            if arguments.bool(forKey: "BardoDesignComposite") {
+                captureComposited(into: directory, name: name)
+            } else {
+                capture(into: directory, name: name)
+            }
             // `terminate` waits for open sheets and alerts; the review owns no user data.
             exit(0)
         }
@@ -101,6 +131,31 @@ enum DesignReview {
         guard parts.count == 2 else { return }
         window.setContentSize(NSSize(width: parts[0], height: parts[1]))
         window.center()
+        placeWindowsOnSharpestScreen()
+    }
+
+    /// With `-BardoDesignScreen sharpest`, moves every window to the screen with the
+    /// highest backing scale, so captures come out at Retina resolution even when the
+    /// main display is not. Returns whether a window moved.
+    @discardableResult
+    private static func placeWindowsOnSharpestScreen() -> Bool {
+        guard arguments.string(forKey: "BardoDesignScreen") == "sharpest",
+              let screen = NSScreen.screens.max(by: { $0.backingScaleFactor < $1.backingScaleFactor }) else {
+            return false
+        }
+        var moved = false
+        // Sheets and popovers follow their parent window.
+        for window in NSApp.windows where window.isVisible && window.sheetParent == nil && window.parent == nil
+            && window.screen != screen && window.frame.width > 160 {
+            let area = screen.visibleFrame
+            let origin = NSPoint(
+                x: area.midX - window.frame.width / 2,
+                y: max(area.minY, area.midY - window.frame.height / 2)
+            )
+            window.setFrameOrigin(origin)
+            moved = true
+        }
+        return moved
     }
 
     private static func capture(into directory: URL, name: String) {
@@ -222,6 +277,134 @@ extension DesignReview {
               image.width > 1 else { return nil }
         return image
     }
+}
+
+extension DesignReview {
+    /// `-BardoDesignComposite YES`: captures each top-level window with its sheets and
+    /// popovers drawn on top, where they appear on screen. `-BardoDesignRenderer view`
+    /// draws the views directly instead of reading what WindowServer composited.
+    fileprivate static func captureComposited(into directory: URL, name: String) {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let drawsViews = arguments.string(forKey: "BardoDesignRenderer") == "view"
+        func image(of window: NSWindow) -> CGImage? {
+            if !drawsViews, let composited = compositedImage(of: window), !isBlank(composited) {
+                return composited
+            }
+            guard let frameView = window.contentView?.superview ?? window.contentView,
+                  let drawn = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) else { return nil }
+            frameView.cacheDisplay(in: frameView.bounds, to: drawn)
+            return drawn.cgImage
+        }
+        func attached(to window: NSWindow) -> [NSWindow] {
+            NSApp.windows.filter { $0.isVisible && ($0.sheetParent === window || $0.parent === window) }
+                .flatMap { [$0] + attached(to: $0) }
+        }
+        let topLevel = NSApp.windows.filter {
+            $0.isVisible && $0.sheetParent == nil && $0.parent == nil && $0.frame.width > 160 && $0.frame.height > 80
+        }
+        for (index, window) in topLevel.enumerated() {
+            guard let base = image(of: window) else { continue }
+            let scale = CGFloat(base.width) / window.frame.width
+            // Popovers can reach past the window's edge; the canvas grows to show them whole.
+            let children = attached(to: window)
+            let bounds = children.reduce(window.frame) { $0.union($1.frame) }
+            guard let context = CGContext(
+                data: nil, width: Int(bounds.width * scale), height: Int(bounds.height * scale),
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { continue }
+            func place(_ frame: NSRect) -> CGRect {
+                CGRect(
+                    x: (frame.minX - bounds.minX) * scale,
+                    y: (frame.minY - bounds.minY) * scale,
+                    width: frame.width * scale,
+                    height: frame.height * scale
+                )
+            }
+            context.draw(base, in: place(window.frame))
+            for child in children {
+                guard let overlay = image(of: child) else { continue }
+                context.draw(overlay, in: place(child.frame))
+            }
+            guard let stacked = context.makeImage() else { continue }
+            let suffix = topLevel.count > 1 && window !== mainWindow
+                ? "-\(index)-\(window.title.isEmpty ? "window" : window.title)" : ""
+            let url = directory.appendingPathComponent("\(name)\(suffix).png".replacingOccurrences(of: "/", with: "-"))
+            do {
+                try NSBitmapImageRep(cgImage: stacked).representation(using: .png, properties: [:])?.write(to: url)
+            } catch {
+                logger.error("Design capture failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+}
+
+extension DesignReview {
+    /// macOS lets an app activate itself only when the person is not using another one,
+    /// so a review that runs while they work would capture inactive windows. With
+    /// `-BardoDesignForceActive YES` the front window (and its sheet) report themselves
+    /// as key and main, and the app as active, so their controls draw as when focused.
+    /// The sidebar's accent follows WindowServer and still needs Bardo to be frontmost.
+    fileprivate static func drawFrontWindowAsActive() {
+        func exchange(_ type: AnyClass, _ original: Selector, _ replacement: Selector) {
+            guard let a = class_getInstanceMethod(type, original),
+                  let b = class_getInstanceMethod(type, replacement) else { return }
+            method_exchangeImplementations(a, b)
+        }
+        exchange(NSWindow.self, #selector(getter: NSWindow.isKeyWindow), #selector(getter: NSWindow.designReviewIsKeyWindow))
+        exchange(NSWindow.self, #selector(getter: NSWindow.isMainWindow), #selector(getter: NSWindow.designReviewIsMainWindow))
+        exchange(NSApplication.self, #selector(getter: NSApplication.isActive), #selector(getter: NSApplication.designReviewIsActive))
+        // Window controls and selection accents follow AppKit's private "active appearance"
+        // state of the window rather than its key status.
+        for name in ["_hasActiveAppearance", "_hasActiveAppearanceIgnoringKeyFocus", "_hasKeyAppearance", "_hasMainAppearance"] {
+            let selector = NSSelectorFromString(name)
+            guard let method = class_getInstanceMethod(NSWindow.self, selector) else { continue }
+            let block: @convention(block) (NSWindow) -> Bool = { window in
+                guard let front = DesignReview.frontWindow else { return false }
+                var chain = window
+                while let parent = chain.sheetParent ?? chain.parent { chain = parent }
+                return chain === front
+            }
+            method_setImplementation(method, imp_implementationWithBlock(block))
+        }
+    }
+
+    /// The Settings window while it is open, otherwise the main window.
+    static var frontWindow: NSWindow? {
+        NSApp.windows.first { $0.isVisible && $0.identifier?.rawValue.contains("Settings") == true }
+            ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain && $0.sheetParent == nil && $0.parent == nil }
+    }
+
+    /// Asks every window to redraw with its (possibly forced) active state.
+    fileprivate static func refreshActiveAppearance() {
+        guard arguments.bool(forKey: "BardoDesignForceActive") else { return }
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+        for window in NSApp.windows where window.isVisible {
+            if window.isMainWindow { NotificationCenter.default.post(name: NSWindow.didBecomeMainNotification, object: window) }
+            if window.isKeyWindow { NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window) }
+            func invalidate(_ view: NSView) {
+                view.needsDisplay = true
+                view.subviews.forEach(invalidate)
+            }
+            (window.contentView?.superview ?? window.contentView).map(invalidate)
+        }
+    }
+}
+
+extension NSWindow {
+    @objc fileprivate var designReviewIsKeyWindow: Bool {
+        guard var key = DesignReview.frontWindow else { return false }
+        while let sheet = key.attachedSheet { key = sheet }
+        return self === key
+    }
+
+    @objc fileprivate var designReviewIsMainWindow: Bool {
+        self === DesignReview.frontWindow
+    }
+}
+
+extension NSApplication {
+    @objc fileprivate var designReviewIsActive: Bool { true }
 }
 
 extension View {

@@ -327,6 +327,10 @@ struct SettingsView: View {
     }
 
     private func applyAppearance() {
+        #if DEBUG
+        // The design review sets the appearance it captures.
+        if DesignReview.forcesAppearance { return }
+        #endif
         let preference = BardoAppearancePreference(rawValue: appearanceRaw) ?? .system
         switch preference {
         case .system:

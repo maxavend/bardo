@@ -191,7 +191,7 @@ struct LibraryView: View {
             case "issues":
                 isIssuesReviewPresented = true
             case "mute":
-                model.playback.setVolume(0)
+                model.playback.setVolume(Float(step.value) ?? 0)
             case "transcribe":
                 model.beginTranscription()
             case "identify":

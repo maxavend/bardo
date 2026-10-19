@@ -46,7 +46,11 @@ struct RecordingSetupSheet: View {
     @FocusState private var isTitleFocused: Bool
 
     private var microphoneName: String {
-        AVCaptureDevice.default(for: .audio)?.localizedName ?? "No hay un micrófono disponible"
+        #if DEBUG
+        // The design review shows a neutral device instead of the reviewer's own.
+        if let name = DesignReview.microphoneName { return name }
+        #endif
+        return AVCaptureDevice.default(for: .audio)?.localizedName ?? "No hay un micrófono disponible"
     }
 
     var body: some View {
