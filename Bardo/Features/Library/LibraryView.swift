@@ -10,6 +10,7 @@ struct LibraryView: View {
 
     private let captureMenu: AnyView?
     private let activeCaptureBanner: AnyView?
+    private let liveRecorder: AnyView?
     private let onNewRecording: () -> Void
 
     @ObservedObject private var favorites = BardoFavoritesStore.shared
@@ -30,6 +31,7 @@ struct LibraryView: View {
         topAccessory: AnyView? = nil,
         captureMenu: AnyView? = nil,
         activeCaptureBanner: AnyView? = nil,
+        liveRecorder: AnyView? = nil,
         onNewRecording: @escaping () -> Void = {
             NotificationCenter.default.post(name: BardoCommandNotification.newRecording, object: nil)
         }
@@ -37,6 +39,7 @@ struct LibraryView: View {
         self.model = model
         self.captureMenu = captureMenu
         self.activeCaptureBanner = activeCaptureBanner ?? topAccessory
+        self.liveRecorder = liveRecorder
         self.onNewRecording = onNewRecording
     }
 
@@ -81,7 +84,9 @@ struct LibraryView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .navigationSplitViewColumnWidth(min: BardoLayout.detailColumnMinWidth, ideal: 640)
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    if let activeCaptureBanner {
+                    // The recorder has its own controls; the banner returns while
+                    // another conversation is open during the recording.
+                    if let activeCaptureBanner, !showsLiveRecorder {
                         activeCaptureBanner
                             .padding(.horizontal, 8)
                             .padding(.top, 4)
@@ -220,9 +225,17 @@ struct LibraryView: View {
         }
     }
 
+    /// Like Voice Memos, the recording in progress takes the detail column until another
+    /// conversation is chosen.
+    private var showsLiveRecorder: Bool {
+        liveRecorder != nil && model.selection == nil
+    }
+
     @ViewBuilder
     private var detailColumn: some View {
-        if let recording = model.selectedRecording {
+        if let liveRecorder, showsLiveRecorder {
+            liveRecorder
+        } else if let recording = model.selectedRecording {
             RecordingDetailView(
                 recording: recording,
                 model: model,
@@ -252,7 +265,8 @@ struct LibraryView: View {
     /// Like Mail and Notes, keep something readable in the detail column: when the
     /// selection is not part of the current filter, select its first conversation.
     private func selectFirstRecordingIfNeeded() {
-        guard searchQuery.isEmpty else { return }
+        // While recording, an empty selection shows the recorder.
+        guard searchQuery.isEmpty, liveRecorder == nil else { return }
         let visible = sectionRecordings
         if let selection = model.selection, visible.contains(where: { $0.id == selection }) {
             return

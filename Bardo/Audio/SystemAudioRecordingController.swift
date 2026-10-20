@@ -40,6 +40,14 @@ final class SystemAudioRecordingController: ObservableObject {
         }
     }
 
+    /// Live loudness of the Mac's audio and of the microphone, for the recorder.
+    var systemMeter: LiveAudioMeter? { backend.systemMeter }
+    var microphoneMeter: LiveAudioMeter? { includesMicrophone ? backend.microphoneMeter : nil }
+    var microphoneName: String? { includesMicrophone ? backend.microphoneName : nil }
+    /// The title chosen for the recording in progress, if any.
+    var activeTitle: String? { session?.title ?? requestedTitle }
+    var startedAt: Date? { session?.startedAt }
+
     var requiresTerminationFinalization: Bool {
         phase == .recording || phase == .changingSelection || phase == .finalizing
     }

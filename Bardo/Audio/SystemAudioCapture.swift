@@ -73,6 +73,18 @@ protocol SystemAudioCapturing: AnyObject {
 
     func update(selection: SystemContentSelection) async throws
     func stop() async -> SystemAudioCaptureResult
+
+    /// Live loudness of each track while capturing, for the recorder's waveform.
+    var systemMeter: LiveAudioMeter? { get }
+    var microphoneMeter: LiveAudioMeter? { get }
+    /// The microphone being recorded, while capturing with one.
+    var microphoneName: String? { get }
+}
+
+extension SystemAudioCapturing {
+    var systemMeter: LiveAudioMeter? { nil }
+    var microphoneMeter: LiveAudioMeter? { nil }
+    var microphoneName: String? { nil }
 }
 
 enum SystemAudioCaptureError: Error, LocalizedError, Equatable, Sendable {

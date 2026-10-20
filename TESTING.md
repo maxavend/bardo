@@ -63,6 +63,12 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 - In the player, **Pistas** switches between **Todos**, **Solo yo** and **Solo los demás** and balances the two tracks without losing sync, also after seeking and changing speed.
 - **Más acciones › Transcribir de nuevo** offers each track apart or the mix; **Más acciones › Exportar** saves the transcript, the conversation audio, or each track alone.
 
+### 5a1. Live recorder
+
+- Start any recording: the detail column shows its title, a live waveform for each source (**Tu micrófono**, **Audio del Mac**), the running time and **Finalizar**. Speak, then play a video: each lane moves only with its own source.
+- Select a conversation during the recording: it opens with the compact recording bar on top; the waveform button there returns to the recorder.
+- A microphone recording pauses and resumes from the recorder; the time and waveform stop while paused. With Reduce Motion on, the waveform steps instead of gliding.
+
 ### 5a2. Microphone and output
 
 - In **Nueva grabación**, **Micrófono** and **Salida** list the Mac's devices under **Predeterminado del sistema**. Connect or disconnect a Bluetooth or USB device while the sheet is open: the lists follow.

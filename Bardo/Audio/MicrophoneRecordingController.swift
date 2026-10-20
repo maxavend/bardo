@@ -53,6 +53,12 @@ final class MicrophoneRecordingController: ObservableObject {
         }
     }
 
+    /// Live loudness of the microphone, for the recorder.
+    var meter: LiveAudioMeter? { backend.meter }
+    /// The title chosen for the recording in progress, if any.
+    var activeTitle: String? { session?.title }
+    var startedAt: Date? { session?.startedAt }
+
     var requiresTerminationFinalization: Bool {
         phase == .recording || phase == .paused || phase == .finalizing
     }

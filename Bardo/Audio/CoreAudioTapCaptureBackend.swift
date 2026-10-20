@@ -22,6 +22,8 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
     private let microphoneQueue = DispatchQueue(label: "com.maxavend.bardo.system-audio.microphone", qos: .userInitiated)
     private let processor = SystemAudioSampleProcessor()
     private let silence = SilenceMonitor()
+    private let systemLevels = LiveAudioMeter()
+    private let microphoneLevels = LiveAudioMeter()
 
     @MainActor private var tap: SystemAudioTap?
     @MainActor private var microphone: MicrophoneSession?
@@ -37,6 +39,10 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
         processor.elapsedTime
     }
 
+    @MainActor var systemMeter: LiveAudioMeter? { systemLevels }
+    @MainActor var microphoneMeter: LiveAudioMeter? { microphoneLevels }
+    @MainActor var microphoneName: String? { microphone?.deviceName }
+
     @MainActor
     func start(
         selection: SystemContentSelection,
@@ -51,6 +57,8 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
 
         processor.configure(systemURL: systemURL, microphoneURL: includeMicrophone ? microphoneURL : nil)
         silence.reset()
+        systemLevels.reset()
+        microphoneLevels.reset()
 
         do {
             let tap = try SystemAudioTap(outputDevice: devices.outputDeviceID(), queue: systemQueue) { [weak self] sampleBuffer, heardSound in
@@ -125,6 +133,7 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
 
     nonisolated private func handle(_ sampleBuffer: CMSampleBuffer, track: SystemAudioSampleProcessor.Track, heardSound: Bool) {
         if track == .system, heardSound { silence.markHeard() }
+        (track == .system ? systemLevels : microphoneLevels).append(sampleBuffer)
 
         let event: SystemAudioCaptureBackendEvent
         switch processor.append(sampleBuffer, track: track) {

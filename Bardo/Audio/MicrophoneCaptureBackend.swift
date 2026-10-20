@@ -42,6 +42,8 @@ final class MicrophoneCaptureBackend: AudioCapturing {
         return writer.level
     }
 
+    var meter: LiveAudioMeter? { levels }
+
     var isRecording: Bool {
         session != nil && writer?.isPaused == false
     }
@@ -50,6 +52,7 @@ final class MicrophoneCaptureBackend: AudioCapturing {
     private let queue = DispatchQueue(label: "com.maxavend.bardo.microphone", qos: .userInitiated)
     private var session: MicrophoneSession?
     private var writer: MicrophoneFileWriter?
+    private let levels = LiveAudioMeter()
 
     init(devices: AudioDevicePreferences = AudioDevicePreferences()) {
         self.devices = devices
@@ -66,7 +69,8 @@ final class MicrophoneCaptureBackend: AudioCapturing {
         let writer: MicrophoneFileWriter
         let session: MicrophoneSession
         do {
-            writer = try MicrophoneFileWriter(url: url, settings: Self.recordingSettings)
+            levels.reset()
+            writer = try MicrophoneFileWriter(url: url, settings: Self.recordingSettings, meter: levels)
             session = try MicrophoneSession(device: device, queue: queue) { sampleBuffer in
                 writer.append(sampleBuffer)
             }
@@ -125,8 +129,10 @@ final class MicrophoneFileWriter: @unchecked Sendable {
     private var paused = false
     private var lastLevel: Double = 0
     private let sampleRate: Double
+    private let meter: LiveAudioMeter?
 
-    init(url: URL, settings: [String: Any]) throws {
+    init(url: URL, settings: [String: Any], meter: LiveAudioMeter? = nil) throws {
+        self.meter = meter
         let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
         self.file = file
         self.sampleRate = file.processingFormat.sampleRate
@@ -153,6 +159,9 @@ final class MicrophoneFileWriter: @unchecked Sendable {
                 try file.write(from: buffer)
                 framesWritten += AVAudioFramePosition(buffer.frameLength)
                 lastLevel = Self.level(of: buffer)
+                if let samples = buffer.floatChannelData?[0] {
+                    meter?.append(UnsafeBufferPointer(start: samples, count: Int(buffer.frameLength)), frames: Int(buffer.frameLength), sampleRate: sampleRate)
+                }
             } catch {
                 // A full disk ends the file where it is; what was written stays readable.
                 self.file = nil

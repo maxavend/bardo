@@ -35,6 +35,8 @@ protocol AudioCapturing: AnyObject {
     var inputLevel: Double { get }
     var isRecording: Bool { get }
     var eventHandler: ((AudioCaptureBackendEvent) -> Void)? { get set }
+    /// Live loudness while recording, for the recorder's waveform.
+    var meter: LiveAudioMeter? { get }
 
     func start(to url: URL) async throws
     func pause()
@@ -44,6 +46,7 @@ protocol AudioCapturing: AnyObject {
 
 extension AudioCapturing {
     var inputLevel: Double { 0 }
+    var meter: LiveAudioMeter? { nil }
     func pause() {}
     func resume() {}
 }
