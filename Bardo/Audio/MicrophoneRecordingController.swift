@@ -88,7 +88,7 @@ final class MicrophoneRecordingController: ObservableObject {
         store: RecordingStore? = nil,
         stagingStore: MicrophoneCaptureStagingStore? = nil,
         permissionAuthorizer: any MicrophonePermissionAuthorizing = SystemMicrophonePermissionAuthorizer(),
-        backend: any AudioCapturing = AVAudioRecorderCaptureBackend(),
+        backend: any AudioCapturing = MicrophoneCaptureBackend(),
         metadataReader: AudioMetadataReader = AudioMetadataReader(),
         transcoder: any AudioTranscoding = AACAudioTranscoder(),
         settingsOpener: MicrophoneSystemSettingsOpener = MicrophoneSystemSettingsOpener()
@@ -336,7 +336,7 @@ final class MicrophoneRecordingController: ObservableObject {
             )
 
             do {
-                try backend.start(to: stagingURL)
+                try await backend.start(to: stagingURL)
             } catch {
                 try? await stagingStore.discardPreparedCapture(recordingID: recordingID)
                 throw error

@@ -63,6 +63,13 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 - In the player, **Pistas** switches between **Todos**, **Solo yo** and **Solo los demás** and balances the two tracks without losing sync, also after seeking and changing speed.
 - **Más acciones › Transcribir de nuevo** offers each track apart or the mix; **Más acciones › Exportar** saves the transcript, the conversation audio, or each track alone.
 
+### 5a2. Microphone and output
+
+- In **Nueva grabación**, **Micrófono** and **Salida** list the Mac's devices under **Predeterminado del sistema**. Connect or disconnect a Bluetooth or USB device while the sheet is open: the lists follow.
+- Choose the Mac's own microphone while a Bluetooth speaker is the macOS default input and output, and record a call with **Reunión en este Mac**: the microphone track uses the Mac's microphone and the speaker keeps playing in stereo.
+- Choose the Bluetooth speaker's microphone: the sheet warns about hands-free mode. Record a minute anyway; both tracks must play at normal speed and last as long as the recording.
+- Quit and reopen Bardo: the choices are remembered. Disconnect the chosen device: the sheet shows it as **no conectado** and recordings use the macOS default.
+
 ### 5b. Interruptions and recovery
 
 - Start a microphone recording, speak for 20 seconds, then force quit Bardo (⌥⌘⎋).

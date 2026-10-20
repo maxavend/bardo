@@ -145,7 +145,7 @@ final class CaptureDurabilityTests: XCTestCase {
         let url = baseURL.appendingPathComponent("microphone.caf")
         let file = try AVAudioFile(
             forWriting: url,
-            settings: AVAudioRecorderCaptureBackend.recordingSettings,
+            settings: MicrophoneCaptureBackend.recordingSettings,
             commonFormat: .pcmFormatFloat32,
             interleaved: false
         )

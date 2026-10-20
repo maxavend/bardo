@@ -36,7 +36,7 @@ protocol AudioCapturing: AnyObject {
     var isRecording: Bool { get }
     var eventHandler: ((AudioCaptureBackendEvent) -> Void)? { get set }
 
-    func start(to url: URL) throws
+    func start(to url: URL) async throws
     func pause()
     func resume()
     func stop()

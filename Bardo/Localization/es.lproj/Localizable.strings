@@ -374,9 +374,6 @@
 "The microphone recorder could not prepare its output file." = "El micrófono no pudo preparar su archivo de grabación.";
 "The microphone recorder could not start capturing audio." = "El micrófono no pudo empezar a grabar.";
 "The microphone recorder could not be created: %@" = "No se pudo preparar el micrófono: %@";
-"The audio encoder reported an unknown recording error." = "El codificador de audio informó un error desconocido.";
-"Microphone recording ended unexpectedly." = "La grabación del micrófono terminó inesperadamente.";
-"Microphone recording stopped because the audio recorder could not continue." = "La grabación del micrófono se detuvo porque la grabadora no pudo continuar.";
 "A microphone capture is already active." = "Ya hay una captura con micrófono en curso.";
 "The microphone capture is no longer active." = "La captura con micrófono ya no está activa.";
 "Bardo found existing temporary data for this capture and left it untouched." = "Bardo encontró datos temporales de esta captura y no los modificó.";
@@ -496,6 +493,8 @@
 "Bardo could not listen to the Mac's audio (Core Audio error %d)." = "Bardo no pudo escuchar el audio del Mac (error de Core Audio %d).";
 "No microphone is available." = "No hay ningún micrófono disponible.";
 "The microphone could not be connected." = "No se pudo conectar el micrófono.";
+"The microphone was disconnected." = "Se desconectó el micrófono.";
+"The microphone stopped unexpectedly." = "El micrófono se detuvo inesperadamente.";
 "You" = "Tú";
 "Others" = "Los demás";
 "Separate tracks" = "Pistas separadas";
