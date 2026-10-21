@@ -13,8 +13,8 @@ struct PlayerTimeline: View {
     var transcript: Transcript?
     let updateNotes: (@escaping (inout RecordingNotes) -> Void) -> Void
 
-    @State private var editingMoment: RecordingMoment.ID?
-    @State private var editingSection: RecordingSection.ID?
+    @Binding var editingMoment: RecordingMoment.ID?
+    @Binding var editingSection: RecordingSection.ID?
 
     private static let laneHeight: CGFloat = 22
     private static let waveHeight: CGFloat = 240
@@ -88,6 +88,7 @@ struct PlayerTimeline: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .pointerStyle(.link)
         .help("\(section.title) · desde \(LibraryFormatting.duration(section.start))")
         .popover(isPresented: Binding(
             get: { editingSection == section.id },
@@ -116,6 +117,7 @@ struct PlayerTimeline: View {
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
+        .pointerStyle(.link)
         .help("\(moment.title) · \(LibraryFormatting.duration(moment.time))")
         .accessibilityLabel(Text("Momento: \(moment.title), \(LibraryFormatting.duration(moment.time))"))
         .popover(isPresented: Binding(

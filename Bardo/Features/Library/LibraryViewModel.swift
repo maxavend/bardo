@@ -381,17 +381,22 @@ final class LibraryViewModel: ObservableObject {
             playback.skippedRanges = []
             return
         }
-        if let ranges = silentRanges[recording.id] {
-            playback.skippedRanges = ranges
-            return
-        }
+        let ranges = await longSilences(of: recording.id)
+        guard selection == recording.id, selectedRecording?.skipsSilences == true else { return }
+        playback.skippedRanges = ranges
+    }
+
+    /// The long silences of the selected recording, found once its audio is loaded and
+    /// kept for the session; empty while there is no audio to read.
+    func longSilences(of recordingID: Recording.ID) async -> [ClosedRange<TimeInterval>] {
+        if let ranges = silentRanges[recordingID] { return ranges }
         let tracks = playback.loadedTracks
+        guard selection == recordingID, !tracks.isEmpty else { return [] }
         let ranges = await Task.detached(priority: .utility) {
             (try? AudioWaveformOverview.silentRanges(of: tracks)) ?? []
         }.value
-        guard selection == recording.id else { return }
-        silentRanges[recording.id] = ranges
-        playback.skippedRanges = ranges
+        silentRanges[recordingID] = ranges
+        return ranges
     }
 
     @discardableResult

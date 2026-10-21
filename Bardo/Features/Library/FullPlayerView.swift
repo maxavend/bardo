@@ -11,6 +11,10 @@ struct FullPlayerView: View {
     let onClose: () -> Void
 
     @State private var isOptionsPresented = false
+    /// A moment or section being named, opened as soon as it is made.
+    @State private var editingMoment: RecordingMoment.ID?
+    @State private var editingSection: RecordingSection.ID?
+    @State private var silences: [ClosedRange<TimeInterval>]?
     @State private var matchIndex = 0
 
     var body: some View {
@@ -23,7 +27,9 @@ struct FullPlayerView: View {
                 playback: playback,
                 matches: matches.map(\.startTime),
                 transcript: transcript,
-                updateNotes: { change in Task { await model.updateNotes(recording.id, change) } }
+                updateNotes: { change in Task { await model.updateNotes(recording.id, change) } },
+                editingMoment: $editingMoment,
+                editingSection: $editingSection
             )
 
             if !searchQuery.isEmpty {
@@ -58,16 +64,12 @@ struct FullPlayerView: View {
             }
             // The recording's own actions, where a conversation keeps its actions.
             ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    Task { await model.updateNotes(recording.id) { $0.addMoment(at: playback.position, title: "", note: nil) } }
-                } label: {
+                Button(action: addMoment) {
                     Label("Momento", systemImage: "flag")
                 }
                 .accessibilityLabel("Marcar momento")
                 .help("Marcar un momento donde va la reproducción")
-                Button {
-                    Task { await model.updateNotes(recording.id) { $0.addSection(at: playback.position, title: "") } }
-                } label: {
+                Button(action: addSection) {
                     Label("Sección", systemImage: "rectangle.split.2x1")
                 }
                 .accessibilityLabel("Nueva sección")
@@ -83,8 +85,10 @@ struct FullPlayerView: View {
                         skipsSilences: Binding(
                             get: { recording.skipsSilences },
                             set: { skips in Task { await model.setSkipsSilences(recording.id, skips) } }
-                        )
+                        ),
+                        silences: silences
                     )
+                    .task { silences = await model.longSilences(of: recording.id) }
                 }
             }
         }
@@ -94,12 +98,38 @@ struct FullPlayerView: View {
         .onDesignReviewCommand { step in
             switch step.action {
             case "playerOptions": isOptionsPresented = true
+            case "addMoment": addMoment()
+            case "addSection": addSection()
             case "seek": playback.seek(to: TimeInterval(step.value) ?? 10)
             case "play": _ = playback.play()
             default: break
             }
         }
         #endif
+    }
+
+    // MARK: Notes
+
+    /// Marks a moment where playback is and opens it to be named, as the recorder does.
+    private func addMoment() {
+        Task {
+            var created: RecordingMoment.ID?
+            await model.updateNotes(recording.id) { created = $0.addMoment(at: playback.position, title: "", note: nil).id }
+            // Its dot appears first; the editor then points at it.
+            try? await Task.sleep(for: .milliseconds(120))
+            editingMoment = created
+        }
+    }
+
+    /// Starts a section where playback is and opens it to be named.
+    private func addSection() {
+        Task {
+            var created: RecordingSection.ID?
+            await model.updateNotes(recording.id) { created = $0.addSection(at: playback.position, title: "").id }
+            // Its name appears first; the editor then points at it.
+            try? await Task.sleep(for: .milliseconds(120))
+            editingSection = created
+        }
     }
 
     // MARK: Search
@@ -171,17 +201,27 @@ struct FullPlayerView: View {
 /// Per-recording playback options.
 private struct PlayerOptions: View {
     @Binding var skipsSilences: Bool
+    /// The pauses that would be skipped, once found.
+    let silences: [ClosedRange<TimeInterval>]?
 
     var body: some View {
         Form {
             Toggle(isOn: $skipsSilences) {
                 Text("Omitir silencios")
-                Text("Salta las pausas largas de esta grabación al reproducirla.")
+                Text(summary)
             }
         }
         .formStyle(.grouped)
         .frame(width: 320)
         .fixedSize(horizontal: false, vertical: true)
+    }
+    /// What skipping would do in this recording, so its effect is known.
+    private var summary: String {
+        guard let silences else { return "Buscando las pausas de esta grabación…" }
+        guard !silences.isEmpty else { return "Esta grabación no tiene pausas de más de 2 segundos." }
+        let seconds = silences.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
+        let pauses = silences.count == 1 ? "1 pausa" : "\(silences.count) pausas"
+        return "Salta \(pauses) de más de 2 segundos: unos \(LibraryFormatting.duration(seconds)) menos."
     }
 }
 
