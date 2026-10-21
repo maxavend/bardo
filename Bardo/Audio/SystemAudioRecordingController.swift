@@ -16,7 +16,11 @@ final class SystemAudioRecordingController: ObservableObject {
         case failed
     }
 
-    @Published private(set) var phase: Phase = .idle
+    @Published private(set) var phase: Phase = .idle {
+        didSet { if phase != .recording { isPaused = false } }
+    }
+    /// A paused capture keeps its devices open but records nothing until it resumes.
+    @Published private(set) var isPaused = false
     @Published private(set) var elapsedTime: TimeInterval = 0
     @Published private(set) var includesMicrophone = false
     @Published private(set) var errorMessage: String?
@@ -44,6 +48,19 @@ final class SystemAudioRecordingController: ObservableObject {
     var systemMeter: LiveAudioMeter? { backend.systemMeter }
     var microphoneMeter: LiveAudioMeter? { includesMicrophone ? backend.microphoneMeter : nil }
     var microphoneName: String? { includesMicrophone ? backend.microphoneName : nil }
+    var microphoneDeviceUID: String? { includesMicrophone ? backend.microphoneDeviceUID : nil }
+
+    /// Records `device` from now on and remembers it for the next recordings.
+    func switchMicrophone(to device: AudioDevice) {
+        guard isRecording, includesMicrophone else { return }
+        do {
+            objectWillChange.send()
+            try backend.switchMicrophone(toDeviceUID: device.uid)
+            AudioDevicePreferences().setDevice(device, for: .input)
+        } catch {
+            captureWarning = error.localizedDescription
+        }
+    }
     /// The title chosen for the recording in progress, if any.
     var activeTitle: String? { session?.title ?? requestedTitle }
     var startedAt: Date? { session?.startedAt }
@@ -174,6 +191,22 @@ final class SystemAudioRecordingController: ObservableObject {
         guard phase == .recording else { return }
         phase = .changingSelection
         picker.present()
+    }
+
+    var canPause: Bool { phase == .recording && !isPaused && backend.supportsPause }
+    var canResume: Bool { phase == .recording && isPaused }
+
+    func pause() {
+        guard canPause else { return }
+        backend.pause()
+        refreshElapsedTime()
+        isPaused = true
+    }
+
+    func resume() {
+        guard canResume else { return }
+        backend.resume()
+        isPaused = false
     }
 
     @discardableResult

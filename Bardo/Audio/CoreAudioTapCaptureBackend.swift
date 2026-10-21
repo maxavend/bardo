@@ -24,6 +24,7 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
     private let silence = SilenceMonitor()
     private let systemLevels = LiveAudioMeter()
     private let microphoneLevels = LiveAudioMeter()
+    private let pauseClock = CapturePauseClock()
 
     @MainActor private var tap: SystemAudioTap?
     @MainActor private var microphone: MicrophoneSession?
@@ -42,6 +43,27 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
     @MainActor var systemMeter: LiveAudioMeter? { systemLevels }
     @MainActor var microphoneMeter: LiveAudioMeter? { microphoneLevels }
     @MainActor var microphoneName: String? { microphone?.deviceName }
+    @MainActor var supportsPause: Bool { true }
+    @MainActor var microphoneDeviceUID: String? { microphone?.deviceUID }
+
+    @MainActor
+    func switchMicrophone(toDeviceUID uid: String) throws {
+        guard let microphone else { throw SystemAudioCaptureError.notCapturing }
+        guard let device = AVCaptureDevice(uniqueID: uid), device.hasMediaType(.audio) else {
+            throw SystemAudioCaptureError.systemAudio(String(localized: "No microphone is available."))
+        }
+        try microphone.switchDevice(to: device)
+    }
+
+    @MainActor
+    func pause() {
+        pauseClock.pause()
+    }
+
+    @MainActor
+    func resume() {
+        pauseClock.resume()
+    }
 
     @MainActor
     func start(
@@ -59,6 +81,7 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
         silence.reset()
         systemLevels.reset()
         microphoneLevels.reset()
+        pauseClock.reset()
 
         do {
             let tap = try SystemAudioTap(outputDevice: devices.outputDeviceID(), queue: systemQueue) { [weak self] sampleBuffer, heardSound in
@@ -132,6 +155,7 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
     }
 
     nonisolated private func handle(_ sampleBuffer: CMSampleBuffer, track: SystemAudioSampleProcessor.Track, heardSound: Bool) {
+        guard let sampleBuffer = pauseClock.retime(sampleBuffer) else { return }
         if track == .system, heardSound { silence.markHeard() }
         (track == .system ? systemLevels : microphoneLevels).append(sampleBuffer)
 

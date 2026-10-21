@@ -37,6 +37,10 @@ protocol AudioCapturing: AnyObject {
     var eventHandler: ((AudioCaptureBackendEvent) -> Void)? { get set }
     /// Live loudness while recording, for the recorder's waveform.
     var meter: LiveAudioMeter? { get }
+    /// The microphone being recorded, as a Core Audio and AVCaptureDevice UID.
+    var inputDeviceUID: String? { get }
+    /// Records another microphone from now on, without stopping.
+    func switchInput(toDeviceUID uid: String) throws
 
     func start(to url: URL) async throws
     func pause()
@@ -47,6 +51,10 @@ protocol AudioCapturing: AnyObject {
 extension AudioCapturing {
     var inputLevel: Double { 0 }
     var meter: LiveAudioMeter? { nil }
+    var inputDeviceUID: String? { nil }
+    func switchInput(toDeviceUID uid: String) throws {
+        throw AudioCaptureBackendError.noInputDevice
+    }
     func pause() {}
     func resume() {}
 }

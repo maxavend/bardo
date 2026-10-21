@@ -44,6 +44,16 @@ final class MicrophoneCaptureBackend: AudioCapturing {
 
     var meter: LiveAudioMeter? { levels }
 
+    var inputDeviceUID: String? { session?.deviceUID }
+
+    func switchInput(toDeviceUID uid: String) throws {
+        guard let session else { throw AudioCaptureBackendError.noInputDevice }
+        guard let device = AVCaptureDevice(uniqueID: uid), device.hasMediaType(.audio) else {
+            throw AudioCaptureBackendError.noInputDevice
+        }
+        try session.switchDevice(to: device)
+    }
+
     var isRecording: Bool {
         session != nil && writer?.isPaused == false
     }

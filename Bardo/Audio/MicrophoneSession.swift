@@ -10,19 +10,23 @@ final class MicrophoneSession: NSObject, AVCaptureAudioDataOutputSampleBufferDel
 
     static let sampleRate: Double = 48_000
 
-    let deviceName: String
+    /// The device being recorded. Changed only on the main actor, by `switchDevice(to:)`.
+    private(set) var deviceName: String
+    private(set) var deviceUID: String
     /// Called once, on the main actor, when the microphone stops delivering audio because
     /// it was disconnected or the capture session failed.
     @MainActor var onFailure: ((String) -> Void)?
 
     private let session = AVCaptureSession()
-    private let device: AVCaptureDevice
+    private var device: AVCaptureDevice
     private let handler: Handler
     private var observers: [NSObjectProtocol] = []
+    private var disconnectObserver: NSObjectProtocol?
 
     init(device: AVCaptureDevice, queue: DispatchQueue, handler: @escaping Handler) throws {
         self.device = device
         self.deviceName = device.localizedName
+        self.deviceUID = device.uniqueID
         self.handler = handler
         super.init()
 
@@ -48,13 +52,8 @@ final class MicrophoneSession: NSObject, AVCaptureAudioDataOutputSampleBufferDel
         session.addOutput(output)
         session.commitConfiguration()
 
-        let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: AVCaptureDevice.wasDisconnectedNotification, object: device, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.fail(String(localized: "The microphone was disconnected."))
-            }
-        })
-        observers.append(center.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main) { [weak self] notification in
+        observeDisconnection(of: device)
+        observers.append(NotificationCenter.default.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main) { [weak self] notification in
             let error = notification.userInfo?[AVCaptureSessionErrorKey] as? Error
             MainActor.assumeIsolated {
                 self?.fail(error?.localizedDescription ?? String(localized: "The microphone stopped unexpectedly."))
@@ -64,6 +63,42 @@ final class MicrophoneSession: NSObject, AVCaptureAudioDataOutputSampleBufferDel
 
     deinit {
         observers.forEach(NotificationCenter.default.removeObserver)
+        disconnectObserver.map(NotificationCenter.default.removeObserver)
+    }
+
+    /// Records another microphone from now on, without stopping the session. The output
+    /// keeps delivering 48 kHz mono whatever the new device's rate.
+    @MainActor
+    func switchDevice(to newDevice: AVCaptureDevice) throws {
+        guard newDevice.uniqueID != device.uniqueID else { return }
+        let input = try AVCaptureDeviceInput(device: newDevice)
+        session.beginConfiguration()
+        let previous = session.inputs
+        previous.forEach(session.removeInput)
+        guard session.canAddInput(input) else {
+            previous.forEach(session.addInput)
+            session.commitConfiguration()
+            throw SystemAudioCaptureError.systemAudio(String(localized: "The microphone could not be connected."))
+        }
+        session.addInput(input)
+        session.commitConfiguration()
+        device = newDevice
+        deviceName = newDevice.localizedName
+        deviceUID = newDevice.uniqueID
+        observeDisconnection(of: newDevice)
+    }
+
+    private func observeDisconnection(of device: AVCaptureDevice) {
+        disconnectObserver.map(NotificationCenter.default.removeObserver)
+        disconnectObserver = NotificationCenter.default.addObserver(
+            forName: AVCaptureDevice.wasDisconnectedNotification,
+            object: device,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.fail(String(localized: "The microphone was disconnected."))
+            }
+        }
     }
 
     var isRunning: Bool { session.isRunning }

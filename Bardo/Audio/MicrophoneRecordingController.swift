@@ -55,6 +55,19 @@ final class MicrophoneRecordingController: ObservableObject {
 
     /// Live loudness of the microphone, for the recorder.
     var meter: LiveAudioMeter? { backend.meter }
+    var inputDeviceUID: String? { backend.inputDeviceUID }
+
+    /// Records `device` from now on and remembers it for the next recordings.
+    func switchInput(to device: AudioDevice) {
+        guard phase == .recording || phase == .paused else { return }
+        do {
+            try backend.switchInput(toDeviceUID: device.uid)
+            inputDisplayName = backend.inputDisplayName
+            AudioDevicePreferences().setDevice(device, for: .input)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
     /// The title chosen for the recording in progress, if any.
     var activeTitle: String? { session?.title }
     var startedAt: Date? { session?.startedAt }

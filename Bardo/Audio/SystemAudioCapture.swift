@@ -79,12 +79,28 @@ protocol SystemAudioCapturing: AnyObject {
     var microphoneMeter: LiveAudioMeter? { get }
     /// The microphone being recorded, while capturing with one.
     var microphoneName: String? { get }
+    var microphoneDeviceUID: String? { get }
+    /// Records another microphone from now on, without stopping.
+    func switchMicrophone(toDeviceUID uid: String) throws
+
+    /// Whether `pause()` and `resume()` work: the capture keeps running and drops what it
+    /// hears in between, and the files continue as if there had been no pause.
+    var supportsPause: Bool { get }
+    func pause()
+    func resume()
 }
 
 extension SystemAudioCapturing {
     var systemMeter: LiveAudioMeter? { nil }
     var microphoneMeter: LiveAudioMeter? { nil }
     var microphoneName: String? { nil }
+    var microphoneDeviceUID: String? { nil }
+    func switchMicrophone(toDeviceUID uid: String) throws {
+        throw SystemAudioCaptureError.notCapturing
+    }
+    var supportsPause: Bool { false }
+    func pause() {}
+    func resume() {}
 }
 
 enum SystemAudioCaptureError: Error, LocalizedError, Equatable, Sendable {

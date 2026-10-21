@@ -9,6 +9,7 @@ struct RootView: View {
     @StateObject private var library = LibraryViewModel()
     @StateObject private var microphone = MicrophoneRecordingController()
     @StateObject private var systemAudio = SystemAudioRecordingController()
+    @StateObject private var audioDevices = AudioDeviceCatalog()
     @State private var isRecoveryPresented = false
     @State private var isRecordingSetupPresented = false
     #if DEBUG
@@ -115,11 +116,15 @@ struct RootView: View {
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.pauseRecording)) { _ in
                 if microphone.phase == .recording {
                     microphone.pause()
+                } else {
+                    systemAudio.pause()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.resumeRecording)) { _ in
                 if microphone.phase == .paused {
                     microphone.resume()
+                } else {
+                    systemAudio.resume()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.stopRecording)) { _ in
@@ -147,7 +152,12 @@ struct RootView: View {
             #endif
             // A new recording opens in the detail column, as in Voice Memos.
             .onChange(of: isLiveRecording) { _, isRecording in
-                if isRecording { library.selection = nil }
+                if isRecording {
+                    library.selection = nil
+                    audioDevices.startObserving()
+                } else {
+                    audioDevices.stopObserving()
+                }
             }
             .onDisappear {
                 Task {
@@ -166,8 +176,8 @@ struct RootView: View {
     private var captureCommandState: BardoCaptureCommandState {
         BardoCaptureCommandState(
             canStart: !microphone.isBusy && !systemAudio.isBusy,
-            canPause: microphone.phase == .recording,
-            canResume: microphone.phase == .paused,
+            canPause: microphone.phase == .recording || systemAudio.canPause,
+            canResume: microphone.phase == .paused || systemAudio.canResume,
             canStop: microphone.phase == .recording || microphone.phase == .paused || systemAudio.isRecording
         )
     }
@@ -184,10 +194,15 @@ struct RootView: View {
                 title: "Revisión semanal del equipo",
                 subtitle: liveSubtitle(startedAt: .now, sources: [.microphone, .systemAudio]),
                 tracks: [
-                    .microphone(previewMeters.microphone, device: DesignReview.microphoneName),
+                    .microphone(
+                        previewMeters.microphone,
+                        device: DesignReview.microphoneName,
+                        choice: LiveMicrophoneChoice(devices: audioDevices.inputs, selectedUID: audioDevices.inputs.first?.uid) { _ in }
+                    ),
                     .system(previewMeters.system)
                 ],
                 isPaused: false,
+                pauseAction: {},
                 stopAction: {}
             ))
         }
@@ -196,7 +211,13 @@ struct RootView: View {
             return AnyView(LiveRecorderView(
                 title: microphone.activeTitle ?? "Nueva grabación",
                 subtitle: liveSubtitle(startedAt: microphone.startedAt, sources: [.microphone]),
-                tracks: [.microphone(meter, device: microphone.inputDisplayName)],
+                tracks: [.microphone(
+                    meter,
+                    device: microphone.inputDisplayName,
+                    choice: LiveMicrophoneChoice(devices: audioDevices.inputs, selectedUID: microphone.inputDeviceUID) { device in
+                        microphone.switchInput(to: device)
+                    }
+                )],
                 isPaused: microphone.phase == .paused,
                 pauseAction: { microphone.pause() },
                 resumeAction: { microphone.resume() },
@@ -206,7 +227,13 @@ struct RootView: View {
         guard systemAudio.isRecording else { return nil }
         var tracks: [LiveRecorderTrack] = []
         if let meter = systemAudio.microphoneMeter {
-            tracks.append(.microphone(meter, device: systemAudio.microphoneName))
+            tracks.append(.microphone(
+                meter,
+                device: systemAudio.microphoneName,
+                choice: LiveMicrophoneChoice(devices: audioDevices.inputs, selectedUID: systemAudio.microphoneDeviceUID) { device in
+                    systemAudio.switchMicrophone(to: device)
+                }
+            ))
         }
         if let meter = systemAudio.systemMeter {
             tracks.append(.system(meter))
@@ -219,8 +246,10 @@ struct RootView: View {
                 sources: systemAudio.includesMicrophone ? [.microphone, .systemAudio] : [.systemAudio]
             ),
             tracks: tracks,
-            isPaused: false,
+            isPaused: systemAudio.isPaused,
             warning: systemAudio.captureWarning,
+            pauseAction: systemAudio.canPause ? { systemAudio.pause() } : nil,
+            resumeAction: systemAudio.canResume ? { systemAudio.resume() } : nil,
             stopAction: { Task { await stopSystemRecording() } }
         ))
     }
@@ -330,12 +359,16 @@ struct RootView: View {
             )
         case .recording:
             activeRecordingPill(
-                title: "Grabando",
-                detail: systemAudio.captureWarning ?? (systemAudio.includesMicrophone
-                    ? "Tu voz y el audio del Mac se están guardando por separado."
-                    : "Todo lo que suena en el Mac se está guardando."),
+                title: systemAudio.isPaused ? "Grabación en pausa" : "Grabando",
+                detail: systemAudio.captureWarning ?? (systemAudio.isPaused
+                    ? "Reanuda cuando quieras continuar."
+                    : systemAudio.includesMicrophone
+                        ? "Tu voz y el audio del Mac se están guardando por separado."
+                        : "Todo lo que suena en el Mac se está guardando."),
                 duration: systemAudio.elapsedTime,
                 isWarning: systemAudio.captureWarning != nil,
+                pauseAction: systemAudio.canPause ? { systemAudio.pause() } : nil,
+                resumeAction: systemAudio.canResume ? { systemAudio.resume() } : nil,
                 showAction: { library.selection = nil },
                 stopAction: {
                     Task { await stopSystemRecording() }

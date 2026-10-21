@@ -1,26 +1,36 @@
 import SwiftUI
 
-/// One source of the recording in progress, drawn as its own waveform lane.
+/// The microphones a recording can switch to while it runs.
+struct LiveMicrophoneChoice {
+    let devices: [AudioDevice]
+    let selectedUID: String?
+    let select: (AudioDevice) -> Void
+}
+
+/// One source of the recording in progress.
 struct LiveRecorderTrack: Identifiable {
     let id: String
     let title: LocalizedStringKey
     /// The device it comes from, when Bardo knows it.
     let detail: String?
-    let systemImage: String
     let tint: Color
     let meter: LiveAudioMeter
+    var choice: LiveMicrophoneChoice?
 
-    static func microphone(_ meter: LiveAudioMeter, device: String?) -> LiveRecorderTrack {
-        LiveRecorderTrack(id: "microphone", title: "Tu micrófono", detail: device, systemImage: "mic", tint: .blue, meter: meter)
+    /// Your voice, above the line, in the transcript's colour for you.
+    static func microphone(_ meter: LiveAudioMeter, device: String?, choice: LiveMicrophoneChoice? = nil) -> LiveRecorderTrack {
+        LiveRecorderTrack(id: "microphone", title: "Tu micrófono", detail: device, tint: .blue, meter: meter, choice: choice)
     }
 
+    /// The Mac's audio, below the line, in the colour of the first other speaker.
     static func system(_ meter: LiveAudioMeter) -> LiveRecorderTrack {
-        LiveRecorderTrack(id: "system", title: "Audio del Mac", detail: nil, systemImage: "macbook", tint: .orange, meter: meter)
+        LiveRecorderTrack(id: "system", title: "Audio del Mac", detail: nil, tint: .orange, meter: meter)
     }
 }
 
-/// The detail column while Bardo records: what is being recorded, a live waveform for
-/// each source, the running time and the controls to pause or finish.
+/// The detail column while Bardo records, laid out like the conversation it becomes: its
+/// title, one live line where your voice rises above and the Mac's audio falls below,
+/// and the time with pause and finish on a floating bar like the player's.
 struct LiveRecorderView: View {
     let title: String
     let subtitle: String
@@ -35,154 +45,242 @@ struct LiveRecorderView: View {
         // Take exactly the column's space: the split view lays the detail out at its
         // content's ideal height once, and the recorder must never grow past the window.
         GeometryReader { proxy in
-            content
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            ZStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    Spacer(minLength: 16)
+                    stage
+                        .frame(maxWidth: BardoLayout.detailContentMaxWidth)
+                        .frame(maxWidth: .infinity)
+                    Spacer(minLength: 16)
+                    Color.clear.frame(height: BardoLayout.playbackContentClearance)
+                }
+                .padding(.horizontal, BardoSpacing.detailHorizontal)
+                .padding(.top, 20)
+
+                controlBar
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
     }
 
-    private var content: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.title2.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(subtitle)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.bottom, BardoSpacing.section)
-
-            Spacer(minLength: 12)
-
-            VStack(spacing: 16) {
-                ForEach(tracks) { track in
-                    LiveRecorderLane(track: track, isPaused: isPaused)
-                }
-            }
-            .frame(maxWidth: BardoLayout.detailContentMaxWidth)
-            .frame(maxWidth: .infinity)
-
-            Spacer(minLength: 12)
-
-            VStack(spacing: 14) {
-                LiveRecorderClock(meters: tracks.map(\.meter), isPaused: isPaused)
-
-                HStack(spacing: 12) {
-                    if let pauseAction, !isPaused {
-                        Button(action: pauseAction) {
-                            Label(String(localized: "Pause"), systemImage: "pause.fill")
-                        }
-                        .help(String(localized: "Pause recording"))
-                    }
-                    if let resumeAction, isPaused {
-                        Button(action: resumeAction) {
-                            Label(String(localized: "Resume"), systemImage: "play.fill")
-                        }
-                        .help(String(localized: "Resume recording"))
-                    }
-                    // A deep red keeps the white label above 4.5:1; the system red does not.
-                    Button(action: stopAction) {
-                        Label("Finalizar", systemImage: "stop.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(BardoColor.stopRecording)
-                    .help(String(localized: "Stop recording (⌘.)"))
-                }
-                .controlSize(.large)
-                .buttonBorderShape(.capsule)
-
-                if let warning {
-                    Label(warning, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .padding(.horizontal, BardoSpacing.detailHorizontal)
-        .padding(.top, 20)
-        .padding(.bottom, 28)
-    }
-}
-
-/// A source's name above its live waveform.
-private struct LiveRecorderLane: View {
-    let track: LiveRecorderTrack
-    let isPaused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Label(track.title, systemImage: track.systemImage)
-                    .font(.callout.weight(.semibold))
-                if let detail = track.detail {
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-
-            LiveWaveform(meter: track.meter, tint: track.tint, isPaused: isPaused)
-                .frame(minHeight: 48, idealHeight: 112, maxHeight: 140)
-                .padding(.horizontal, 12)
-                .background(.quaternary.opacity(0.6), in: .rect(cornerRadius: 10))
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.title2.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            (Text(isPaused ? "En pausa" : "Grabando")
+                .fontWeight(.semibold)
+                .foregroundStyle(isPaused ? Color.secondary : Color.red)
+             + Text(" · \(subtitle)")
+                .foregroundStyle(.secondary))
+                .font(.callout)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(track.title))
-        .accessibilityValue(track.detail.map { Text($0) } ?? Text(""))
+    }
+
+    /// The live line with its sources named underneath, stacked and centered.
+    private var stage: some View {
+        VStack(spacing: 16) {
+            LiveConversationWave(tracks: tracks, isPaused: isPaused)
+                .frame(minHeight: 120, idealHeight: 200, maxHeight: 220)
+            VStack(spacing: 6) {
+                ForEach(tracks) { track in
+                    sourceName(track)
+                }
+            }
+        }
+    }
+
+    /// A source's colour, name and device. The microphone's device opens a menu of the
+    /// Mac's inputs, to switch without stopping the recording.
+    private func sourceName(_ track: LiveRecorderTrack) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(track.tint).frame(width: 7, height: 7)
+            Text(track.title)
+                .foregroundStyle(.secondary)
+            deviceName(track)
+        }
+        .font(.caption)
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private func deviceName(_ track: LiveRecorderTrack) -> some View {
+        if let choice = track.choice, !choice.devices.isEmpty {
+            Menu {
+                Picker("Micrófono", selection: Binding(
+                    get: { choice.selectedUID ?? "" },
+                    set: { uid in
+                        if let device = choice.devices.first(where: { $0.uid == uid }) { choice.select(device) }
+                    }
+                )) {
+                    ForEach(choice.devices) { device in
+                        Text(device.menuTitle).tag(device.uid)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                HStack(spacing: 3) {
+                    Text(track.detail ?? "Micrófono")
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                }
+                .foregroundStyle(.secondary)
+                .contentShape(.rect)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Cambiar de micrófono sin detener la grabación")
+        } else if let detail = track.detail {
+            Text(detail)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+    }
+
+    /// Time, pause and finish on one floating glass bar, like the player's.
+    private var controlBar: some View {
+        VStack(spacing: 8) {
+            if let warning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 12) {
+                LiveRecorderClock(meters: tracks.map(\.meter), isPaused: isPaused)
+                    .padding(.trailing, 4)
+                if let pauseAction, !isPaused {
+                    Button(action: pauseAction) {
+                        Label(String(localized: "Pause"), systemImage: "pause.fill")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help(String(localized: "Pause recording"))
+                }
+                if let resumeAction, isPaused {
+                    Button(action: resumeAction) {
+                        Label(String(localized: "Resume"), systemImage: "record.circle")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help(String(localized: "Resume recording"))
+                }
+                // A deep red keeps the white label above 4.5:1; the system red does not.
+                Button(action: stopAction) {
+                    Label("Finalizar", systemImage: "stop.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(BardoColor.stopRecording)
+                .help(String(localized: "Stop recording (⌘.)"))
+            }
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+            .padding(.leading, 20)
+            .padding(.trailing, 10)
+            .frame(height: BardoLayout.playbackSurfaceHeight)
+            .bardoPlaybackSurface()
+        }
+        .padding(.horizontal, BardoLayout.playbackHorizontalPadding)
+        .padding(.bottom, BardoLayout.playbackBottomPadding)
     }
 }
 
-/// Bars of recent loudness that scroll from right to left as audio arrives. It reads its
-/// meter on every frame, so the levels never re-render anything else.
-struct LiveWaveform: View {
-    let meter: LiveAudioMeter
-    let tint: Color
+extension LiveAudioMeter.Snapshot {
+    /// How far the newest bar has glided left toward the next one, from 0 to 1. It stays
+    /// still while paused or when Reduce Motion is on.
+    func glide(isPaused: Bool, reduceMotion: Bool) -> CGFloat {
+        guard !reduceMotion, !isPaused, lastBarTime > 0 else { return 0 }
+        let elapsed = ProcessInfo.processInfo.systemUptime - lastBarTime
+        return CGFloat(min(1, max(0, elapsed / LiveAudioMeter.bucketDuration)))
+    }
+}
+
+/// Your voice rises above one shared line and the Mac's audio falls below it, so the
+/// turns of a call read at a glance; a single source fills both sides. Audio enters at a
+/// red playhead on the right and drifts left, fading as it ages. The meters are read on
+/// every frame, so the levels never re-render anything else.
+struct LiveConversationWave: View {
+    let tracks: [LiveRecorderTrack]
     let isPaused: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static let barWidth: CGFloat = 3
-    private static let step: CGFloat = 5
+    private let barWidth: CGFloat = 2
+    private let step: CGFloat = 4
+    /// Room on the right for the playhead and its dots.
+    private let playheadInset: CGFloat = 10
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: isPaused)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: isPaused)) { _ in
             Canvas { canvas, size in
-                draw(meter.snapshot, at: context.date, in: &canvas, size: size)
+                let middle = size.height / 2
+                canvas.fill(
+                    Path(CGRect(x: 0, y: middle - 0.25, width: size.width - playheadInset, height: 0.5)),
+                    with: .color(.secondary.opacity(0.35))
+                )
+                var bars = canvas
+                // Older audio fades out toward the leading edge instead of being cut off.
+                bars.clipToLayer { layer in
+                    layer.fill(
+                        Path(CGRect(origin: .zero, size: size)),
+                        with: .linearGradient(
+                            Gradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.35)]),
+                            startPoint: .zero,
+                            endPoint: CGPoint(x: size.width, y: 0)
+                        )
+                    )
+                }
+                if isPaused { bars.opacity = 0.5 }
+                if tracks.count == 1, let track = tracks.first {
+                    draw(track, in: &bars, size: size, direction: 0)
+                } else {
+                    for (offset, track) in tracks.prefix(2).enumerated() {
+                        draw(track, in: &bars, size: size, direction: offset == 0 ? -1 : 1)
+                    }
+                }
+                drawPlayhead(in: &canvas, size: size)
             }
         }
         .accessibilityHidden(true)
     }
 
-    private func draw(_ snapshot: LiveAudioMeter.Snapshot, at date: Date, in canvas: inout GraphicsContext, size: CGSize) {
-        guard size.width > Self.step, size.height > 4 else { return }
-        // Glide the newest bar left until the next one arrives, unless motion is reduced.
-        var glide: CGFloat = 0
-        if !reduceMotion, !isPaused, snapshot.lastBarTime > 0 {
-            let elapsed = ProcessInfo.processInfo.systemUptime - snapshot.lastBarTime
-            glide = CGFloat(min(1, max(0, elapsed / LiveAudioMeter.bucketDuration)))
-        }
-
+    /// `direction` -1 draws above the line, 1 below it and 0 on both sides.
+    private func draw(_ track: LiveRecorderTrack, in canvas: inout GraphicsContext, size: CGSize, direction: CGFloat) {
+        let snapshot = track.meter.snapshot
+        let glide = snapshot.glide(isPaused: isPaused, reduceMotion: reduceMotion)
         let middle = size.height / 2
-        let maximum = size.height - 8
-        let count = Int(size.width / Self.step) + 2
+        let reach = (direction == 0 ? size.height / 2 : size.height / 2 - 2) - 6
         let levels = snapshot.levels
+        let newest = size.width - playheadInset - barWidth - 3
+        let count = Int(newest / step) + 2
         for slot in 0..<count {
-            let x = size.width - Self.barWidth - (CGFloat(slot) + glide) * Self.step
-            guard x > -Self.barWidth else { break }
+            let x = newest - (CGFloat(slot) + glide) * step
+            guard x > -barWidth else { break }
             let index = levels.count - 1 - slot
-            // Silence, and the time before the recording started, is a dotted line.
-            let level = index >= 0 ? CGFloat(levels[index]) : 0
-            let height = max(Self.barWidth, pow(level, 1.6) * maximum)
-            let rect = CGRect(x: x, y: middle - height / 2, width: Self.barWidth, height: height)
-            // Older audio fades toward the left edge.
-            let age = max(0, min(1, x / size.width))
-            let opacity = index >= 0 ? 0.3 + 0.7 * age : 0.25
-            canvas.fill(Path(roundedRect: rect, cornerRadius: Self.barWidth / 2), with: .color(tint.opacity(opacity)))
+            guard index >= 0 else { break }
+            let height = pow(CGFloat(levels[index]), 2) * reach
+            guard height > 0.75 else { continue }
+            let rect: CGRect
+            switch direction {
+            case ..<0: rect = CGRect(x: x, y: middle - 1.5 - height, width: barWidth, height: height)
+            case 0: rect = CGRect(x: x, y: middle - height, width: barWidth, height: height * 2)
+            default: rect = CGRect(x: x, y: middle + 1.5, width: barWidth, height: height)
+            }
+            canvas.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(track.tint))
         }
+    }
+
+    /// Where audio enters: a red line with a dot at each end, grey while paused.
+    private func drawPlayhead(in canvas: inout GraphicsContext, size: CGSize) {
+        let x = size.width - playheadInset / 2
+        let color: Color = isPaused ? .secondary : .red
+        let dot: CGFloat = 6
+        canvas.fill(Path(CGRect(x: x - 0.75, y: dot / 2, width: 1.5, height: size.height - dot)), with: .color(color))
+        canvas.fill(Path(ellipseIn: CGRect(x: x - dot / 2, y: 0, width: dot, height: dot)), with: .color(color))
+        canvas.fill(Path(ellipseIn: CGRect(x: x - dot / 2, y: size.height - dot, width: dot, height: dot)), with: .color(color))
     }
 }
 
@@ -198,10 +296,10 @@ struct LiveRecorderClock: View {
                 Image(systemName: isPaused ? "pause.circle.fill" : "record.circle.fill")
                     .foregroundStyle(isPaused ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
                     .symbolEffect(.pulse, isActive: !isPaused)
-                    .font(.title2)
                     .accessibilityHidden(true)
                 Text(LiveRecorderClock.format(duration))
-                    .font(.system(size: 40, weight: .light).monospacedDigit())
+                    .font(.system(size: 20, weight: .regular).monospacedDigit())
+                    .foregroundStyle(isPaused ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                     .contentTransition(.identity)
             }
             .accessibilityElement(children: .ignore)

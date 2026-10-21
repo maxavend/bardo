@@ -65,9 +65,10 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 
 ### 5a1. Live recorder
 
-- Start any recording: the detail column shows its title, a live waveform for each source (**Tu micrófono**, **Audio del Mac**), the running time and **Finalizar**. Speak, then play a video: each lane moves only with its own source.
-- Select a conversation during the recording: it opens with the compact recording bar on top; the waveform button there returns to the recorder.
-- A microphone recording pauses and resumes from the recorder; the time and waveform stop while paused. With Reduce Motion on, the waveform steps instead of gliding.
+- Start a **Reunión en este Mac** recording: the detail column shows its title with **Grabando** in red, one line where your voice rises in blue and the Mac's audio falls in orange, a red playhead where audio enters, and below the line **Tu micrófono** and **Audio del Mac**, stacked and centered. Speak, then play a video: each side moves only with its own source.
+- **Micrófono del MacBook Air ⌄** lists the Mac's inputs: choose another and keep talking; the recording continues with the new microphone, and the next recording starts with it.
+- Pause on the floating bar (or Grabación › Pausar): the time, the line and the playhead stop, and **En pausa** replaces **Grabando**. Talk and play audio while paused, resume, stop: neither track contains what was said while paused, and both stay in sync.
+- Select a conversation during the recording: it opens with the compact recording bar on top; its waveform button returns to the recorder. With Reduce Motion on, the line steps instead of gliding.
 
 ### 5a2. Microphone and output
 
