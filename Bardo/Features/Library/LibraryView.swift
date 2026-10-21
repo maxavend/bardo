@@ -81,7 +81,8 @@ struct LibraryView: View {
             if let recording = model.selectedRecording {
                 RecordingInfoSheet(
                     recording: recording,
-                    transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil
+                    transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil,
+                    model: model
                 )
             }
         }
