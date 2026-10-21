@@ -47,7 +47,9 @@ struct LiveRecorderView: View {
         GeometryReader { proxy in
             ZStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 0) {
-                    header
+                    if !Self.titleInToolbar {
+                        header
+                    }
                     Spacer(minLength: 16)
                     stage
                         .frame(maxWidth: BardoLayout.detailContentMaxWidth)
@@ -62,12 +64,53 @@ struct LiveRecorderView: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
+        .toolbar {
+            // On macOS 26 the title and Finalizar sit right in the toolbar's row, at the
+            // top edge, without the toolbar's glass behind them.
+            if #available(macOS 26.0, *) {
+                ToolbarItem(placement: .primaryAction) {
+                    titleBlock
+                }
+                .sharedBackgroundVisibility(.hidden)
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) {
+                    LiveRecorderFinishButton(action: stopAction)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
+        }
     }
 
-    /// The title at the top left with Finalizar on the same row at the right, as Done
-    /// sits beside the title in Voice Memos.
+    private static var titleInToolbar: Bool {
+        if #available(macOS 26.0, *) { true } else { false }
+    }
+
+    /// The title with the recording's state right under it, for the toolbar's row.
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            statusLine
+                .font(.caption)
+        }
+        .lineLimit(1)
+        // Lines the title up with the column's content below.
+        .padding(.leading, 24)
+    }
+
+    private var statusLine: Text {
+        Text(isPaused ? "En pausa" : "Grabando")
+            .fontWeight(.semibold)
+            .foregroundStyle(isPaused ? Color.secondary : Color.red)
+        + Text(" · \(subtitle)")
+            .foregroundStyle(.secondary)
+    }
+
+    /// Before macOS 26: the title at the top left with Finalizar on the same row at the
+    /// right, as Done sits beside the title in Voice Memos.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .center, spacing: 12) {
                 Text(title)
                     .font(.title2.weight(.semibold))
@@ -76,11 +119,7 @@ struct LiveRecorderView: View {
                 Spacer(minLength: 0)
                 LiveRecorderFinishButton(action: stopAction)
             }
-            (Text(isPaused ? "En pausa" : "Grabando")
-                .fontWeight(.semibold)
-                .foregroundStyle(isPaused ? Color.secondary : Color.red)
-             + Text(" · \(subtitle)")
-                .foregroundStyle(.secondary))
+            statusLine
                 .font(.callout)
         }
     }
