@@ -250,7 +250,6 @@ private struct EngineCard: View {
                     HStack(spacing: 6) {
                         Text(engine.title)
                             .font(.headline)
-                        Spacer(minLength: 8)
                         if engine == .recommended {
                             RecommendedBadge()
                         }
