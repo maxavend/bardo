@@ -33,19 +33,17 @@ struct RecordingDetailView: View {
             searchQuery: searchQuery,
             editor: $editor,
             isSpeakerNamingPresented: $isSpeakerNamingPresented,
-            bottomContentInset: playbackContentInset
+            bottomContentInset: playbackContentInset,
+            header: AnyView(
+                RecordingDocumentHeader(recording: recording)
+                    .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
+                    .padding(.horizontal, BardoSpacing.detailHorizontal)
+                    .padding(.top, BardoSpacing.section)
+                    .padding(.bottom, 12)
+                    .frame(maxWidth: .infinity, alignment: .top)
+            )
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // The title is a bar the transcript scrolls under, softly blurring away.
-        .bardoTopBar {
-            RecordingDocumentHeader(recording: recording)
-                .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
-                .padding(.horizontal, BardoSpacing.detailHorizontal)
-                .padding(.top, BardoSpacing.section)
-                .padding(.bottom, 12)
-                .frame(maxWidth: .infinity, alignment: .top)
-        }
-        .bardoSoftTopEdge()
         .toolbar {
             // One item per control, so a menu or the share picker opens under its own
             // button instead of the middle of the group. Adjacent items still share one

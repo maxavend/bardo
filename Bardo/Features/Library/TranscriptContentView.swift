@@ -23,11 +23,17 @@ struct TranscriptContentView: View {
     @State private var liveRevealCursor = Date.distantPast
 
     var bottomContentInset: CGFloat = 0
+    /// The conversation's title. It sits in a bar on the transcript's own scroll view,
+    /// so the text passing beneath it blurs away with the system's soft edge.
+    var header: AnyView? = nil
 
     var body: some View {
         Group {
             if showsEmptyState {
-                emptyTranscriptView
+                VStack(spacing: 0) {
+                    header
+                    emptyTranscriptView
+                }
             } else {
                 transcriptViewport
             }
@@ -69,6 +75,11 @@ struct TranscriptContentView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
             }
             .bardoSoftTopEdge()
+            // An inset rather than a bar: on macOS a bar draws a hard edge of its own.
+            // The text blurs away beneath the title through a backdrop that fades out.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                header.background(alignment: .top) { FadingBackdrop(fadeLength: 28) }
+            }
             .onScrollPhaseChange { _, phase in
                 if phase == .tracking || phase == .interacting {
                     followsLiveTranscription = false
@@ -622,6 +633,34 @@ private struct LiveStatusBar<Status: View>: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// A frosted backdrop for a header at the top that reaches `fadeLength` past it and
+/// fades out there, so what scrolls beneath blurs away gradually instead of at a line.
+private struct FadingBackdrop: View {
+    let fadeLength: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            let height = proxy.size.height + fadeLength
+            Rectangle()
+                .fill(.bar)
+                .frame(height: height)
+                .mask {
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: proxy.size.height / height * 0.7),
+                            .init(color: .clear, location: 1)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+        }
+        .ignoresSafeArea(edges: .top)
+        .allowsHitTesting(false)
     }
 }
 
