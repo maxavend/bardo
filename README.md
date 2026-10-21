@@ -9,7 +9,7 @@ The current product experience focuses on transcription. Bardo can:
 - record microphone audio;
 - capture system audio, optionally together with the microphone;
 - import existing audio files;
-- transcribe conversations locally with WhisperKit / Whisper Large v3 Turbo;
+- transcribe conversations locally with Apple's built-in speech recognition (macOS 26 and later), Whisper Large v3 Turbo or Whisper Large v3;
 - identify speakers locally with SpeakerKit and let the user name them;
 - edit transcript text while preserving the original recognition evidence;
 - search conversations, transcript text, and participants;
@@ -22,7 +22,7 @@ Bardo does not include a generative meeting-minutes feature or a general-purpose
 Download `Bardo-<version>.dmg` from the [latest release](https://github.com/maxavend/bardo/releases/latest), open it and drag Bardo to Applications.
 
 - Bardo needs a Mac with Apple silicon and macOS 15 or later.
-- On first launch it downloads its local speech and speaker resources (about 650 MB). After that, transcription and speaker identification work offline.
+- On first launch it downloads its speaker resources (about 11 MB) and, if you choose Whisper, its speech model (646 MB for Turbo, 3.1 GB for Large). Apple's recognition on macOS 26 needs no download. After that, transcription and speaker identification work offline.
 - Releases are signed ad hoc and are not notarized yet, so macOS blocks the first launch. Open **System Settings → Privacy & Security** and choose **Open Anyway** next to the message about Bardo. Later launches open normally.
 - To check the download, compare `shasum -a 256 Bardo-<version>.dmg` with the `.sha256` file attached to the release.
 
