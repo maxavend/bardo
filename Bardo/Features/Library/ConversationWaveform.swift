@@ -36,8 +36,8 @@ enum ConversationWaveformStyle {
 
     /// The line between the halves, as a thin tube of Liquid Glass tinted by whoever is
     /// heard: orange where the Mac sounds, blue where you speak, flowing from one colour
-    /// into the other through the pauses. What has been heard fills with colour and
-    /// glows with the audio; what is ahead stays clear glass.
+    /// into the other through the pauses. What has been heard fills with colour and a
+    /// steady glow; what is ahead stays inactive grey, like a slider's track.
     static func drawVoiceLine(
         in canvas: inout GraphicsContext,
         size: CGSize,
@@ -51,7 +51,7 @@ enum ConversationWaveformStyle {
             return
         }
         let samples = samples.sorted { $0.x < $1.x }
-        let colors = blendedColors(of: samples, upperTint: upperTint, lowerTint: lowerTint, singleTint: singleTint)
+        let colors = blendedColors(of: samples, upperTint: upperTint, lowerTint: lowerTint, singleTint: singleTint, in: canvas.environment)
 
         func shading(_ stop: (Int, VoiceSample) -> Color) -> GraphicsContext.Shading {
             var stops = samples.enumerated().map { index, sample in
@@ -69,19 +69,15 @@ enum ConversationWaveformStyle {
         let thickness: CGFloat = 3
         let tube = Path(roundedRect: CGRect(x: 0, y: middle - thickness / 2, width: size.width, height: thickness), cornerRadius: thickness / 2)
 
-        // The glow rises with the audio, only where it has been heard.
+        // A steady glow, only along what has been heard.
         var glow = canvas
         glow.addFilter(.blur(radius: 3))
         glow.fill(
             Path(CGRect(x: 0, y: middle - 2.5, width: size.width, height: 5)),
-            with: shading { index, sample in
-                isHeard(sample)
-                    ? colors[index].opacity(0.06 + 0.3 * min(1, Double(max(sample.upper, sample.lower ?? 0)) * 1.3))
-                    : .clear
-            }
+            with: shading { index, sample in isHeard(sample) ? colors[index].opacity(0.22) : .clear }
         )
-        // The glass: coloured where heard, a clear tint ahead.
-        canvas.fill(tube, with: shading { index, sample in colors[index].opacity(isHeard(sample) ? 0.95 : 0.3) })
+        // The glass: coloured where heard, inactive grey ahead, like a slider's track.
+        canvas.fill(tube, with: shading { index, sample in isHeard(sample) ? colors[index].opacity(0.95) : Color.gray.opacity(0.35) })
         // Its reflections: a bright edge along the top and a soft shade underneath.
         canvas.fill(
             Path(roundedRect: CGRect(x: 0, y: middle - thickness / 2 + 0.25, width: size.width, height: 0.9), cornerRadius: 0.45),
@@ -93,19 +89,19 @@ enum ConversationWaveformStyle {
         )
     }
 
-    /// Each point's colour: the blend of the two sides by how loud each is there. A pause
-    /// takes its colour from the voices around it, and the blend is smoothed, so one
-    /// colour flows into the other instead of breaking.
+    /// Each point's colour: the blend of the two sides by how loud each is there, and of
+    /// who is speaking. A pause takes its colour from the voices around it, and the
+    /// colours are blended over a couple of seconds, so one flows into the next.
     private static func blendedColors(
         of samples: [VoiceSample],
         upperTint: Color,
         lowerTint: Color,
-        singleTint: Color
+        singleTint: Color,
+        in environment: EnvironmentValues
     ) -> [Color] {
-        guard samples.contains(where: { $0.lower != nil }) else {
-            return samples.map { $0.upperTint ?? singleTint }
-        }
+        let hasTwoSides = samples.contains { $0.lower != nil }
         var mix: [Double?] = samples.map { sample in
+            guard hasTwoSides else { return 0 }
             let lower = sample.lower ?? 0
             let total = sample.upper + lower
             return total > 0.06 ? Double(lower / total) : nil
@@ -132,12 +128,32 @@ enum ConversationWaveformStyle {
             case (nil, nil): mix[index] = 0.5
             }
         }
-        let filled = mix.map { $0 ?? 0.5 }
-        let radius = 3
-        return filled.indices.map { index in
-            let window = filled[max(0, index - radius)...min(filled.count - 1, index + radius)]
-            return (samples[index].upperTint ?? upperTint)
-                .mix(with: samples[index].lowerTint ?? lowerTint, by: window.reduce(0, +) / Double(window.count))
+
+        // Mixed as light, then softened with a wide bell so speakers fade into each other.
+        let raw: [SIMD3<Double>] = samples.indices.map { index in
+            let sample = samples[index]
+            let upper = (sample.upperTint ?? (hasTwoSides ? upperTint : singleTint)).resolve(in: environment)
+            let lower = (sample.lowerTint ?? lowerTint).resolve(in: environment)
+            let t = Float(mix[index] ?? 0.5)
+            return SIMD3(
+                Double(upper.red + (lower.red - upper.red) * t),
+                Double(upper.green + (lower.green - upper.green) * t),
+                Double(upper.blue + (lower.blue - upper.blue) * t)
+            )
+        }
+        let radius = 10
+        let weights = (-radius...radius).map { exp(-Double($0 * $0) / (2 * 25)) }
+        return raw.indices.map { index in
+            var total = SIMD3<Double>(repeating: 0)
+            var weight = 0.0
+            for (offset, w) in zip(-radius...radius, weights) {
+                let neighbour = index + offset
+                guard raw.indices.contains(neighbour) else { continue }
+                total += raw[neighbour] * w
+                weight += w
+            }
+            let color = total / weight
+            return Color(.sRGBLinear, red: color.x, green: color.y, blue: color.z)
         }
     }
 
