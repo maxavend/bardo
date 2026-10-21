@@ -127,6 +127,7 @@ struct TranscriptContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .bardoSoftTopEdge()
         .bardoTopBar {
             if isTranscribingThisRecording && hasLiveText {
                 transcriptionLiveStatus
@@ -891,6 +892,15 @@ private struct TranscriptParagraphRow: View {
                 fallbackText: paragraph.fullText,
                 playback: isActivePlaybackParagraph ? playback : nil
             )
+            // Each word is a link to its moment: the hand shows over it, a click plays
+            // from there, and the words still select for copying.
+            .tint(.primary)
+            .environment(\.openURL, OpenURLAction { url in
+                guard let time = KaraokeTranscriptText.time(in: url) else { return .systemAction }
+                playback.seek(to: time)
+                if !playback.isPlaying { _ = playback.play() }
+                return .handled
+            })
         }
     }
 
@@ -926,12 +936,22 @@ private struct KaraokeTranscriptText: View {
         }
     }
 
+    static let seekScheme = "bardo-seek"
+
+    /// The moment a word's link plays from.
+    static func time(in url: URL) -> TimeInterval? {
+        guard url.scheme == seekScheme else { return nil }
+        return TimeInterval(url.absoluteString.dropFirst(seekScheme.count + 1))
+    }
+
     /// The words joined once, coloured by `position` when there is one. The same string
     /// either way, so a paragraph never reflows as it starts or stops playing.
     static func text(of words: [TranscriptWord], at position: TimeInterval?) -> AttributedString {
         var text = AttributedString()
         for (index, word) in words.enumerated() {
-            var piece = AttributedString((index == 0 ? "" : " ") + word.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            if index > 0 { text += AttributedString(" ") }
+            var piece = AttributedString(word.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            piece.link = URL(string: "\(seekScheme):\(word.startTime)")
             if let position {
                 if position >= word.startTime && position <= word.endTime {
                     piece.foregroundColor = .accentColor

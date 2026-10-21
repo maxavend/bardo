@@ -26,24 +26,25 @@ struct RecordingDetailView: View {
     @State private var shareAudioURL: URL?
 
     var body: some View {
-        VStack(spacing: 0) {
+        TranscriptContentView(
+            recording: recording,
+            model: model,
+            playback: playback,
+            searchQuery: searchQuery,
+            editor: $editor,
+            isSpeakerNamingPresented: $isSpeakerNamingPresented,
+            bottomContentInset: playbackContentInset
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The title is a bar the transcript scrolls under, so the text dissolves into
+        // it with the system's soft edge instead of being cut.
+        .bardoTopBar {
             RecordingDocumentHeader(recording: recording)
                 .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
                 .padding(.horizontal, BardoSpacing.detailHorizontal)
                 .padding(.top, BardoSpacing.section)
                 .padding(.bottom, 12)
                 .frame(maxWidth: .infinity, alignment: .top)
-
-            TranscriptContentView(
-                recording: recording,
-                model: model,
-                playback: playback,
-                searchQuery: searchQuery,
-                editor: $editor,
-                isSpeakerNamingPresented: $isSpeakerNamingPresented,
-                bottomContentInset: playbackContentInset
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .toolbar {
             // One item per control, so a menu or the share picker opens under its own
