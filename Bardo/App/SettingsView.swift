@@ -33,10 +33,19 @@ struct SettingsView: View {
     @State private var isLibraryRemovalPresented = false
     @State private var storageUsage = BardoStorageUsage.empty
 
+    init(initialTab: String? = nil) {
+        _selectedTab = State(initialValue: initialTab.flatMap(SettingsTab.init(rawValue:)) ?? .general)
+    }
+
     @AppStorage("bardo.appearance") private var appearanceRaw = BardoAppearancePreference.system.rawValue
     @AppStorage("bardo.default-recording-mode") private var recordingModeRaw = BardoRecordingMode.conversation.rawValue
     @AppStorage(TranscriptionTrackMode.defaultsKey) private var trackModeRaw = TranscriptionTrackMode.perTrack.rawValue
     @AppStorage(LocalSpeakerName.defaultsKey) private var localSpeakerName = ""
+    @AppStorage(AudioEncodingPreferences.presetKey) private var qualityRaw = AudioQualityPreset.default.rawValue
+    @AppStorage(AudioEncodingPreferences.formatKey) private var formatRaw = AudioStorageFormat.default.rawValue
+    @StateObject private var devices = AudioDeviceCatalog()
+    /// Bumped when a device is chosen, so the pickers read the saved choice again.
+    @State private var deviceChoiceRevision = 0
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -46,7 +55,7 @@ struct SettingsView: View {
                 .tag(SettingsTab.general)
 
             recordingTab
-                .frame(width: Self.width, height: 350)
+                .frame(width: Self.width, height: 600)
                 .tabItem { Label("Grabación", systemImage: "mic") }
                 .tag(SettingsTab.recording)
 
@@ -130,40 +139,105 @@ struct SettingsView: View {
 
     private var recordingTab: some View {
         Form {
-            Section("Fuente predeterminada") {
+            Section {
                 Picker("Al crear una grabación", selection: $recordingModeRaw) {
                     ForEach(BardoRecordingMode.allCases) { mode in
                         Label(mode.title, systemImage: mode.symbol)
                             .tag(mode.rawValue)
                     }
                 }
-
-                Text("Siempre podrás cambiar la fuente antes de comenzar.")
+                LabeledContent("Micrófono") {
+                    AudioDevicePicker(
+                        title: "Micrófono",
+                        selection: deviceBinding(.input),
+                        devices: devices.inputs,
+                        defaultDevice: devices.defaultInput,
+                        rememberedName: AudioDevicePreferences().inputDeviceName
+                    )
+                    .fixedSize()
+                }
+                LabeledContent("Salida") {
+                    AudioDevicePicker(
+                        title: "Salida",
+                        selection: deviceBinding(.output),
+                        devices: devices.outputs,
+                        defaultDevice: devices.defaultOutput,
+                        rememberedName: AudioDevicePreferences().outputDeviceName
+                    )
+                    .fixedSize()
+                }
+            } header: {
+                Text("Fuente")
+            } footer: {
+                Text("Siempre podrás cambiarlos antes de empezar a grabar.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            Section("Micrófono") {
-                LabeledContent("Entrada") {
-                    Text("Micrófono seleccionado en macOS")
-                        .foregroundStyle(.secondary)
-                }
-
-                Button("Abrir ajustes de sonido…") {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
             }
 
             Section {
-                Text("Bardo conserva el audio original de cada fuente para que puedas volver a escucharlo o transcribirlo más tarde.")
+                Picker("Calidad", selection: $qualityRaw) {
+                    ForEach(AudioQualityPreset.allCases) { preset in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(preset == .default ? "\(preset.title) (recomendada)" : preset.title)
+                            Text("\(preset.detail) Unos \(Self.megabytes(AudioEncoding(preset: preset, format: encoding.format).meetingBytesPerMinute)) por minuto.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .tag(preset.rawValue)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+
+                Picker("Formato", selection: $formatRaw) {
+                    ForEach(AudioStorageFormat.allCases) { format in
+                        Text("\(format.title) — \(format.detail)").tag(format.rawValue)
+                    }
+                }
+            } header: {
+                Text("Calidad del audio")
+            } footer: {
+                Text("Con cualquier calidad se entiende y se transcribe todo. Los pesos son por minuto de reunión, con tu micrófono y el audio del Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)
         .padding(.top, 8)
+        .onAppear { devices.startObserving() }
+    }
+
+    private var encoding: AudioEncoding {
+        AudioEncoding(
+            preset: AudioQualityPreset(rawValue: qualityRaw) ?? .default,
+            format: AudioStorageFormat(rawValue: formatRaw) ?? .default
+        )
+    }
+
+    static func megabytes(_ bytes: Double) -> String {
+        let megabytes = bytes / 1_000_000
+        return "\(megabytes.formatted(.number.precision(.fractionLength(megabytes < 10 ? 1 : 0)))) MB"
+    }
+
+    /// The device the next recording uses; `nil` follows macOS.
+    private func deviceBinding(_ direction: AudioDeviceDirection) -> Binding<String?> {
+        Binding(
+            get: {
+                _ = deviceChoiceRevision
+                let preferences = AudioDevicePreferences()
+                return direction == .input ? preferences.inputDeviceUID : preferences.outputDeviceUID
+            },
+            set: { uid in
+                let list = direction == .input ? devices.inputs : devices.outputs
+                if uid == nil {
+                    AudioDevicePreferences().setDevice(nil, for: direction)
+                } else if let device = list.first(where: { $0.uid == uid }) {
+                    AudioDevicePreferences().setDevice(device, for: direction)
+                }
+                deviceChoiceRevision += 1
+            }
+        )
     }
 
     private var transcriptionTab: some View {

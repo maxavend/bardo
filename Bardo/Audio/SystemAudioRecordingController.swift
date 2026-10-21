@@ -106,6 +106,9 @@ final class SystemAudioRecordingController: ObservableObject {
     private let microphonePermission: any MicrophonePermissionAuthorizing
     private let metadataReader: AudioMetadataReader
     private let mixer: any ConversationMixing
+    private let transcoder: any AudioTranscoding
+    /// The quality and format chosen in Settings, read when a recording is saved.
+    private let encoding: @Sendable () -> AudioEncoding
     private let captureLeaseID = UUID()
     private var session: Session?
     private var progressTask: Task<Void, Never>?
@@ -120,7 +123,9 @@ final class SystemAudioRecordingController: ObservableObject {
         backend: any SystemAudioCapturing = CoreAudioTapCaptureBackend(),
         microphonePermission: any MicrophonePermissionAuthorizing = SystemMicrophonePermissionAuthorizer(),
         metadataReader: AudioMetadataReader = AudioMetadataReader(),
-        mixer: any ConversationMixing = AVFoundationConversationMixer()
+        mixer: any ConversationMixing = AVFoundationConversationMixer(),
+        transcoder: any AudioTranscoding = AudioFileTranscoder(),
+        encoding: @escaping @Sendable () -> AudioEncoding = { AudioEncodingPreferences.current() }
     ) {
         self.store = store
         self.stagingStore = stagingStore
@@ -129,6 +134,8 @@ final class SystemAudioRecordingController: ObservableObject {
         self.microphonePermission = microphonePermission
         self.metadataReader = metadataReader
         self.mixer = mixer
+        self.transcoder = transcoder
+        self.encoding = encoding
 
         picker.eventHandler = { [weak self] event in
             guard let self else { return }
@@ -714,13 +721,32 @@ final class SystemAudioRecordingController: ObservableObject {
             throw SystemAudioCaptureError.noAudioSamples("system or microphone")
         }
 
+        // WAV cannot be written in crash-safe fragments, so its tracks record as Apple
+        // Lossless and become WAV now. If that fails, the lossless track is kept.
+        let encoding = encoding()
+        if encoding.format == .wav {
+            for index in validated.indices where validated[index].track.url.pathExtension.lowercased() != "wav" {
+                let track = validated[index].track
+                let wavURL = track.url.deletingPathExtension().appendingPathExtension("wav")
+                do {
+                    try await transcoder.transcode(from: track.url, to: wavURL, encoding: encoding)
+                    validated[index] = (
+                        StagedTrack(role: track.role, assetID: track.assetID, url: wavURL, firstPresentationTime: track.firstPresentationTime),
+                        try metadataReader.read(from: wavURL)
+                    )
+                } catch {
+                    try? FileManager.default.removeItem(at: wavURL)
+                }
+            }
+        }
+
         // Normalize first-sample PTS values onto a durable recording-relative timeline.
         // Absolute host-clock values never enter Domain or persistence.
         let origin = validated.compactMap(\.track.firstPresentationTime).filter(\.isFinite).min() ?? 0
         let sourceAssets = validated.map { item in
             AudioAsset(
                 id: item.track.assetID,
-                originalFileName: item.track.role == .systemOriginal ? "System Audio.m4a" : "Microphone.m4a",
+                originalFileName: (item.track.role == .systemOriginal ? "System Audio." : "Microphone.") + item.track.url.pathExtension,
                 fileExtension: item.track.url.pathExtension,
                 metadata: item.metadata,
                 role: item.track.role,

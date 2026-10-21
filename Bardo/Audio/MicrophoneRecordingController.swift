@@ -190,6 +190,8 @@ final class MicrophoneRecordingController: ObservableObject {
     private let backend: any AudioCapturing
     private let metadataReader: AudioMetadataReader
     private let transcoder: any AudioTranscoding
+    /// The quality and format chosen in Settings, read when a recording is saved.
+    private let encoding: @Sendable () -> AudioEncoding
     private let settingsOpener: MicrophoneSystemSettingsOpener
     private let captureLeaseID = UUID()
     private var session: Session?
@@ -201,7 +203,8 @@ final class MicrophoneRecordingController: ObservableObject {
         permissionAuthorizer: any MicrophonePermissionAuthorizing = SystemMicrophonePermissionAuthorizer(),
         backend: any AudioCapturing = MicrophoneCaptureBackend(),
         metadataReader: AudioMetadataReader = AudioMetadataReader(),
-        transcoder: any AudioTranscoding = AACAudioTranscoder(),
+        transcoder: any AudioTranscoding = AudioFileTranscoder(),
+        encoding: @escaping @Sendable () -> AudioEncoding = { AudioEncodingPreferences.current() },
         settingsOpener: MicrophoneSystemSettingsOpener = MicrophoneSystemSettingsOpener()
     ) {
         self.store = store
@@ -210,6 +213,7 @@ final class MicrophoneRecordingController: ObservableObject {
         self.backend = backend
         self.metadataReader = metadataReader
         self.transcoder = transcoder
+        self.encoding = encoding
         self.settingsOpener = settingsOpener
         permissionState = permissionAuthorizer.currentStatus()
 
@@ -558,10 +562,11 @@ final class MicrophoneRecordingController: ObservableObject {
 
         var publishURL = stagingURL
         var metadata = sourceMetadata
-        if stagingURL.pathExtension.lowercased() != "m4a" {
-            let compactURL = stagingURL.deletingPathExtension().appendingPathExtension("m4a")
+        let encoding = encoding()
+        if stagingURL.pathExtension.lowercased() != encoding.fileExtension {
+            let compactURL = stagingURL.deletingPathExtension().appendingPathExtension(encoding.fileExtension)
             do {
-                try await transcoder.transcodeToCompactM4A(from: stagingURL, to: compactURL)
+                try await transcoder.transcode(from: stagingURL, to: compactURL, encoding: encoding)
                 metadata = try metadataReader.read(from: compactURL)
                 publishURL = compactURL
             } catch {

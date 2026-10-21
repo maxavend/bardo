@@ -237,7 +237,7 @@ struct RecordingSetupSheet: View {
 }
 
 /// A pop-up menu of the Mac's microphones or outputs, with the macOS default first.
-private struct AudioDevicePicker: View {
+struct AudioDevicePicker: View {
     let title: LocalizedStringKey
     @Binding var selection: String?
     let devices: [AudioDevice]

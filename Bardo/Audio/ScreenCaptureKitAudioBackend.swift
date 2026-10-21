@@ -208,11 +208,12 @@ final class SystemAudioSampleProcessor: @unchecked Sendable {
         return max(writers.0?.elapsedTime ?? 0, writers.1?.elapsedTime ?? 0)
     }
 
-    func configure(systemURL: URL, microphoneURL: URL?) {
+    /// Each track is written at the quality chosen in Settings from the first sample.
+    func configure(systemURL: URL, microphoneURL: URL?, encoding: AudioEncoding = AudioEncodingPreferences.current()) {
         lock.bardoWithLock {
-            systemWriter = CMSampleBufferAudioWriter(outputURL: systemURL, channelCount: 2, bitRate: 128_000)
+            systemWriter = CMSampleBufferAudioWriter(outputURL: systemURL, channelCount: 2, encoding: encoding)
             microphoneWriter = microphoneURL.map {
-                CMSampleBufferAudioWriter(outputURL: $0, channelCount: 1, bitRate: 96_000)
+                CMSampleBufferAudioWriter(outputURL: $0, channelCount: 1, encoding: encoding)
             }
         }
     }

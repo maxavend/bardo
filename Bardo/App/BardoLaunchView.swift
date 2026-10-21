@@ -8,6 +8,8 @@ struct BardoLaunchView: View {
         #if DEBUG
         if DesignReview.showsWelcome {
             BardoWelcomeView {}
+        } else if let tab = DesignReview.settingsTab {
+            SettingsView(initialTab: tab)
         } else if let state = DesignReview.setupState {
             TranscriptionSetupView(state: state, retry: {}, continueWithoutModels: {})
         } else {
