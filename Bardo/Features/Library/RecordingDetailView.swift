@@ -46,8 +46,10 @@ struct RecordingDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .toolbar {
-            // The overflow menu goes last, as everywhere on macOS.
-            ToolbarItemGroup(placement: .primaryAction) {
+            // One item per control, so a menu or the share picker opens under its own
+            // button instead of the middle of the group. Adjacent items still share one
+            // glass background; the overflow menu goes last, as everywhere on macOS.
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     favorites.toggle(recording.id)
                 } label: {
@@ -57,10 +59,14 @@ struct RecordingDetailView: View {
                     )
                 }
                 .help(isFavorite ? "Quitar de Favoritas" : "Agregar a Favoritas")
+            }
 
+            ToolbarItem(placement: .primaryAction) {
                 shareControl
+            }
 
-                if let transcript = currentTranscript, !transcript.text.isEmpty {
+            if let transcript = currentTranscript, !transcript.text.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
                     Button {
                         copyTranscript(transcript)
                     } label: {
@@ -68,21 +74,26 @@ struct RecordingDetailView: View {
                     }
                     .help("Copiar la transcripción, por hablante y con sus tiempos")
                 }
+            }
 
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     isInfoPresented = true
                 } label: {
                     Label("Información", systemImage: "info.circle")
                 }
                 .help("Mostrar información (⌥⌘I)")
+            }
 
+            ToolbarItem(placement: .primaryAction) {
                 recordingActionsMenu
             }
 
-            // Beside the search field, balancing the toolbar: the whole recording in
-            // the whole window.
+            // The whole recording in the whole window, in its own glass beside the
+            // recording's actions. macOS keeps the toolbar search field in its own
+            // trailing slot, so nothing can sit flush against it.
             if #available(macOS 26.0, *) {
-                ToolbarSpacer(.flexible, placement: .primaryAction)
+                ToolbarSpacer(.fixed, placement: .primaryAction)
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
