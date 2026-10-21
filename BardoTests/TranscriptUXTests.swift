@@ -411,3 +411,39 @@ final class TranscriptUXTests: XCTestCase {
             .appendingPathComponent("BardoTranscriptUXTests-\(UUID().uuidString)", isDirectory: true)
     }
 }
+
+final class TranscriptParagraphingTests: XCTestCase {
+    private func segment(_ text: String, at start: TimeInterval, length: TimeInterval = 2, speaker: Speaker.ID? = nil) -> TranscriptSegment {
+        TranscriptSegment(startTime: start, endTime: start + length, speakerID: speaker, text: text)
+    }
+
+    func testShortBreathsDoNotLeaveLinesOfFiveWords() {
+        // Five-word phrases with a three-second breath between each.
+        let segments = (0..<8).map { segment("Una frase corta de cinco.", at: Double($0) * 5) }
+        let paragraphs = TranscriptParagraphing.paragraphs(of: segments)
+        XCTAssertLessThan(paragraphs.count, 4, "Breaths are joined until a paragraph has its minimum")
+        XCTAssertTrue(paragraphs.dropLast().allSatisfy { group in
+            group.reduce(0) { $0 + TranscriptParagraphing.wordCount($1.displayText) } >= TranscriptParagraphing.minimumWords
+        })
+    }
+
+    func testAMonologueBecomesParagraphsAtSentenceEnds() {
+        // Forty ten-word sentences with no pause at all.
+        let segments = (0..<40).map { segment("Esta es una oración de diez palabras para leer bien.", at: Double($0) * 2) }
+        let paragraphs = TranscriptParagraphing.paragraphs(of: segments)
+        XCTAssertGreaterThan(paragraphs.count, 4, "No wall of text")
+        for group in paragraphs {
+            XCTAssertLessThanOrEqual(group.reduce(0) { $0 + TranscriptParagraphing.wordCount($1.displayText) }, TranscriptParagraphing.comfortableWords + 10)
+        }
+    }
+
+    func testEveryTurnAndLongSilenceStartsAParagraph() {
+        let you = UUID(), them = UUID()
+        let segments = [
+            segment("Hola.", at: 0, speaker: you),
+            segment("Ya, ok.", at: 2.2, speaker: them),
+            segment("Después de un rato.", at: 12, speaker: them)
+        ]
+        XCTAssertEqual(TranscriptParagraphing.paragraphs(of: segments).map(\.count), [1, 1, 1])
+    }
+}

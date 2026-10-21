@@ -405,52 +405,12 @@ struct TranscriptContentView: View {
         }
     }
 
+    /// Paragraphs of a comfortable length, as `TranscriptParagraphing` decides.
     private func buildParagraphs(from segments: [TranscriptSegment]) -> [TranscriptParagraph] {
-        guard !segments.isEmpty else { return [] }
-
-        var paragraphs: [TranscriptParagraph] = []
-        var currentBatch: [TranscriptSegment] = []
-        var currentSpeakerID: Speaker.ID? = segments.first?.speakerID
-        var batchStartTime: TimeInterval = segments.first?.startTime ?? 0
-
-        for segment in segments {
-            let speakerChanged = segment.speakerID != currentSpeakerID
-            let pauseDuration = currentBatch.last.map { segment.startTime - $0.endTime } ?? 0
-            let significantPause = pauseDuration > 1.5
-
-            if !currentBatch.isEmpty && (speakerChanged || significantPause) {
-                paragraphs.append(
-                    TranscriptParagraph(
-                        id: currentBatch.first?.id ?? UUID(),
-                        speakerID: currentSpeakerID,
-                        startTime: batchStartTime,
-                        segments: currentBatch
-                    )
-                )
-                currentBatch = [segment]
-                currentSpeakerID = segment.speakerID
-                batchStartTime = segment.startTime
-            } else {
-                if currentBatch.isEmpty {
-                    batchStartTime = segment.startTime
-                    currentSpeakerID = segment.speakerID
-                }
-                currentBatch.append(segment)
-            }
+        TranscriptParagraphing.paragraphs(of: segments).compactMap { group in
+            guard let first = group.first else { return nil }
+            return TranscriptParagraph(id: first.id, speakerID: first.speakerID, startTime: first.startTime, segments: group)
         }
-
-        if !currentBatch.isEmpty {
-            paragraphs.append(
-                TranscriptParagraph(
-                    id: currentBatch.first?.id ?? UUID(),
-                    speakerID: currentSpeakerID,
-                    startTime: batchStartTime,
-                    segments: currentBatch
-                )
-            )
-        }
-
-        return paragraphs
     }
 
     @ViewBuilder

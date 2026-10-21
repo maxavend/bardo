@@ -8,8 +8,6 @@ import Foundation
 /// else speaks or after a pause. Without speakers, long stretches are still split so the
 /// text stays readable.
 struct TranscriptTextFormatter {
-    /// A silence at least this long starts a new block.
-    static let pauseBreak: TimeInterval = 8
     /// Without speakers to break it up, a block ends at the first segment past this length.
     static let unlabeledBlockLength: TimeInterval = 120
 
@@ -85,41 +83,32 @@ struct TranscriptTextFormatter {
             transcript.speakers.map { ($0.id, transcript.displayName(for: $0, localName: localName)) },
             uniquingKeysWith: { first, _ in first }
         )
-        var blocks: [Block] = []
-        var speakerID: Speaker.ID?
-        var start: TimeInterval = 0
-        var end: TimeInterval = 0
-        var words: [String] = []
-
-        func close() {
-            guard !words.isEmpty else { return }
-            blocks.append(Block(
-                speaker: speakerID.flatMap { names[$0] },
-                start: start,
-                end: end,
-                text: words.joined(separator: " ")
-            ))
-            words = []
-        }
-
-        for segment in transcript.segments.sorted(by: { $0.startTime < $1.startTime }) {
-            let text = segment.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { continue }
-            if !words.isEmpty {
-                let otherSpeaker = segment.speakerID != speakerID
-                let paused = segment.startTime - end >= Self.pauseBreak
-                let tooLong = speakerID.flatMap({ names[$0] }) == nil && end - start >= Self.unlabeledBlockLength
-                if otherSpeaker || paused || tooLong { close() }
+        // The same paragraphs as on screen: each turn on its own, of a comfortable length.
+        let segments = transcript.segments
+            .sorted { $0.startTime < $1.startTime }
+            .filter { !$0.displayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return TranscriptParagraphing.paragraphs(of: segments).flatMap { group -> [[TranscriptSegment]] in
+            // Without names, long stretches still get a heading every couple of minutes,
+            // so a time can be found.
+            guard let first = group.first, first.speakerID.flatMap({ names[$0] }) == nil else { return [group] }
+            var parts: [[TranscriptSegment]] = [[]]
+            var partStart = first.startTime
+            for segment in group {
+                if !parts[parts.count - 1].isEmpty, segment.endTime - partStart > Self.unlabeledBlockLength {
+                    parts.append([])
+                    partStart = segment.startTime
+                }
+                parts[parts.count - 1].append(segment)
             }
-            if words.isEmpty {
-                speakerID = segment.speakerID
-                start = segment.startTime
-                end = segment.endTime
-            }
-            end = max(end, segment.endTime)
-            words.append(text)
+            return parts
+        }.compactMap { group in
+            guard let first = group.first else { return nil }
+            return Block(
+                speaker: first.speakerID.flatMap { names[$0] },
+                start: first.startTime,
+                end: group.map(\.endTime).max() ?? first.endTime,
+                text: group.map { $0.displayText.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: " ")
+            )
         }
-        close()
-        return blocks
     }
 }
