@@ -100,9 +100,12 @@ struct BardoModelStore {
         return expectedRoot
     }
 
+    /// Rejects a model root reached through a symbolic link. Paths are compared rather
+    /// than URLs: resolving a folder that does not exist yet, as on a Mac that has
+    /// never run Bardo, drops the trailing slash and the URLs would never match.
     private func validatePrivateRoot() throws -> URL {
         let standardizedRoot = rootURL.standardizedFileURL
-        guard standardizedRoot.resolvingSymlinksInPath() == standardizedRoot else {
+        guard standardizedRoot.resolvingSymlinksInPath().path == standardizedRoot.path else {
             throw BardoModelStoreError.invalidPrivateRoot
         }
         return standardizedRoot

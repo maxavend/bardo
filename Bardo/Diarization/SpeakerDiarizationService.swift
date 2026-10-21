@@ -523,7 +523,7 @@ actor SpeakerDiarizationService: RecordingDiarizing {
     }
 
     private func hasCompleteModelCache() -> Bool {
-        guard modelRoot.resolvingSymlinksInPath() == modelRoot,
+        guard modelRoot.resolvingSymlinksInPath().path == modelRoot.path,
               let values = try? modelRoot.resourceValues(forKeys: [.isDirectoryKey]),
               values.isDirectory == true,
               let enumerator = FileManager.default.enumerator(
