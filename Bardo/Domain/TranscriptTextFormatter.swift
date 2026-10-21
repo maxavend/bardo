@@ -24,11 +24,20 @@ struct TranscriptTextFormatter {
     let date: Date?
     let duration: TimeInterval?
     let localName: String?
+    /// Sections become headings and moments are listed where they were marked.
+    let notes: RecordingNotes
 
-    init(title: String, date: Date? = nil, duration: TimeInterval? = nil, localName: String? = LocalSpeakerName.current) {
+    init(
+        title: String,
+        date: Date? = nil,
+        duration: TimeInterval? = nil,
+        notes: RecordingNotes = RecordingNotes(),
+        localName: String? = LocalSpeakerName.current
+    ) {
         self.title = title
         self.date = date
         self.duration = duration
+        self.notes = notes
         self.localName = localName
     }
 
@@ -39,13 +48,36 @@ struct TranscriptTextFormatter {
         if let duration { details.append(LibraryFormatting.duration(duration)) }
         if !details.isEmpty { lines.append(details.joined(separator: " · ")) }
 
-        for block in blocks(for: transcript) {
+        let blocks = blocks(for: transcript)
+        let placement = TranscriptNotePlacement(notes: notes, paragraphStarts: blocks.map(\.start))
+        if !placement.leadingMoments.isEmpty {
+            lines.append("")
+            lines += placement.leadingMoments.map(momentLine)
+        }
+        for (index, block) in blocks.enumerated() {
+            for section in placement.sections(before: index) {
+                lines += ["", sectionLine(section)]
+            }
             lines.append("")
             let range = "\(LibraryFormatting.duration(block.start))–\(LibraryFormatting.duration(block.end))"
             lines.append(block.speaker.map { "\($0) (\(range))" } ?? range)
             lines.append(block.text)
+            lines += placement.moments(after: index).map(momentLine)
+        }
+        for section in placement.trailingSections {
+            lines += ["", sectionLine(section)]
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// In capitals, so a section reads apart from the speakers' headings.
+    private func sectionLine(_ section: RecordingSection) -> String {
+        "\(section.title.uppercased()) · \(LibraryFormatting.duration(section.start))"
+    }
+
+    private func momentLine(_ moment: RecordingMoment) -> String {
+        let heading = "⚑ \(LibraryFormatting.duration(moment.time)) · \(moment.title)"
+        return moment.note.map { "\(heading): \($0)" } ?? heading
     }
 
     func blocks(for transcript: Transcript) -> [Block] {

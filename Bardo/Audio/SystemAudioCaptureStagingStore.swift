@@ -141,6 +141,17 @@ actor SystemAudioCaptureStagingStore {
         try? manifest.write(into: directory)
     }
 
+    /// Keeps the capture's title, moments and sections next to its audio while it runs,
+    /// so a capture recovered after a crash has them too.
+    func recordDetails(recordingID: UUID, title: String?, notes: RecordingNotes) {
+        let directory = rootURL.appendingPathComponent(recordingID.uuidString, isDirectory: true)
+        guard var manifest = CaptureStagingManifest.read(from: directory) else { return }
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        manifest.title = trimmed?.isEmpty == false ? trimmed : nil
+        manifest.notes = notes.isEmpty ? nil : notes
+        try? manifest.write(into: directory)
+    }
+
     /// The staged files of a capture that is not currently recording.
     func contents(recordingID: UUID) -> StagedCaptureContents? {
         guard activeRecordingID != recordingID else { return nil }

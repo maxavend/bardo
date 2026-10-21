@@ -22,6 +22,7 @@ final class SystemAudioRecordingController: ObservableObject {
                 isPaused = false
                 isMicrophoneMuted = false
             }
+            if phase == .idle || phase == .preparing { notes = RecordingNotes() }
         }
     }
     /// The microphone records silence while the Mac's audio keeps recording.
@@ -84,7 +85,7 @@ final class SystemAudioRecordingController: ObservableObject {
         let prepared: SystemAudioCaptureStagingStore.PreparedCapture
         let startedAt: Date
         let includeMicrophone: Bool
-        let title: String?
+        var title: String?
     }
 
     /// One source file to publish, with its first-sample time when it is known.
@@ -198,6 +199,88 @@ final class SystemAudioRecordingController: ObservableObject {
         guard phase == .recording else { return }
         phase = .changingSelection
         picker.present()
+    }
+
+    /// Moments and sections marked during the recording in progress.
+    @Published private(set) var notes = RecordingNotes()
+
+    /// Where the recording is on its own timeline, pauses left out: the time a moment
+    /// or section marked now will have in the saved recording.
+    var recordingPosition: TimeInterval { max(0, backend.currentTime) }
+
+    @discardableResult
+    func addMoment(at time: TimeInterval, title: String, note: String?) -> RecordingMoment? {
+        guard isRecording else { return nil }
+        let moment = notes.addMoment(at: time, title: title, note: note)
+        saveCaptureDetails()
+        return moment
+    }
+
+    @discardableResult
+    func addSection(at time: TimeInterval, title: String) -> RecordingSection? {
+        guard isRecording else { return nil }
+        let section = notes.addSection(at: time, title: title)
+        saveCaptureDetails()
+        return section
+    }
+
+    func editMoment(_ id: RecordingMoment.ID, title: String, note: String?) {
+        notes.editMoment(id, title: title, note: note)
+        saveCaptureDetails()
+    }
+
+    func removeMoment(_ id: RecordingMoment.ID) {
+        notes.removeMoment(id)
+        saveCaptureDetails()
+    }
+
+    func renameSection(_ id: RecordingSection.ID, to title: String) {
+        notes.renameSection(id, to: title)
+        saveCaptureDetails()
+    }
+
+    func removeSection(_ id: RecordingSection.ID) {
+        notes.removeSection(id)
+        saveCaptureDetails()
+    }
+
+    /// Names the recording in progress; a blank title falls back to the default one.
+    func renameActiveRecording(to title: String) {
+        guard isRecording, session != nil else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        session?.title = trimmed.isEmpty ? nil : trimmed
+        objectWillChange.send()
+        saveCaptureDetails()
+    }
+
+    /// Stops without saving: the audio recorded so far goes to the Trash.
+    func discard() async {
+        guard isRecording, let session else { return }
+        phase = .finalizing
+        stopProgressUpdates()
+        _ = await backend.stop()
+        let stagingStore = try? resolveStagingStore()
+        await stagingStore?.finishActiveCapture(recordingID: session.prepared.recordingID)
+        do {
+            try await stagingStore?.moveToTrash(recordingID: session.prepared.recordingID)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        self.session = nil
+        phase = .idle
+        elapsedTime = 0
+        includesMicrophone = false
+        captureWarning = nil
+        requestedTitle = nil
+        picker.deactivate()
+        releaseCaptureLease()
+        await refreshRecoveryIssues()
+    }
+
+    private func saveCaptureDetails() {
+        guard let session, let stagingStore = try? resolveStagingStore() else { return }
+        let (id, title, notes) = (session.prepared.recordingID, session.title, notes)
+        Task { await stagingStore.recordDetails(recordingID: id, title: title, notes: notes) }
     }
 
     var canPause: Bool { phase == .recording && !isPaused && backend.supportsPause }
@@ -363,7 +446,8 @@ final class SystemAudioRecordingController: ObservableObject {
                 mixAssetID: mixAssetID,
                 mixURL: contents.directoryURL.appendingPathComponent("\(mixAssetID.uuidString)-recovered.m4a"),
                 title: manifest?.title,
-                startedAt: contents.startedAt
+                startedAt: contents.startedAt,
+                notes: manifest?.notes ?? RecordingNotes()
             )
             try? await stagingStore.finishRecovery(recordingID: stagingID, reader: metadataReader)
             await refreshRecoveryIssues()
@@ -564,7 +648,8 @@ final class SystemAudioRecordingController: ObservableObject {
                 mixAssetID: prepared.mixAssetID,
                 mixURL: prepared.mixURL,
                 title: session.title,
-                startedAt: session.startedAt
+                startedAt: session.startedAt,
+                notes: notes
             )
             warnings.insert(contentsOf: assemblyWarnings, at: 0)
 
@@ -610,7 +695,8 @@ final class SystemAudioRecordingController: ObservableObject {
         mixAssetID: UUID?,
         mixURL: URL?,
         title: String?,
-        startedAt: Date
+        startedAt: Date,
+        notes: RecordingNotes
     ) async throws -> (Recording, [String]) {
         let store = try resolveStore()
         var warnings: [String] = []
@@ -694,7 +780,8 @@ final class SystemAudioRecordingController: ObservableObject {
             duration: duration,
             sources: sources,
             processingState: .pending,
-            audioAssets: allAssets
+            audioAssets: allAssets,
+            notes: notes
         )
 
         try await store.importRecording(recording, audioFiles: allFiles, transferringOwnership: true)

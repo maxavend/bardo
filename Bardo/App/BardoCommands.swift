@@ -9,6 +9,8 @@ enum BardoCommandNotification {
     static let resumeRecording = Notification.Name("Bardo.Command.ResumeRecording")
     static let stopRecording = Notification.Name("Bardo.Command.StopRecording")
     static let toggleMicrophoneMute = Notification.Name("Bardo.Command.ToggleMicrophoneMute")
+    static let markMoment = Notification.Name("Bardo.Command.MarkMoment")
+    static let startSection = Notification.Name("Bardo.Command.StartSection")
     static let libraryChanged = Notification.Name("Bardo.Library.Changed")
 }
 
@@ -21,6 +23,7 @@ struct BardoCaptureCommandState: Equatable {
     var canStop: Bool
     var canMute = false
     var isMuted = false
+    var canMark = false
 }
 
 extension FocusedValues {
@@ -84,6 +87,22 @@ struct BardoCommands: Commands {
             }
             .keyboardShortcut("s", modifiers: [.command, .option])
             .disabled(capture?.canMute != true)
+
+            Divider()
+
+            // Bardo's own: ⌘N starts a recording, ⌥⌘N marks a moment in it and ⇧⌥⌘N
+            // starts a section.
+            Button("Marcar momento") {
+                post(BardoCommandNotification.markMoment)
+            }
+            .keyboardShortcut("n", modifiers: [.command, .option])
+            .disabled(capture?.canMark != true)
+
+            Button("Nueva sección") {
+                post(BardoCommandNotification.startSection)
+            }
+            .keyboardShortcut("n", modifiers: [.command, .option, .shift])
+            .disabled(capture?.canMark != true)
 
             Divider()
 

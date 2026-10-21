@@ -10,6 +10,8 @@ struct RootView: View {
     @StateObject private var microphone = MicrophoneRecordingController()
     @StateObject private var systemAudio = SystemAudioRecordingController()
     @StateObject private var audioDevices = AudioDeviceCatalog()
+    /// The recorder alone in the window, with the sidebar and list hidden.
+    @State private var isFocusMode = false
     @State private var isRecoveryPresented = false
     @State private var isRecordingSetupPresented = false
     #if DEBUG
@@ -17,6 +19,7 @@ struct RootView: View {
     @State private var previewMeters: LiveAudioMeter.DesignPreview?
     @State private var previewsPausedRecorder = false
     @State private var previewsMutedRecorder = false
+    @State private var previewNotes = RecordingNotes()
     #endif
 
     init(
@@ -33,6 +36,7 @@ struct RootView: View {
             captureMenu: AnyView(captureMenuButton),
             activeCaptureBanner: activeCaptureBanner,
             liveRecorder: liveRecorder,
+            isFocusMode: isFocusMode,
             onNewRecording: presentRecordingSetup
         )
             .task {
@@ -152,9 +156,19 @@ struct RootView: View {
                 if step.action == "liveRecorder" {
                     library.selection = nil
                     previewMeters = LiveAudioMeter.DesignPreview(mutedTail: step.value.contains("muted") ? 7 : 0)
+                    if step.value.contains("notes") {
+                        var notes = RecordingNotes()
+                        notes.addSection(at: 3, title: "Planificación")
+                        notes.addMoment(at: 6.5, title: "Fecha de lanzamiento", note: "Definir con Diego antes del jueves")
+                        notes.addMoment(at: 11, title: "", note: nil)
+                        previewNotes = notes
+                    }
+                    isFocusMode = step.value.contains("focus")
                     previewsPausedRecorder = step.value.contains("paused")
                     previewsMutedRecorder = step.value.contains("muted")
                 }
+                if step.action == "markMoment" { NotificationCenter.default.post(name: LiveRecorderCommand.newMoment, object: nil) }
+                if step.action == "startSection" { NotificationCenter.default.post(name: LiveRecorderCommand.newSection, object: nil) }
                 if step.action == "record" {
                     Task { await startSystemRecording(includeMicrophone: step.value == "conversation", title: "Prueba de audio") }
                 }
@@ -168,6 +182,26 @@ struct RootView: View {
                     audioDevices.startObserving()
                 } else {
                     audioDevices.stopObserving()
+                    isFocusMode = false
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.markMoment)) { _ in
+                // On screen, the recorder opens its note; elsewhere the moment is just marked.
+                if library.selection == nil {
+                    NotificationCenter.default.post(name: LiveRecorderCommand.newMoment, object: nil)
+                } else if microphone.isBusy {
+                    microphone.addMoment(at: microphone.recordingPosition, title: "", note: nil)
+                } else {
+                    systemAudio.addMoment(at: systemAudio.recordingPosition, title: "", note: nil)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.startSection)) { _ in
+                if library.selection == nil {
+                    NotificationCenter.default.post(name: LiveRecorderCommand.newSection, object: nil)
+                } else if microphone.isBusy {
+                    microphone.addSection(at: microphone.recordingPosition, title: "")
+                } else {
+                    systemAudio.addSection(at: systemAudio.recordingPosition, title: "")
                 }
             }
             .onDisappear {
@@ -191,7 +225,8 @@ struct RootView: View {
             canResume: microphone.phase == .paused || systemAudio.canResume,
             canStop: microphone.phase == .recording || microphone.phase == .paused || systemAudio.isRecording,
             canMute: microphone.canMute || systemAudio.canMuteMicrophone,
-            isMuted: microphone.isMuted || systemAudio.isMicrophoneMuted
+            isMuted: microphone.isMuted || systemAudio.isMicrophoneMuted,
+            canMark: isLiveRecording
         )
     }
 
@@ -219,6 +254,20 @@ struct RootView: View {
                 resumeAction: {},
                 isMicrophoneMuted: previewsMutedRecorder,
                 muteAction: {},
+                notes: previewNotes,
+                actions: LiveRecorderActions(
+                    position: { previewMeters.microphone.snapshot.duration },
+                    addMoment: { time in previewNotes.addMoment(at: time, title: "", note: nil) },
+                    editMoment: { id, title, note in previewNotes.editMoment(id, title: title, note: note) },
+                    removeMoment: { previewNotes.removeMoment($0) },
+                    addSection: { time in previewNotes.addSection(at: time, title: "") },
+                    renameSection: { id, title in previewNotes.renameSection(id, to: title) },
+                    removeSection: { previewNotes.removeSection($0) },
+                    rename: { _ in },
+                    discard: {},
+                    isFocused: isFocusMode,
+                    toggleFocus: { isFocusMode.toggle() }
+                ),
                 stopAction: {}
             ))
         }
@@ -239,6 +288,20 @@ struct RootView: View {
                 resumeAction: { microphone.resume() },
                 isMicrophoneMuted: microphone.isMuted,
                 muteAction: microphone.canMute ? { microphone.toggleMute() } : nil,
+                notes: microphone.notes,
+                actions: LiveRecorderActions(
+                    position: { microphone.recordingPosition },
+                    addMoment: { microphone.addMoment(at: $0, title: "", note: nil) },
+                    editMoment: { microphone.editMoment($0, title: $1, note: $2) },
+                    removeMoment: { microphone.removeMoment($0) },
+                    addSection: { microphone.addSection(at: $0, title: "") },
+                    renameSection: { microphone.renameSection($0, to: $1) },
+                    removeSection: { microphone.removeSection($0) },
+                    rename: { microphone.renameActiveRecording(to: $0) },
+                    discard: { Task { await microphone.discard() } },
+                    isFocused: isFocusMode,
+                    toggleFocus: { isFocusMode.toggle() }
+                ),
                 stopAction: { Task { await stopMicrophoneRecording() } }
             ))
         }
@@ -270,6 +333,20 @@ struct RootView: View {
             resumeAction: systemAudio.canResume ? { systemAudio.resume() } : nil,
             isMicrophoneMuted: systemAudio.isMicrophoneMuted,
             muteAction: systemAudio.canMuteMicrophone ? { systemAudio.toggleMicrophoneMute() } : nil,
+            notes: systemAudio.notes,
+            actions: LiveRecorderActions(
+                position: { systemAudio.recordingPosition },
+                addMoment: { systemAudio.addMoment(at: $0, title: "", note: nil) },
+                editMoment: { systemAudio.editMoment($0, title: $1, note: $2) },
+                removeMoment: { systemAudio.removeMoment($0) },
+                addSection: { systemAudio.addSection(at: $0, title: "") },
+                renameSection: { systemAudio.renameSection($0, to: $1) },
+                removeSection: { systemAudio.removeSection($0) },
+                rename: { systemAudio.renameActiveRecording(to: $0) },
+                discard: { Task { await systemAudio.discard() } },
+                isFocused: isFocusMode,
+                toggleFocus: { isFocusMode.toggle() }
+            ),
             stopAction: { Task { await stopSystemRecording() } }
         ))
     }

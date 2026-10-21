@@ -31,6 +31,7 @@ final class MicrophoneRecordingController: ObservableObject {
     @Published private(set) var phase: Phase = .idle {
         didSet {
             if phase != .recording && phase != .paused { isMuted = false }
+            if phase == .idle || phase == .preparing { notes = RecordingNotes() }
         }
     }
     /// The microphone records silence; the recording keeps its timeline.
@@ -57,6 +58,83 @@ final class MicrophoneRecordingController: ObservableObject {
         case .idle, .failed:
             return false
         }
+    }
+
+    /// Moments and sections marked during the recording in progress.
+    @Published private(set) var notes = RecordingNotes()
+
+    /// Where the recording is on its own timeline, pauses left out: the time a moment
+    /// or section marked now will have in the saved recording.
+    var recordingPosition: TimeInterval { max(0, backend.currentTime) }
+
+    @discardableResult
+    func addMoment(at time: TimeInterval, title: String, note: String?) -> RecordingMoment? {
+        guard (phase == .recording || phase == .paused) else { return nil }
+        let moment = notes.addMoment(at: time, title: title, note: note)
+        saveCaptureDetails()
+        return moment
+    }
+
+    @discardableResult
+    func addSection(at time: TimeInterval, title: String) -> RecordingSection? {
+        guard (phase == .recording || phase == .paused) else { return nil }
+        let section = notes.addSection(at: time, title: title)
+        saveCaptureDetails()
+        return section
+    }
+
+    func editMoment(_ id: RecordingMoment.ID, title: String, note: String?) {
+        notes.editMoment(id, title: title, note: note)
+        saveCaptureDetails()
+    }
+
+    func removeMoment(_ id: RecordingMoment.ID) {
+        notes.removeMoment(id)
+        saveCaptureDetails()
+    }
+
+    func renameSection(_ id: RecordingSection.ID, to title: String) {
+        notes.renameSection(id, to: title)
+        saveCaptureDetails()
+    }
+
+    func removeSection(_ id: RecordingSection.ID) {
+        notes.removeSection(id)
+        saveCaptureDetails()
+    }
+
+    /// Names the recording in progress; a blank title falls back to the default one.
+    func renameActiveRecording(to title: String) {
+        guard (phase == .recording || phase == .paused), session != nil else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        session?.title = trimmed.isEmpty ? nil : trimmed
+        objectWillChange.send()
+        saveCaptureDetails()
+    }
+
+    /// Stops without saving: the audio recorded so far goes to the Trash.
+    func discard() async {
+        guard phase == .recording || phase == .paused, let session else { return }
+        phase = .finalizing
+        stopProgressUpdates()
+        backend.stop()
+        do {
+            try await resolveStagingStore().moveToTrash(recordingID: session.recordingID)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        self.session = nil
+        phase = .idle
+        elapsedTime = 0
+        inputDisplayName = nil
+        releaseGlobalCaptureLease()
+        await refreshRecoveryIssues()
+    }
+
+    private func saveCaptureDetails() {
+        guard let session, let stagingStore = try? resolveStagingStore() else { return }
+        let (id, title, notes) = (session.recordingID, session.title, notes)
+        Task { await stagingStore.recordDetails(recordingID: id, title: title, notes: notes) }
     }
 
     /// Live loudness of the microphone, for the recorder.
@@ -101,7 +179,7 @@ final class MicrophoneRecordingController: ObservableObject {
         let audioAssetID: UUID
         let startedAt: Date
         let stagingURL: URL
-        let title: String?
+        var title: String?
     }
 
     private static weak var globalCaptureOwner: MicrophoneRecordingController?
@@ -312,7 +390,8 @@ final class MicrophoneRecordingController: ObservableObject {
                 audioAssetID: audioAssetID,
                 stagingURL: audioURL,
                 title: contents.manifest?.title,
-                startedAt: contents.startedAt
+                startedAt: contents.startedAt,
+                notes: contents.manifest?.notes ?? RecordingNotes()
             )
             // When the staged PCM was compressed, the published file is the compressed
             // copy and the PCM source is no longer needed.
@@ -411,7 +490,8 @@ final class MicrophoneRecordingController: ObservableObject {
                 audioAssetID: session.audioAssetID,
                 stagingURL: session.stagingURL,
                 title: session.title,
-                startedAt: session.startedAt
+                startedAt: session.startedAt,
+                notes: notes
             )
 
             do {
@@ -461,7 +541,8 @@ final class MicrophoneRecordingController: ObservableObject {
         audioAssetID: UUID,
         stagingURL: URL,
         title: String?,
-        startedAt: Date
+        startedAt: Date,
+        notes: RecordingNotes
     ) async throws -> Recording {
         let store = try resolveStore()
 
@@ -506,7 +587,8 @@ final class MicrophoneRecordingController: ObservableObject {
             duration: metadata.duration,
             sources: [.microphone],
             processingState: .pending,
-            audioAssets: [asset]
+            audioAssets: [asset],
+            notes: notes
         )
 
         try await store.importRecording(

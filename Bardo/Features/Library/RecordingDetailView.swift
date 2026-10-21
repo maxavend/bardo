@@ -358,7 +358,8 @@ struct RecordingDetailView: View {
         TranscriptTextFormatter(
             title: recordingDisplayTitle,
             date: recording.createdAt,
-            duration: recording.duration
+            duration: recording.duration,
+            notes: recording.notes
         )
         .text(for: transcript)
     }

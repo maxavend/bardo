@@ -72,6 +72,12 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 
 - The microphone button at the top (or Grabación › Silenciar micrófono, ⌥⌘S) turns red and **Silenciado** appears by **Tu micrófono**; your side of the line goes flat while the Mac's audio keeps recording. Stop: the microphone track has silence there, not a gap, and stays in sync.
 
+- **Marcar momento** (flag, or ⌥⌘N) marks the minute at once and opens a note: type a title and, optionally, a text; Enter or a click outside keeps it, **Quitar** removes it, and a blank title becomes "Momento 12:31". A flag appears on the live line.
+- **Nueva sección** (⇧⌥⌘N) starts a named part where the recording is; its name appears on the live line. Reading another conversation, ⌥⌘N and ⇧⌥⌘N mark without opening anything.
+- **⋯ › Modo enfoque** leaves the recorder alone in the window; **Renombrar…** names the recording in progress; **Descartar grabación…** stops without saving and moves the audio to the Trash.
+- Force quit during a recording with moments, then recover it: the title, moments and sections come back.
+- After saving, sections head the transcript where they start and moments follow the passage where they were marked; clicking either jumps there. **Copiar** includes them (sections in capitals, moments with ⚑).
+
 ### 5a1b. A saved conversation
 
 - Without a transcript: the recording's waveform (click or drag to jump), the message and a large **Transcribir**, centered.

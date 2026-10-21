@@ -218,6 +218,68 @@ final class MicrophoneRecordingControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testMomentsAndSectionsMarkedWhileRecordingArePublishedWithIt() async throws {
+        let env = makeEnvironment()
+        defer { try? FileManager.default.removeItem(at: env.baseURL) }
+        let backend = IncrementalTestCaptureBackend()
+        let controller = makeController(env: env, backend: backend)
+
+        await controller.start(title: "Retro")
+        backend.currentTime = 12
+        controller.addSection(at: controller.recordingPosition, title: "Lo que salió bien")
+        let moment = try XCTUnwrap(controller.addMoment(at: 30, title: "", note: nil))
+        controller.editMoment(moment.id, title: "Decidir fecha", note: "Con Diego")
+        controller.addMoment(at: 41, title: "", note: nil)
+        controller.renameActiveRecording(to: "Retro del sprint 14")
+
+        let stopped = await controller.stop()
+        let published = try XCTUnwrap(stopped)
+
+        XCTAssertEqual(published.title, "Retro del sprint 14")
+        XCTAssertEqual(published.notes.sections.map(\.title), ["Lo que salió bien"])
+        XCTAssertEqual(published.notes.sections.first?.start, 12)
+        XCTAssertEqual(published.notes.moments.map(\.title), ["Decidir fecha", RecordingMoment.defaultTitle(at: 41)])
+        XCTAssertEqual(published.notes.moments.first?.note, "Con Diego")
+        XCTAssertTrue(controller.notes.isEmpty, "The next recording starts without notes")
+
+        let reloaded = try await RecordingStore(rootURL: env.libraryURL).loadLibrary()
+        XCTAssertEqual(reloaded.recordings.first?.notes, published.notes, "Notes are saved in the manifest")
+    }
+
+    @MainActor
+    func testRecoveredCaptureKeepsItsTitleMomentsAndSections() async throws {
+        let env = makeEnvironment()
+        defer { try? FileManager.default.removeItem(at: env.baseURL) }
+        let crashedStaging = MicrophoneCaptureStagingStore(rootURL: env.stagingURL)
+        let recordingID = UUID()
+        let stagedURL = try await crashedStaging.prepareCapture(
+            recordingID: recordingID,
+            audioAssetID: UUID(),
+            fileExtension: "caf",
+            title: nil
+        )
+        try AudioTestFixture.makeWAV(at: stagedURL, duration: 1)
+        var notes = RecordingNotes()
+        notes.addSection(at: 0, title: "Inicio")
+        notes.addMoment(at: 0.5, title: "Idea", note: "Probar con usuarios")
+        await crashedStaging.recordDetails(recordingID: recordingID, title: "Nota de voz", notes: notes)
+
+        let relaunched = MicrophoneRecordingController(
+            store: RecordingStore(rootURL: env.libraryURL),
+            stagingStore: MicrophoneCaptureStagingStore(rootURL: env.stagingURL),
+            permissionAuthorizer: TestMicrophonePermissionAuthorizer(status: .authorized),
+            backend: IncrementalTestCaptureBackend()
+        )
+        await relaunched.refreshRecoveryIssues()
+        let issue = try XCTUnwrap(relaunched.recoveryIssues.first)
+        let result = await relaunched.recoverRecoveryIssue(issue)
+        let recovered = try XCTUnwrap(result)
+
+        XCTAssertEqual(recovered.title, "Nota de voz")
+        XCTAssertEqual(recovered.notes, notes)
+    }
+
+    @MainActor
     func testNormalTerminationFinalizesActiveRecording() async throws {
         let env = makeEnvironment()
         defer { try? FileManager.default.removeItem(at: env.baseURL) }

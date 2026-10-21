@@ -11,6 +11,7 @@ struct LibraryView: View {
     private let captureMenu: AnyView?
     private let activeCaptureBanner: AnyView?
     private let liveRecorder: AnyView?
+    private let isFocusMode: Bool
     private let onNewRecording: () -> Void
 
     @ObservedObject private var favorites = BardoFavoritesStore.shared
@@ -32,6 +33,7 @@ struct LibraryView: View {
         captureMenu: AnyView? = nil,
         activeCaptureBanner: AnyView? = nil,
         liveRecorder: AnyView? = nil,
+        isFocusMode: Bool = false,
         onNewRecording: @escaping () -> Void = {
             NotificationCenter.default.post(name: BardoCommandNotification.newRecording, object: nil)
         }
@@ -40,6 +42,7 @@ struct LibraryView: View {
         self.captureMenu = captureMenu
         self.activeCaptureBanner = activeCaptureBanner ?? topAccessory
         self.liveRecorder = liveRecorder
+        self.isFocusMode = isFocusMode
         self.onNewRecording = onNewRecording
     }
 
@@ -113,6 +116,11 @@ struct LibraryView: View {
         .task {
             await model.reload()
             selectFirstRecordingIfNeeded()
+        }
+        // Focus mode leaves the recorder alone in the window, as the native split view
+        // does when its columns are collapsed.
+        .onChange(of: isFocusMode) { _, focused in
+            withAnimation { columnVisibility = focused ? .detailOnly : .all }
         }
         .task(id: model.selection) {
             await model.prepareSelection()

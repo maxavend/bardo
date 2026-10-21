@@ -13,7 +13,7 @@ struct CaptureStagingManifest: Codable, Equatable, Sendable {
 
     let recordingID: UUID
     let kind: Kind
-    let title: String?
+    var title: String?
     let startedAt: Date
     let systemAssetID: UUID?
     let microphoneAssetID: UUID?
@@ -22,6 +22,8 @@ struct CaptureStagingManifest: Codable, Equatable, Sendable {
     /// stops so a recovery after an interrupted save keeps the sources aligned.
     var systemTimelineOffset: TimeInterval?
     var microphoneTimelineOffset: TimeInterval?
+    /// Moments and sections marked so far, so a recovered capture keeps them.
+    var notes: RecordingNotes?
 
     init(
         recordingID: UUID,

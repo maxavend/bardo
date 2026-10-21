@@ -41,6 +41,8 @@ struct LiveRecorderView: View {
     var resumeAction: (() -> Void)?
     var isMicrophoneMuted = false
     var muteAction: (() -> Void)?
+    var notes = RecordingNotes()
+    var actions: LiveRecorderActions?
     let stopAction: () -> Void
 
     var body: some View {
@@ -65,19 +67,7 @@ struct LiveRecorderView: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
         .toolbar {
-            // The recording's own actions, where a conversation keeps its actions.
-            ToolbarItemGroup(placement: .primaryAction) {
-                if let muteAction {
-                    Button(action: muteAction) {
-                        Label(
-                            isMicrophoneMuted ? "Activar micrófono" : "Silenciar micrófono",
-                            systemImage: isMicrophoneMuted ? "mic.slash.fill" : "mic"
-                        )
-                    }
-                    .foregroundStyle(isMicrophoneMuted ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
-                    .help(isMicrophoneMuted ? "Activar micrófono (⌥⌘S)" : "Silenciar tu micrófono sin pausar el audio del Mac (⌥⌘S)")
-                }
-            }
+            LiveRecorderToolbar(title: title, actions: actions, isMicrophoneMuted: isMicrophoneMuted, muteAction: muteAction)
         }
     }
 
@@ -99,7 +89,7 @@ struct LiveRecorderView: View {
     /// The live line with its sources named underneath, stacked and centered.
     private var stage: some View {
         VStack(spacing: 16) {
-            LiveConversationWave(tracks: tracks, isPaused: isPaused)
+            LiveConversationWave(tracks: tracks, isPaused: isPaused, notes: notes)
                 .frame(minHeight: 120, idealHeight: 200, maxHeight: 220)
             VStack(spacing: 6) {
                 ForEach(tracks) { track in
@@ -299,6 +289,7 @@ extension LiveAudioMeter.Snapshot {
 struct LiveConversationWave: View {
     let tracks: [LiveRecorderTrack]
     let isPaused: Bool
+    var notes = RecordingNotes()
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -337,6 +328,7 @@ struct LiveConversationWave: View {
                         draw(track, in: &bars, size: size, direction: offset == 0 ? -1 : 1)
                     }
                 }
+                drawNotes(in: &canvas, size: size)
                 drawPlayhead(in: &canvas, size: size)
             }
         }
@@ -375,6 +367,40 @@ struct LiveConversationWave: View {
             default: rect = CGRect(x: x, y: middle + gap, width: barWidth, height: height)
             }
             canvas.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(track.tint))
+        }
+    }
+
+    /// Sections as a thin line with their name at the top, and moments as a flag on the
+    /// line where they were marked, both drifting left with the audio.
+    private func drawNotes(in canvas: inout GraphicsContext, size: CGSize) {
+        guard !notes.isEmpty else { return }
+        let snapshots = tracks.map(\.meter.snapshot)
+        guard let latest = snapshots.max(by: { $0.duration < $1.duration }) else { return }
+        let glide = latest.glide(isPaused: isPaused, reduceMotion: reduceMotion)
+        let newest = size.width - playheadInset - barWidth - 3
+        func x(for time: TimeInterval) -> CGFloat {
+            newest - (CGFloat((latest.duration - time) / LiveAudioMeter.bucketDuration) + glide) * step
+        }
+        for section in notes.sections {
+            let position = x(for: section.start)
+            guard position > 0, position < size.width else { continue }
+            canvas.fill(Path(CGRect(x: position, y: 0, width: 1, height: size.height)), with: .color(.secondary.opacity(0.5)))
+            canvas.draw(
+                Text(section.title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary),
+                at: CGPoint(x: position + 4, y: 0),
+                anchor: .topLeading
+            )
+        }
+        for moment in notes.moments {
+            let position = x(for: moment.time)
+            guard position > 0, position < size.width else { continue }
+            let middle = size.height / 2
+            canvas.fill(Path(CGRect(x: position - 0.5, y: middle - 14, width: 1.5, height: 14)), with: .color(.orange))
+            canvas.draw(
+                Image(systemName: "flag.fill"),
+                at: CGPoint(x: position - 1, y: middle - 14),
+                anchor: .bottomLeading
+            )
         }
     }
 

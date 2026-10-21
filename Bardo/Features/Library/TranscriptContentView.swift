@@ -458,7 +458,11 @@ struct TranscriptContentView: View {
             )
             .frame(maxWidth: .infinity, minHeight: 240)
         } else {
+            let placement = TranscriptNotePlacement(notes: recording.notes, paragraphStarts: paragraphs.map(\.startTime))
             LazyVStack(alignment: .leading, spacing: 20) {
+                ForEach(placement.leadingMoments) { moment in
+                    momentRow(moment)
+                }
                 ForEach(Array(paragraphs.enumerated()), id: \.element.id) { index, paragraph in
                     let currentSpeaker = speakerLabel(for: paragraph.speakerID, in: transcript)
                     let previousSpeaker = index > 0
@@ -492,9 +496,78 @@ struct TranscriptContentView: View {
                     }
                     .padding(.top, startsSpeakerTurn && index > 0 ? 6 : 0)
                     .id(paragraph.id)
+                    // A section's name heads the first paragraph it covers; a moment
+                    // follows the paragraph during which it was marked.
+                    .modifier(TranscriptNotesAround(
+                        sections: placement.sections(before: index),
+                        moments: placement.moments(after: index),
+                        sectionHeading: sectionHeading,
+                        momentRow: momentRow
+                    ))
+                }
+                ForEach(placement.trailingSections) { section in
+                    sectionHeading(section)
                 }
             }
         }
+    }
+
+    private func sectionHeading(_ section: RecordingSection) -> AnyView {
+        AnyView(
+            Button {
+                playback.seek(to: section.start)
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(section.title)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(LibraryFormatting.duration(section.start))
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 10)
+            .help("Ir al inicio de esta sección")
+            .accessibilityAddTraits(.isHeader)
+        )
+    }
+
+    private func momentRow(_ moment: RecordingMoment) -> AnyView {
+        AnyView(
+            Button {
+                playback.seek(to: moment.time)
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: "flag.fill")
+                        .foregroundStyle(.orange)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(moment.title)
+                                .fontWeight(.semibold)
+                            Text(LibraryFormatting.duration(moment.time))
+                                .font(.callout.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        if let note = moment.note {
+                            Text(note)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.orange.opacity(0.1), in: .rect(cornerRadius: 10))
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help("Ir a este momento")
+        )
     }
 
     @ViewBuilder
@@ -575,6 +648,26 @@ private struct LiveTranscriptSegmentRow: View {
 
 private enum LiveTranscriptAnchor {
     static let tail = "bardo.transcript.live.tail"
+}
+
+/// Places section headings above a paragraph and moments below it.
+private struct TranscriptNotesAround: ViewModifier {
+    let sections: [RecordingSection]
+    let moments: [RecordingMoment]
+    let sectionHeading: (RecordingSection) -> AnyView
+    let momentRow: (RecordingMoment) -> AnyView
+
+    func body(content: Content) -> some View {
+        if sections.isEmpty && moments.isEmpty {
+            content
+        } else {
+            VStack(alignment: .leading, spacing: 20) {
+                ForEach(sections) { sectionHeading($0) }
+                content
+                ForEach(moments) { momentRow($0) }
+            }
+        }
+    }
 }
 
 private struct TranscriptParagraph: Identifiable {
