@@ -280,7 +280,7 @@ struct SpeakerNamingSheet: View {
             TextField("Nombre", text: nameBinding(speaker.id), prompt: Text("Nombre"))
                 .labelsHidden()
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 170)
+                .frame(width: 150)
 
             mergeMenu(for: speaker, in: draft)
         }
@@ -338,14 +338,25 @@ struct SpeakerNamingSheet: View {
     // MARK: Merging
 
     private func mergeMenu(for speaker: Speaker, in draft: Transcript) -> some View {
+        // Said in words: no symbol says "these two are one person".
+        // A list flattens buttons, so the capsule is drawn here, with the menu's arrow.
         Menu {
             mergeItems(for: speaker, in: draft)
         } label: {
-            Label("Fusionar con…", systemImage: "arrow.triangle.merge")
+            HStack(spacing: 4) {
+                Text("Fusionar")
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(.quaternary, in: .capsule)
+            .contentShape(.capsule)
         }
-        .labelStyle(.iconOnly)
         .menuStyle(.button)
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .disabled(draft.speakers.count < 2)
