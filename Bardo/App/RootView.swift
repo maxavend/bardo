@@ -258,8 +258,7 @@ struct RootView: View {
     }
 
     private func liveSubtitle(startedAt: Date?, sources: Set<AudioSource>) -> String {
-        // A recording in progress started today, so its time is enough.
-        let start = (startedAt ?? .now).formatted(date: .omitted, time: .shortened)
+        let start = (startedAt ?? .now).formatted(.dateTime.day().month(.wide).hour().minute())
         return "\(start) · \(LibraryFormatting.source(sources))"
     }
 

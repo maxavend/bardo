@@ -95,9 +95,8 @@ struct LibraryView: View {
                 }
         }
         // One toolbar search field for the window; it searches the whole Library.
-        // Keep the prompt short so it never truncates in a narrow toolbar. The recorder
-        // has nothing to search, so the field steps aside while it is on screen.
-        .modifier(LibrarySearchField(isShown: !showsLiveRecorder, text: $searchText))
+        // Keep the prompt short so it never truncates in a narrow toolbar.
+        .searchable(text: $searchText, placement: .toolbar, prompt: Text("Buscar"))
         .searchFocused($isSearchFocused)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         // Details open as a sheet: nothing slides in beside the transcript, so the
@@ -223,19 +222,6 @@ struct LibraryView: View {
                 Label("Nueva grabación", systemImage: "record.circle")
             }
             .help("Nueva grabación (⌘N)")
-        }
-    }
-
-    private struct LibrarySearchField: ViewModifier {
-        let isShown: Bool
-        @Binding var text: String
-
-        func body(content: Content) -> some View {
-            if isShown {
-                content.searchable(text: $text, placement: .toolbar, prompt: Text("Buscar"))
-            } else {
-                content
-            }
         }
     }
 

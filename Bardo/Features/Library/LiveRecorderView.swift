@@ -47,9 +47,7 @@ struct LiveRecorderView: View {
         GeometryReader { proxy in
             ZStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 0) {
-                    if !Self.titleInToolbar {
-                        header
-                    }
+                    header
                     Spacer(minLength: 16)
                     stage
                         .frame(maxWidth: BardoLayout.detailContentMaxWidth)
@@ -58,70 +56,27 @@ struct LiveRecorderView: View {
                     Color.clear.frame(height: BardoLayout.playbackContentClearance)
                 }
                 .padding(.horizontal, BardoSpacing.detailHorizontal)
-                .padding(.top, 8)
+                .padding(.top, 20)
 
                 controlBar
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
-        .toolbar {
-            // On macOS 26 the title and Finalizar sit right in the toolbar's row, at the
-            // top edge, without the toolbar's glass behind them.
-            if #available(macOS 26.0, *) {
-                ToolbarItem(placement: .primaryAction) {
-                    titleBlock
-                }
-                .sharedBackgroundVisibility(.hidden)
-                ToolbarSpacer(.flexible, placement: .primaryAction)
-                ToolbarItem(placement: .primaryAction) {
-                    LiveRecorderFinishButton(action: stopAction)
-                }
-                .sharedBackgroundVisibility(.hidden)
-            }
-        }
     }
 
-    private static var titleInToolbar: Bool {
-        if #available(macOS 26.0, *) { true } else { false }
-    }
-
-    /// The title with the recording's state right under it, for the toolbar's row.
-    private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(title)
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-            statusLine
-                .font(.caption)
-        }
-        .lineLimit(1)
-        // Lines the title up with the column's content below.
-        .padding(.leading, 24)
-    }
-
-    private var statusLine: Text {
-        Text(isPaused ? "En pausa" : "Grabando")
-            .fontWeight(.semibold)
-            .foregroundStyle(isPaused ? Color.secondary : Color.red)
-        + Text(" · \(subtitle)")
-            .foregroundStyle(.secondary)
-    }
-
-    /// Before macOS 26: the title at the top left with Finalizar on the same row at the
-    /// right, as Done sits beside the title in Voice Memos.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .center, spacing: 12) {
-                Text(title)
-                    .font(.title2.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-                LiveRecorderFinishButton(action: stopAction)
-            }
-            statusLine
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.title2.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            (Text(isPaused ? "En pausa" : "Grabando")
+                .fontWeight(.semibold)
+                .foregroundStyle(isPaused ? Color.secondary : Color.red)
+             + Text(" · \(subtitle)")
+                .foregroundStyle(.secondary))
                 .font(.callout)
         }
+        .accessibilityElement(children: .combine)
     }
 
     /// The live line with its sources named underneath, stacked and centered.
@@ -187,7 +142,8 @@ struct LiveRecorderView: View {
         }
     }
 
-    /// One large red pause button that carries the running time.
+    /// One large red pause button that carries the running time, and Finalizar on its
+    /// own beside it.
     private var controlBar: some View {
         VStack(spacing: 10) {
             if let warning {
@@ -196,7 +152,16 @@ struct LiveRecorderView: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            pauseButton
+            LiveRecorderGlassGroup {
+                HStack(spacing: 12) {
+                    pauseButton
+                    Button(action: stopAction) {
+                        Label("Finalizar", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(LiveRecorderButtonStyle(kind: .finish))
+                    .help(String(localized: "Stop recording (⌘.)"))
+                }
+            }
         }
         .padding(.horizontal, BardoLayout.playbackHorizontalPadding)
         .padding(.bottom, BardoLayout.playbackBottomPadding + 4)
@@ -232,7 +197,7 @@ struct LiveRecorderButtonStyle: ButtonStyle {
         case pause
         /// Red content on a soft red capsule.
         case resume
-        /// A blue circle with a white symbol.
+        /// A quiet glass capsule.
         case finish
     }
 
@@ -242,9 +207,9 @@ struct LiveRecorderButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         let label = configuration.label
-            .font(kind == .finish ? .body.weight(.bold) : .title3.weight(.semibold))
-            .padding(.horizontal, kind == .finish ? 0 : 28)
-            .frame(minWidth: kind == .finish ? 34 : nil, minHeight: kind == .finish ? 34 : 52)
+            .font(.title3.weight(.semibold))
+            .padding(.horizontal, kind == .finish ? 22 : 28)
+            .frame(height: 52)
             .contentShape(.capsule)
 
         Group {
@@ -260,8 +225,7 @@ struct LiveRecorderButtonStyle: ButtonStyle {
                     .liveRecorderGlass(tint: .red.opacity(0.22), fallback: Color.red.opacity(0.16))
             case .finish:
                 label
-                    .foregroundStyle(.white)
-                    .liveRecorderGlass(tint: .blue, fallback: Color.blue)
+                    .liveRecorderGlass(tint: nil, fallback: .regularMaterial)
             }
         }
         .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1) : 0.5)
@@ -283,17 +247,16 @@ private extension View {
     }
 }
 
-/// Finalizar: a blue checkmark in Liquid Glass, as Done in Voice Memos.
-private struct LiveRecorderFinishButton: View {
-    let action: () -> Void
+/// Lets the recorder's glass buttons render and blend as one group on macOS 26.
+private struct LiveRecorderGlassGroup<Content: View>: View {
+    @ViewBuilder let content: Content
 
     var body: some View {
-        Button(action: action) {
-            Label("Finalizar", systemImage: "checkmark")
-                .labelStyle(.iconOnly)
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer(spacing: 12) { content }
+        } else {
+            content
         }
-        .buttonStyle(LiveRecorderButtonStyle(kind: .finish))
-        .help(String(localized: "Stop recording (⌘.)"))
     }
 }
 
