@@ -45,7 +45,8 @@ enum ConversationWaveformStyle {
         upperTint: Color = systemTint,
         lowerTint: Color = microphoneTint,
         singleTint: Color = .accentColor,
-        colors precomputed: [Color]? = nil
+        colors precomputed: [Color]? = nil,
+        heardThrough playhead: CGFloat? = nil
     ) {
         guard size.width > 0, !samples.isEmpty else {
             drawCenterLine(in: &canvas, size: size)
@@ -70,7 +71,8 @@ enum ConversationWaveformStyle {
         let middle = size.height / 2
         let thickness: CGFloat = 3
         // What has been heard is a tube of glass; what is ahead, a hairline track.
-        let split = samples.first { !isHeard($0) }?.x ?? size.width
+        // Saved recordings fill exactly up to the playhead, so the colour sweeps on smoothly.
+        let split = playhead ?? samples.first { !isHeard($0) }?.x ?? size.width
         var heard = canvas
         heard.clip(to: Path(CGRect(x: 0, y: 0, width: max(0, split), height: size.height)))
         var ahead = canvas
@@ -396,24 +398,34 @@ struct RecordingWaveform: View {
 
         var voices: [Style.VoiceSample] = []
         voices.reserveCapacity(last - first + 1)
+        // Every bar is drawn dimmed, then again in full colour up to the playhead: the
+        // colour sweeps on with it, through the middle of a bar, instead of bar by bar.
+        var heard = bars
+        heard.clip(to: Path(CGRect(x: 0, y: 0, width: max(0, playhead), height: size.height)))
         for index in first...last {
             let barX = x(Double(index) * barDuration)
-            // What has been heard reads in full colour; what is ahead, dimmed.
-            let opacity = barX + Style.barWidth <= playhead ? 1 : 0.32
             voices.append(Style.VoiceSample(
                 x: barX + Style.barWidth / 2,
                 upper: CGFloat(lanes.upper[index]),
                 lower: lanes.lower.map { CGFloat($0[index]) },
-                emphasis: opacity
+                emphasis: barX <= playhead ? 1 : 0.32
             ))
+            let isHeard = barX <= playhead
             if let lower = lanes.lower {
-                Style.drawBar(in: &bars, x: barX, level: CGFloat(lanes.upper[index]), direction: -1, size: size, color: colors.upper[index].opacity(opacity))
-                Style.drawBar(in: &bars, x: barX, level: CGFloat(lower[index]), direction: 1, size: size, color: colors.lower[index].opacity(opacity))
+                Style.drawBar(in: &bars, x: barX, level: CGFloat(lanes.upper[index]), direction: -1, size: size, color: colors.upper[index].opacity(0.32))
+                Style.drawBar(in: &bars, x: barX, level: CGFloat(lower[index]), direction: 1, size: size, color: colors.lower[index].opacity(0.32))
+                if isHeard {
+                    Style.drawBar(in: &heard, x: barX, level: CGFloat(lanes.upper[index]), direction: -1, size: size, color: colors.upper[index])
+                    Style.drawBar(in: &heard, x: barX, level: CGFloat(lower[index]), direction: 1, size: size, color: colors.lower[index])
+                }
             } else {
-                Style.drawBar(in: &bars, x: barX, level: CGFloat(lanes.upper[index]), direction: 0, size: size, color: colors.upper[index].opacity(opacity))
+                Style.drawBar(in: &bars, x: barX, level: CGFloat(lanes.upper[index]), direction: 0, size: size, color: colors.upper[index].opacity(0.32))
+                if isHeard {
+                    Style.drawBar(in: &heard, x: barX, level: CGFloat(lanes.upper[index]), direction: 0, size: size, color: colors.upper[index])
+                }
             }
         }
-        Style.drawVoiceLine(in: &bars, size: size, samples: voices, colors: Array(colors.line[first...last]))
+        Style.drawVoiceLine(in: &bars, size: size, samples: voices, colors: Array(colors.line[first...last]), heardThrough: playhead)
 
         let sections = recording.notes.sections.sorted { $0.start < $1.start }
         for (index, section) in sections.enumerated() where (0...size.width).contains(x(section.start)) {

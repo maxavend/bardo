@@ -736,9 +736,18 @@ private struct TranscriptSpeakerChoice: Identifiable {
     let label: String
 }
 
+/// Where playback is relative to a paragraph. A row redraws only when this changes, not
+/// on each of the player's ten position reports a second.
+private enum ParagraphPlayback: Equatable {
+    case ahead
+    case active
+    case heard
+}
+
 private struct TranscriptParagraphRow: View {
     let paragraph: TranscriptParagraph
-    @ObservedObject var playback: AudioPlaybackController
+    /// Not observed: the row follows playback through `playbackPhase` alone.
+    let playback: AudioPlaybackController
     let canEdit: Bool
     var searchQuery: String = ""
     var usesKaraoke: Bool = true
@@ -746,7 +755,31 @@ private struct TranscriptParagraphRow: View {
     let onEditSegment: (TranscriptSegment) -> Void
     var onAssignSpeaker: ((Speaker.ID) -> Void)? = nil
 
+    @State private var playbackPhase = ParagraphPlayback.ahead
+    @State private var canPlay = false
+
     var body: some View {
+        rowContent
+            .onReceive(playback.$position) { phase(at: $0, isPlaying: playback.isPlaying) }
+            .onReceive(playback.$isPlaying) { phase(at: playback.position, isPlaying: $0) }
+            .onReceive(playback.$duration) { _ in
+                // Published before it is set; read once it is.
+                DispatchQueue.main.async { if canPlay != playback.isLoaded { canPlay = playback.isLoaded } }
+            }
+    }
+
+    private func phase(at position: TimeInterval, isPlaying: Bool) {
+        let hasEntered = position > paragraph.startTime + 0.02
+        let phase: ParagraphPlayback
+        if position >= paragraph.startTime, position <= paragraph.endTime, isPlaying || hasEntered {
+            phase = .active
+        } else {
+            phase = position > paragraph.endTime ? .heard : .ahead
+        }
+        if phase != playbackPhase { playbackPhase = phase }
+    }
+
+    private var rowContent: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Button {
                 playback.seek(to: paragraph.startTime)
@@ -769,7 +802,7 @@ private struct TranscriptParagraphRow: View {
             }
             .buttonStyle(.plain)
             .pointerStyle(.link)
-            .disabled(!playback.isLoaded)
+            .disabled(!canPlay)
             .help(
                 String.localizedStringWithFormat(
                     String(localized: "Play from %@"),
@@ -795,7 +828,7 @@ private struct TranscriptParagraphRow: View {
                 playback.seek(to: paragraph.startTime)
                 _ = playback.play()
             }
-            .disabled(!playback.isLoaded)
+            .disabled(!canPlay)
 
             if paragraph.segments.count == 1, let segment = paragraph.segments.first {
                 Button(String(localized: "Edit Segment…")) {
@@ -839,10 +872,7 @@ private struct TranscriptParagraphRow: View {
     }
 
     private var isActivePlaybackParagraph: Bool {
-        let hasEnteredParagraph = playback.position > paragraph.startTime + 0.02
-        return playback.position >= paragraph.startTime
-            && playback.position <= paragraph.endTime
-            && (playback.isPlaying || hasEnteredParagraph)
+        playbackPhase == .active
     }
 
     @ViewBuilder
@@ -859,10 +889,7 @@ private struct TranscriptParagraphRow: View {
             KaraokeTranscriptText(
                 words: paragraph.timedWords,
                 fallbackText: paragraph.fullText,
-                playbackPosition: playback.position,
-                isPlaying: playback.isPlaying,
-                paragraphStart: paragraph.startTime,
-                paragraphEnd: paragraph.endTime
+                playback: isActivePlaybackParagraph ? playback : nil
             )
         }
     }
@@ -875,138 +902,58 @@ private struct TranscriptParagraphRow: View {
     }
 }
 
+/// A paragraph's words as one piece of text. Only the paragraph being heard follows
+/// the player, lighting the current word and dimming those still ahead; every other
+/// paragraph is plain text that never redraws with playback.
 private struct KaraokeTranscriptText: View {
     let words: [TranscriptWord]
     let fallbackText: String
-    let playbackPosition: TimeInterval
-    let isPlaying: Bool
-    let paragraphStart: TimeInterval
-    let paragraphEnd: TimeInterval
+    /// Set only while this paragraph is being heard.
+    let playback: AudioPlaybackController?
 
     var body: some View {
         if words.isEmpty {
             Text(fallbackText)
                 .font(.body)
                 .lineSpacing(4)
+        } else if let playback {
+            LiveKaraokeText(words: words, playback: playback)
         } else {
-            BardoWordFlowLayout(horizontalSpacing: 4, verticalSpacing: 2) {
-                ForEach(words) { word in
-                    Text(word.text.trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(.body.weight(isCurrent(word) ? .medium : .regular))
-                        .foregroundStyle(color(for: word))
-                        .padding(.horizontal, isCurrent(word) ? 2 : 0)
-                        .padding(.vertical, 1)
-                        .background {
-                            if isCurrent(word) {
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(Color.accentColor.opacity(0.14))
-                            }
-                        }
+            Text(Self.text(of: words, at: nil))
+                .font(.body)
+                .lineSpacing(4)
+                .accessibilityLabel(fallbackText)
+        }
+    }
+
+    /// The words joined once, coloured by `position` when there is one. The same string
+    /// either way, so a paragraph never reflows as it starts or stops playing.
+    static func text(of words: [TranscriptWord], at position: TimeInterval?) -> AttributedString {
+        var text = AttributedString()
+        for (index, word) in words.enumerated() {
+            var piece = AttributedString((index == 0 ? "" : " ") + word.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let position {
+                if position >= word.startTime && position <= word.endTime {
+                    piece.foregroundColor = .accentColor
+                } else if position < word.startTime {
+                    piece.foregroundColor = Color.secondary.opacity(0.78)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.linear(duration: 0.08), value: playbackPosition)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(fallbackText)
+            text += piece
         }
-    }
-
-    private var isActiveParagraph: Bool {
-        let hasEnteredParagraph = playbackPosition > paragraphStart + 0.02
-        return playbackPosition >= paragraphStart
-            && playbackPosition <= paragraphEnd
-            && (isPlaying || hasEnteredParagraph)
-    }
-
-    private func isCurrent(_ word: TranscriptWord) -> Bool {
-        guard isActiveParagraph else { return false }
-        return playbackPosition >= word.startTime && playbackPosition <= word.endTime
-    }
-
-    private func color(for word: TranscriptWord) -> Color {
-        guard isActiveParagraph else { return .primary }
-        if isCurrent(word) {
-            return Color.accentColor
-        }
-        if playbackPosition > word.endTime {
-            return .primary
-        }
-        return .secondary.opacity(0.78)
+        return text
     }
 }
 
-private struct BardoWordFlowLayout: Layout {
-    var horizontalSpacing: CGFloat = 4
-    var verticalSpacing: CGFloat = 5
+/// The paragraph being heard, following the player word by word.
+private struct LiveKaraokeText: View {
+    let words: [TranscriptWord]
+    @ObservedObject var playback: AudioPlaybackController
 
-    func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) -> CGSize {
-        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
-        var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var widestLine: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            let requiredWidth = currentX == 0 ? size.width : currentX + horizontalSpacing + size.width
-
-            if requiredWidth > maxWidth, currentX > 0 {
-                widestLine = max(widestLine, currentX)
-                currentY += lineHeight + verticalSpacing
-                currentX = size.width
-                lineHeight = size.height
-            } else {
-                if currentX > 0 {
-                    currentX += horizontalSpacing
-                }
-                currentX += size.width
-                lineHeight = max(lineHeight, size.height)
-            }
-        }
-
-        widestLine = max(widestLine, currentX)
-        return CGSize(
-            width: proposal.width ?? widestLine,
-            height: currentY + lineHeight
-        )
-    }
-
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) {
-        var currentX = bounds.minX
-        var currentY = bounds.minY
-        var lineHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            let nextX = currentX == bounds.minX
-                ? currentX + size.width
-                : currentX + horizontalSpacing + size.width
-
-            if nextX > bounds.maxX, currentX > bounds.minX {
-                currentX = bounds.minX
-                currentY += lineHeight + verticalSpacing
-                lineHeight = 0
-            } else if currentX > bounds.minX {
-                currentX += horizontalSpacing
-            }
-
-            subview.place(
-                at: CGPoint(x: currentX, y: currentY),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: size.width, height: size.height)
-            )
-            currentX += size.width
-            lineHeight = max(lineHeight, size.height)
-        }
+    var body: some View {
+        Text(KaraokeTranscriptText.text(of: words, at: playback.position))
+            .font(.body)
+            .lineSpacing(4)
     }
 }
 

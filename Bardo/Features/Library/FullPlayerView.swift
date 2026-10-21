@@ -5,7 +5,9 @@ import SwiftUI
 struct FullPlayerView: View {
     let recording: Recording
     @ObservedObject var model: LibraryViewModel
-    @ObservedObject var playback: AudioPlaybackController
+    /// Not observed here: the timeline, the subtitles and the bar each follow it, so the
+    /// whole player does not redraw ten times a second.
+    let playback: AudioPlaybackController
     /// The window's search: matches show on the timeline and can be stepped through.
     let searchQuery: String
     let onClose: () -> Void
@@ -40,13 +42,12 @@ struct FullPlayerView: View {
                 .padding(.top, 12)
             }
 
-            Spacer(minLength: 24)
-
+            // The words take the rest of the window and scroll within it, however long
+            // a passage is; nothing above them ever moves.
             subtitles
                 .frame(maxWidth: BardoLayout.detailContentMaxWidth)
-                .frame(maxWidth: .infinity)
-
-            Spacer(minLength: 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, 12)
         }
         .padding(.horizontal, 40)
         .padding(.top, 20)
@@ -225,12 +226,25 @@ private struct PlayerOptions: View {
     }
 }
 
-/// What is being said now, as lyrics are in Music: the current passage with its words
-/// lighting up as they are heard, the one before and the one after dimmed around it.
-/// Karaoke belongs to playback of finished transcripts only.
+/// What is being said, as lyrics are in Music: every passage in one column that
+/// follows the playback, the current one in full with its words lighting up as they are
+/// heard, the others dimmed the further they are, and the column fading out at the top
+/// and bottom. It scrolls freely without a scroll bar, picks up the playback again a
+/// moment after, and a click on a passage plays from there. Karaoke belongs to playback
+/// of finished transcripts only.
 private struct KaraokeSubtitle: View {
     let transcript: Transcript
-    @ObservedObject var playback: AudioPlaybackController
+    /// Not observed: the column redraws when the passage changes; only the passage being
+    /// heard follows each word.
+    let playback: AudioPlaybackController
+
+    @State private var index: Int?
+
+    /// When the person last scrolled; the column waits before following again.
+    @State private var scrolledAt: Date?
+    @State private var viewportHeight: CGFloat = 400
+
+    private static let followDelay: TimeInterval = 3
 
     private var segments: [TranscriptSegment] {
         transcript.segments
@@ -240,43 +254,86 @@ private struct KaraokeSubtitle: View {
 
     var body: some View {
         let segments = segments
-        let index = currentIndex(in: segments)
-        VStack(spacing: 18) {
-            if let index {
-                if index > 0 {
-                    line(segments[index - 1], emphasis: .before)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 22) {
+                    ForEach(Array(segments.enumerated()), id: \.element.id) { offset, segment in
+                        passage(segment, offset: offset, current: index, previous: offset > 0 ? segments[offset - 1] : nil)
+                            .id(segment.id)
+                    }
                 }
-                VStack(spacing: 8) {
-                    speaker(of: segments[index])
-                    Text(attributedText(for: segments[index]))
-                        .font(.title2.weight(.semibold))
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(4)
-                        .fixedSize(horizontal: false, vertical: true)
+                // Room for the first and last passages to reach the middle.
+                .padding(.vertical, viewportHeight * 0.4)
+            }
+            .scrollIndicators(.hidden)
+            .onScrollPhaseChange { _, phase in
+                if phase == .interacting || phase == .decelerating { scrolledAt = .now }
+            }
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.16),
+                        .init(color: .black, location: 0.84),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
+            .onAppear {
+                if let index { proxy.scrollTo(segments[index].id, anchor: .center) }
+            }
+            .onReceive(playback.$position) { position in
+                let current = Self.currentIndex(in: segments, at: position)
+                if current != index { index = current }
+            }
+            .onChange(of: index) { _, index in
+                guard let index else { return }
+                if let scrolledAt, Date().timeIntervalSince(scrolledAt) < Self.followDelay { return }
+                withAnimation(.smooth(duration: 0.6)) {
+                    proxy.scrollTo(segments[index].id, anchor: .center)
                 }
-                if index + 1 < segments.count {
-                    line(segments[index + 1], emphasis: .after)
-                }
-            } else {
-                Text(playback.isPlaying ? " " : "Reproduce para ver los subtítulos")
-                    .font(.title3)
-                    .foregroundStyle(.tertiary)
             }
         }
-        .frame(maxWidth: .infinity)
-        .animation(.easeOut(duration: 0.25), value: index)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
-    private enum Emphasis { case before, after }
-
-    private func line(_ segment: TranscriptSegment, emphasis: Emphasis) -> some View {
-        Text(segment.displayText)
-            .font(.title3.weight(.medium))
-            .foregroundStyle(emphasis == .before ? .tertiary : .secondary)
+    @ViewBuilder
+    private func passage(_ segment: TranscriptSegment, offset: Int, current: Int?, previous: TranscriptSegment?) -> some View {
+        let isCurrent = offset == current
+        let distance = current.map { abs($0 - offset) } ?? 2
+        VStack(spacing: 8) {
+            // Who speaks, where the speaker changes.
+            if segment.speakerID != previous?.speakerID || previous == nil {
+                speaker(of: segment)
+                    .opacity(isCurrent ? 1 : 0.6)
+            }
+            Group {
+                if isCurrent {
+                    HeardPassage(segment: segment, playback: playback)
+                } else {
+                    Text(segment.displayText)
+                }
+            }
+            .font(isCurrent ? .title2.weight(.semibold) : .title3.weight(.medium))
+            .foregroundStyle(isCurrent ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .opacity(isCurrent ? 1 : max(0.35, 0.8 - Double(distance) * 0.15))
             .multilineTextAlignment(.center)
+            .lineSpacing(4)
             .fixedSize(horizontal: false, vertical: true)
-            .transition(.opacity)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(.rect)
+        .onTapGesture {
+            scrolledAt = nil
+            playback.seek(to: segment.startTime)
+        }
+        .pointerStyle(.link)
+        .animation(.easeOut(duration: 0.25), value: isCurrent)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Reproducir desde aquí")
     }
 
     @ViewBuilder
@@ -294,14 +351,22 @@ private struct KaraokeSubtitle: View {
     }
 
     /// The passage being heard; between passages, the last one heard stays.
-    private func currentIndex(in segments: [TranscriptSegment]) -> Int? {
-        let position = playback.position
-        guard position > 0 || playback.isPlaying else { return nil }
-        return segments.lastIndex { $0.startTime <= position + 0.05 }
+    private static func currentIndex(in segments: [TranscriptSegment], at position: TimeInterval) -> Int? {
+        segments.lastIndex { $0.startTime <= position + 0.05 } ?? (segments.isEmpty ? nil : 0)
+    }
+}
+
+/// The passage being heard, its words lighting up as they are heard.
+private struct HeardPassage: View {
+    let segment: TranscriptSegment
+    @ObservedObject var playback: AudioPlaybackController
+
+    var body: some View {
+        Text(attributedText)
     }
 
     /// Heard words in full colour, the current one highlighted, the rest still dim.
-    private func attributedText(for segment: TranscriptSegment) -> AttributedString {
+    private var attributedText: AttributedString {
         guard !segment.words.isEmpty, segment.editedText == nil else {
             return AttributedString(segment.displayText)
         }

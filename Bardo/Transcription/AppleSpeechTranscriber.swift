@@ -63,9 +63,10 @@ enum AppleSpeechTranscriber {
         let collector = Task {
             var segments: [TranscriptSegment] = []
             for try await result in module.results {
-                guard let segment = segment(from: result, in: pass) else { continue }
-                segments.append(segment)
-                onSegment([segment])
+                let sentences = Self.sentences(from: result, in: pass)
+                guard !sentences.isEmpty else { continue }
+                segments += sentences
+                onSegment(sentences)
             }
             return segments
         }
@@ -82,29 +83,62 @@ enum AppleSpeechTranscriber {
         return try await collector.value
     }
 
-    private static func segment(from result: SpeechTranscriber.Result, in pass: TranscriptionPass) -> TranscriptSegment? {
-        let text = TranscriptTextSanitizer.normalizeRecognizedText(String(result.text.characters))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
-
+    /// Apple reports long stretches of speech at once; they are split into sentences at
+    /// their punctuation, using each word's time, so passages read and play like Whisper's.
+    static func sentences(from result: SpeechTranscriber.Result, in pass: TranscriptionPass) -> [TranscriptSegment] {
+        var sentences: [TranscriptSegment] = []
+        var text = ""
         var words: [TranscriptWord] = []
-        for run in result.text.runs {
-            guard let range = run.audioTimeRange else { continue }
-            let word = String(result.text[run.range].characters).trimmingCharacters(in: .whitespaces)
-            guard !word.isEmpty else { continue }
-            words.append(TranscriptWord(
-                startTime: range.start.seconds + pass.offset,
-                endTime: range.end.seconds + pass.offset,
-                text: word,
-                probability: nil
-            ))
+
+        func flush() {
+            let clean = TranscriptTextSanitizer.normalizeRecognizedText(text).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !clean.isEmpty, let first = words.first, let last = words.last {
+                sentences.append(TranscriptSegment(
+                    startTime: first.startTime,
+                    endTime: last.endTime,
+                    text: clean,
+                    words: words,
+                    source: pass.source
+                ))
+            }
+            text = ""
+            words = []
         }
-        return TranscriptSegment(
-            startTime: result.range.start.seconds + pass.offset,
-            endTime: result.range.end.seconds + pass.offset,
-            text: text,
-            words: words,
-            source: pass.source
-        )
+
+        for run in result.text.runs {
+            let piece = String(result.text[run.range].characters)
+            text += piece
+            if let range = run.audioTimeRange {
+                let word = piece.trimmingCharacters(in: .whitespaces)
+                if !word.isEmpty {
+                    words.append(TranscriptWord(
+                        startTime: range.start.seconds + pass.offset,
+                        endTime: range.end.seconds + pass.offset,
+                        text: word,
+                        probability: nil
+                    ))
+                }
+            }
+            let trimmed = piece.trimmingCharacters(in: .whitespaces)
+            let endsSentence = trimmed.last.map { ".?!…".contains($0) } ?? false
+            if (endsSentence && words.count >= 3) || words.count >= 40 {
+                flush()
+            }
+        }
+        flush()
+
+        // Without word times, the result is kept whole.
+        if sentences.isEmpty {
+            let clean = TranscriptTextSanitizer.normalizeRecognizedText(String(result.text.characters))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { return [] }
+            return [TranscriptSegment(
+                startTime: result.range.start.seconds + pass.offset,
+                endTime: result.range.end.seconds + pass.offset,
+                text: clean,
+                source: pass.source
+            )]
+        }
+        return sentences
     }
 }
