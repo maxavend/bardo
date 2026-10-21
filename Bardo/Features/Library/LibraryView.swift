@@ -96,7 +96,7 @@ struct LibraryView: View {
         }
         // One toolbar search field for the window; it searches the whole Library.
         // Keep the prompt short so it never truncates in a narrow toolbar. The recorder
-        // has nothing to search and puts Finalizar there instead.
+        // has nothing to search, so the field steps aside while it is on screen.
         .modifier(LibrarySearchField(isShown: !showsLiveRecorder, text: $searchText))
         .searchFocused($isSearchFocused)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)

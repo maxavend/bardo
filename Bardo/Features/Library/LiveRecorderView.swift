@@ -56,29 +56,26 @@ struct LiveRecorderView: View {
                     Color.clear.frame(height: BardoLayout.playbackContentClearance)
                 }
                 .padding(.horizontal, BardoSpacing.detailHorizontal)
-                .padding(.top, 20)
+                .padding(.top, 8)
 
                 controlBar
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
-        .toolbar {
-            // Finalizar takes the search field's place at the trailing edge, as Done
-            // does in Voice Memos.
-            if #available(macOS 26.0, *) {
-                ToolbarSpacer(.flexible, placement: .primaryAction)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                LiveRecorderFinishButton(action: stopAction)
-            }
-        }
     }
 
+    /// The title at the top left with Finalizar on the same row at the right, as Done
+    /// sits beside the title in Voice Memos.
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.title2.weight(.semibold))
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .center, spacing: 12) {
+                Text(title)
+                    .font(.title2.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                LiveRecorderFinishButton(action: stopAction)
+            }
             (Text(isPaused ? "En pausa" : "Grabando")
                 .fontWeight(.semibold)
                 .foregroundStyle(isPaused ? Color.secondary : Color.red)
@@ -86,7 +83,6 @@ struct LiveRecorderView: View {
                 .foregroundStyle(.secondary))
                 .font(.callout)
         }
-        .accessibilityElement(children: .combine)
     }
 
     /// The live line with its sources named underneath, stacked and centered.
@@ -197,6 +193,8 @@ struct LiveRecorderButtonStyle: ButtonStyle {
         case pause
         /// Red content on a soft red capsule.
         case resume
+        /// A blue circle with a white symbol.
+        case finish
     }
 
     let kind: Kind
@@ -205,9 +203,9 @@ struct LiveRecorderButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         let label = configuration.label
-            .font(.title3.weight(.semibold))
-            .padding(.horizontal, 28)
-            .frame(height: 52)
+            .font(kind == .finish ? .body.weight(.bold) : .title3.weight(.semibold))
+            .padding(.horizontal, kind == .finish ? 0 : 28)
+            .frame(minWidth: kind == .finish ? 34 : nil, minHeight: kind == .finish ? 34 : 52)
             .contentShape(.capsule)
 
         Group {
@@ -221,6 +219,10 @@ struct LiveRecorderButtonStyle: ButtonStyle {
                 label
                     .foregroundStyle(.red)
                     .liveRecorderGlass(tint: .red.opacity(0.22), fallback: Color.red.opacity(0.16))
+            case .finish:
+                label
+                    .foregroundStyle(.white)
+                    .liveRecorderGlass(tint: .blue, fallback: Color.blue)
             }
         }
         .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1) : 0.5)
@@ -242,24 +244,17 @@ private extension View {
     }
 }
 
-/// Finalizar in the toolbar: a blue checkmark, prominent Liquid Glass on macOS 26.
+/// Finalizar: a blue checkmark in Liquid Glass, as Done in Voice Memos.
 private struct LiveRecorderFinishButton: View {
     let action: () -> Void
 
     var body: some View {
-        let button = Button(action: action) {
+        Button(action: action) {
             Label("Finalizar", systemImage: "checkmark")
+                .labelStyle(.iconOnly)
         }
-        .labelStyle(.iconOnly)
-        .buttonBorderShape(.circle)
-        .tint(.blue)
+        .buttonStyle(LiveRecorderButtonStyle(kind: .finish))
         .help(String(localized: "Stop recording (⌘.)"))
-
-        if #available(macOS 26.0, *) {
-            button.buttonStyle(.glassProminent)
-        } else {
-            button.buttonStyle(.borderedProminent)
-        }
     }
 }
 
