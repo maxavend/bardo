@@ -21,6 +21,63 @@ enum ConversationWaveformStyle {
         )
     }
 
+    /// What the line between the halves shows at one point: how loud each side is
+    /// there, and how lit that stretch is (heard or ahead).
+    struct VoiceSample {
+        var x: CGFloat
+        var upper: CGFloat
+        /// Nil when one track fills both sides.
+        var lower: CGFloat?
+        var emphasis: Double = 1
+    }
+
+    /// The line between the halves takes the colour of whoever is heard at each
+    /// moment: orange where the Mac sounds, blue where you speak, the two blended where
+    /// both do, and barely there in silence, glowing softly where it is loud.
+    static func drawVoiceLine(
+        in canvas: inout GraphicsContext,
+        size: CGSize,
+        samples: [VoiceSample],
+        upperTint: Color = systemTint,
+        lowerTint: Color = microphoneTint,
+        singleTint: Color = .accentColor
+    ) {
+        guard size.width > 0, !samples.isEmpty else {
+            drawCenterLine(in: &canvas, size: size)
+            return
+        }
+        let stops = samples
+            .sorted { $0.x < $1.x }
+            .map { sample -> Gradient.Stop in
+                let loudness = max(sample.upper, sample.lower ?? 0)
+                let color: Color
+                if let lower = sample.lower {
+                    let total = sample.upper + lower
+                    color = total > 0.01 ? upperTint.mix(with: lowerTint, by: Double(lower / total)) : upperTint
+                } else {
+                    color = singleTint
+                }
+                let alpha = (0.08 + 0.92 * min(1, Double(loudness) * 1.3)) * sample.emphasis
+                return .init(color: color.opacity(alpha), location: min(1, max(0, sample.x / size.width)))
+            }
+        // Where there is no audio, before it starts or after it ends, the line fades out.
+        let first = stops.first!, last = stops.last!
+        let edges = [Gradient.Stop(color: first.color.opacity(0), location: max(0, first.location - 0.01))]
+            + stops
+            + [Gradient.Stop(color: last.color.opacity(0), location: min(1, last.location + 0.01))]
+        let shading = GraphicsContext.Shading.linearGradient(
+            Gradient(stops: edges),
+            startPoint: CGPoint(x: 0, y: 0),
+            endPoint: CGPoint(x: size.width, y: 0)
+        )
+        let middle = size.height / 2
+        var glow = canvas
+        glow.addFilter(.blur(radius: 4))
+        glow.opacity = 0.7
+        glow.fill(Path(CGRect(x: 0, y: middle - 2.5, width: size.width, height: 5)), with: shading)
+        canvas.fill(Path(roundedRect: CGRect(x: 0, y: middle - 0.75, width: size.width, height: 1.5), cornerRadius: 0.75), with: shading)
+    }
+
     /// One bar: `direction` -1 above the line, 1 below it, 0 on both sides.
     static func drawBar(
         in canvas: inout GraphicsContext,
@@ -194,8 +251,7 @@ struct RecordingWaveform: View {
                 )
             )
         }
-        Style.drawCenterLine(in: &bars, size: size)
-
+        var voices: [Style.VoiceSample] = []
         if let lanes = overview.lanes?.normalized, duration > 0, !lanes.upper.isEmpty {
             let count = lanes.upper.count
             let barDuration = duration / Double(count)
@@ -206,6 +262,12 @@ struct RecordingWaveform: View {
                     let barX = x(Double(index) * barDuration)
                     // What has been heard reads in full colour; what is ahead, dimmed.
                     let opacity = barX + Style.barWidth <= center ? 1 : 0.32
+                    voices.append(Style.VoiceSample(
+                        x: barX + Style.barWidth / 2,
+                        upper: CGFloat(lanes.upper[index]),
+                        lower: lanes.lower.map { CGFloat($0[index]) },
+                        emphasis: opacity
+                    ))
                     if let lower = lanes.lower {
                         Style.drawBar(in: &bars, x: barX, level: CGFloat(lanes.upper[index]), direction: -1, size: size, color: Style.systemTint.opacity(opacity))
                         Style.drawBar(in: &bars, x: barX, level: CGFloat(lower[index]), direction: 1, size: size, color: Style.microphoneTint.opacity(opacity))
@@ -215,6 +277,8 @@ struct RecordingWaveform: View {
                 }
             }
         }
+
+        Style.drawVoiceLine(in: &bars, size: size, samples: voices, singleTint: recording.waveformTint)
 
         for section in recording.notes.sections where (0...size.width).contains(x(section.start)) {
             Style.drawSection(in: &bars, x: x(section.start), size: size, title: labelsSections ? section.title : nil)

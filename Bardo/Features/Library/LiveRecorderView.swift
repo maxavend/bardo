@@ -303,11 +303,6 @@ struct LiveConversationWave: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: isPaused)) { _ in
             Canvas { canvas, size in
-                let middle = size.height / 2
-                canvas.fill(
-                    Path(CGRect(x: 0, y: middle - 0.25, width: size.width - playheadInset, height: 0.5)),
-                    with: .color(.secondary.opacity(0.35))
-                )
                 var bars = canvas
                 // Older audio fades out toward the leading edge instead of being cut off.
                 bars.clipToLayer { layer in
@@ -321,6 +316,7 @@ struct LiveConversationWave: View {
                     )
                 }
                 if isPaused { bars.opacity = 0.5 }
+                drawVoiceLine(in: &bars, size: size)
                 if tracks.count == 1, let track = tracks.first {
                     draw(track, in: &bars, size: size, direction: 0)
                 } else {
@@ -368,6 +364,37 @@ struct LiveConversationWave: View {
             }
             canvas.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(track.tint))
         }
+    }
+
+    /// The line between the halves, coloured by whoever is heard as it drifts left.
+    private func drawVoiceLine(in canvas: inout GraphicsContext, size: CGSize) {
+        let lineSize = CGSize(width: size.width - playheadInset, height: size.height)
+        guard let first = tracks.first else { return }
+        let snapshots = tracks.prefix(2).map(\.meter.snapshot)
+        let glide = snapshots[0].glide(isPaused: isPaused, reduceMotion: reduceMotion)
+        let newest = size.width - playheadInset - barWidth - 3
+        var samples: [ConversationWaveformStyle.VoiceSample] = []
+        for slot in 0..<(Int(newest / step) + 2) {
+            let x = newest - (CGFloat(slot) + glide) * step + barWidth / 2
+            guard x > 0 else { break }
+            func level(_ snapshot: LiveAudioMeter.Snapshot) -> CGFloat {
+                let index = snapshot.levels.count - 1 - slot
+                return index >= 0 ? CGFloat(snapshot.levels[index]) : 0
+            }
+            samples.append(.init(
+                x: x,
+                upper: level(snapshots[0]),
+                lower: snapshots.count > 1 ? level(snapshots[1]) : nil
+            ))
+        }
+        ConversationWaveformStyle.drawVoiceLine(
+            in: &canvas,
+            size: lineSize,
+            samples: samples,
+            upperTint: first.tint,
+            lowerTint: tracks.count > 1 ? tracks[1].tint : first.tint,
+            singleTint: first.tint
+        )
     }
 
     /// Sections and moments drawn as on a saved recording, drifting left with the audio.
