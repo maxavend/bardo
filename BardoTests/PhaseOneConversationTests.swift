@@ -146,8 +146,9 @@ final class AudioWaveformOverviewTests: XCTestCase {
 
         XCTAssertEqual(lanes.upper.count, 4)
         XCTAssertEqual(try XCTUnwrap(lanes.lower).count, 4)
-        XCTAssertTrue(lanes.upper.allSatisfy { $0 > (lanes.lower?.max() ?? 1) }, "Your voice above, the quieter Mac below")
-        XCTAssertEqual(lanes.normalized.upper.max() ?? 0, 1, accuracy: 0.001, "The loudest moment reaches full height")
+        let lower = try XCTUnwrap(lanes.lower)
+        XCTAssertTrue(lower.allSatisfy { $0 > (lanes.upper.max() ?? 1) }, "The quieter Mac above, your louder voice below")
+        XCTAssertEqual(lanes.normalized.lower?.max() ?? 0, 1, accuracy: 0.001, "The loudest moment reaches full height")
 
         let single = try WaveformLanes.of([PlaybackTrack(url: microphone)], resolution: 4)
         XCTAssertNil(single.lower, "One track fills both sides")

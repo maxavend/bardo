@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// How Bardo draws every conversation, live or saved: your voice rises above one shared
-/// line in blue and the Mac's audio falls below it in orange; a single track fills both
-/// sides. Moments are an orange hairline with a dot on top, sections a quiet hairline,
+/// How Bardo draws every conversation, live or saved: the Mac's audio rises above one
+/// shared line in orange and your voice falls below it in blue; a single track fills
+/// both sides. Moments are an orange hairline with a dot on top, sections a quiet hairline,
 /// and the playhead a line with a dot at each end.
 enum ConversationWaveformStyle {
     static let barWidth: CGFloat = 2
@@ -61,6 +61,19 @@ enum ConversationWaveformStyle {
         }
     }
 
+    /// Where a saved recording is playing: a small dot on the line, with a soft halo so
+    /// it reads over the bars.
+    static func drawPosition(in canvas: inout GraphicsContext, x: CGFloat, size: CGSize) {
+        let middle = size.height / 2
+        let halo = dotSize + 6
+        canvas.fill(
+            Path(ellipseIn: CGRect(x: x - halo / 2, y: middle - halo / 2, width: halo, height: halo)),
+            with: .color(.black.opacity(0.25))
+        )
+        let dot = dotSize + 2
+        canvas.fill(Path(ellipseIn: CGRect(x: x - dot / 2, y: middle - dot / 2, width: dot, height: dot)), with: .color(.white))
+    }
+
     static func drawPlayhead(in canvas: inout GraphicsContext, x: CGFloat, size: CGSize, color: Color) {
         let dot = dotSize
         canvas.fill(Path(CGRect(x: x - 0.75, y: dot / 2, width: 1.5, height: size.height - dot)), with: .color(color))
@@ -79,9 +92,10 @@ extension Recording {
     }
 }
 
-/// A saved recording from start to end, drawn like the recorder: what has been heard in
-/// full colour and what is ahead dimmed, with its moments and sections. Click or drag to
-/// jump.
+/// A saved recording drawn like the recorder, close up: the audio glides under a fixed
+/// point as it plays, what has been heard in full colour and what is ahead dimmed, with
+/// its moments and sections passing by. The player bar below keeps the whole recording.
+/// Drag to scrub, click to jump.
 struct RecordingWaveform: View {
     let recording: Recording
     @ObservedObject var playback: AudioPlaybackController
@@ -90,9 +104,27 @@ struct RecordingWaveform: View {
     var labelsSections = true
 
     @StateObject private var overview = AudioWaveformOverviewModel()
+    @State private var scrubOrigin: TimeInterval?
+
+    /// How much audio one bar stands for: close enough to see a sentence's shape, so the
+    /// window shows about a minute.
+    static let secondsPerBar: TimeInterval = 0.25
+    static let pointsPerSecond = ConversationWaveformStyle.step / secondsPerBar
+    /// Where the current moment sits, as a share of the width.
+    static let anchor: CGFloat = 0.5
 
     private var duration: TimeInterval {
         playback.duration > 0 ? playback.duration : (recording.duration ?? 0)
+    }
+
+    private var resolution: Int {
+        // One bar per quarter second keeps the bars evenly spaced at any length.
+        min(24_000, max(1, Int((duration / Self.secondsPerBar).rounded())))
+    }
+
+    /// Where `time` is drawn while `position` plays at the anchor.
+    static func x(for time: TimeInterval, at position: TimeInterval, width: CGFloat) -> CGFloat {
+        width * anchor + CGFloat(time - position) * pointsPerSecond
     }
 
     var body: some View {
@@ -101,16 +133,10 @@ struct RecordingWaveform: View {
                 draw(in: &canvas, size: size)
             }
             .contentShape(.rect)
-            .gesture(
-                DragGesture(minimumDistance: 0).onChanged { value in
-                    guard duration > 0 else { return }
-                    let span = max(1, proxy.size.width - Self.inset * 2)
-                    playback.seek(to: Double(min(1, max(0, (value.location.x - Self.inset) / span))) * duration)
-                }
-            )
+            .gesture(scrubGesture(width: proxy.size.width))
         }
-        .onAppear { overview.load(playback.loadedTracks) }
-        .onChange(of: playback.duration) { _, _ in overview.load(playback.loadedTracks) }
+        .onAppear { overview.load(playback.loadedTracks, resolution: resolution) }
+        .onChange(of: playback.duration) { _, _ in overview.load(playback.loadedTracks, resolution: resolution) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Posición en la grabación"))
         .accessibilityValue(Text(LibraryFormatting.duration(playback.position)))
@@ -123,58 +149,88 @@ struct RecordingWaveform: View {
         }
     }
 
-    /// Leaves room at both ends for the playhead's and the moments' dots.
-    static let inset = ConversationWaveformStyle.dotSize / 2
+    /// Dragging moves the audio under the point, as in Voice Memos; a click jumps to
+    /// what was clicked.
+    private func scrubGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard duration > 0, abs(value.translation.width) > 2 else { return }
+                let origin = scrubOrigin ?? playback.position
+                scrubOrigin = origin
+                playback.seek(to: clamped(origin - Double(value.translation.width / Self.pointsPerSecond)))
+            }
+            .onEnded { value in
+                defer { scrubOrigin = nil }
+                guard duration > 0, scrubOrigin == nil else { return }
+                let offset = Double((value.location.x - width * Self.anchor) / Self.pointsPerSecond)
+                playback.seek(to: clamped(playback.position + offset))
+            }
+    }
 
-    private func x(for time: TimeInterval, width: CGFloat) -> CGFloat {
-        guard duration > 0 else { return Self.inset }
-        return Self.inset + CGFloat(min(1, max(0, time / duration))) * (width - Self.inset * 2)
+    private func clamped(_ time: TimeInterval) -> TimeInterval {
+        min(max(0, time), duration)
     }
 
     private func draw(in canvas: inout GraphicsContext, size: CGSize) {
         typealias Style = ConversationWaveformStyle
-        Style.drawCenterLine(in: &canvas, size: size)
+        let position = playback.position
+        let center = size.width * Self.anchor
+        func x(_ time: TimeInterval) -> CGFloat { Self.x(for: time, at: position, width: size.width) }
 
-        let playhead = x(for: playback.position, width: size.width)
-        let span = size.width - Self.inset * 2
-        let count = max(1, Int(span / Style.step))
-        if let lanes = overview.lanes?.normalized {
-            for bar in 0..<count {
-                let x = Self.inset + CGFloat(bar) * Style.step
-                // What has been heard reads in full colour; what is ahead, dimmed.
-                let opacity = playback.position > 0 && x > playhead ? 0.35 : 1
-                if let lower = lanes.lower {
-                    Style.drawBar(in: &canvas, x: x, level: level(lanes.upper, bar, count), direction: -1, size: size, color: Style.microphoneTint.opacity(opacity))
-                    Style.drawBar(in: &canvas, x: x, level: level(lower, bar, count), direction: 1, size: size, color: Style.systemTint.opacity(opacity))
-                } else {
-                    Style.drawBar(in: &canvas, x: x, level: level(lanes.upper, bar, count), direction: 0, size: size, color: recording.waveformTint.opacity(opacity))
+        var bars = canvas
+        // The audio fades in and out at the edges instead of being cut off.
+        bars.clipToLayer { layer in
+            layer.fill(
+                Path(CGRect(origin: .zero, size: size)),
+                with: .linearGradient(
+                    Gradient(stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.12),
+                        .init(color: .black, location: 0.88),
+                        .init(color: .clear, location: 1)
+                    ]),
+                    startPoint: .zero,
+                    endPoint: CGPoint(x: size.width, y: 0)
+                )
+            )
+        }
+        Style.drawCenterLine(in: &bars, size: size)
+
+        if let lanes = overview.lanes?.normalized, duration > 0, !lanes.upper.isEmpty {
+            let count = lanes.upper.count
+            let barDuration = duration / Double(count)
+            let first = max(0, Int((position - Double(center) / Self.pointsPerSecond) / barDuration) - 1)
+            let last = min(count - 1, Int((position + Double(size.width - center) / Self.pointsPerSecond) / barDuration) + 1)
+            if first <= last {
+                for index in first...last {
+                    let barX = x(Double(index) * barDuration)
+                    // What has been heard reads in full colour; what is ahead, dimmed.
+                    let opacity = barX + Style.barWidth <= center ? 1 : 0.32
+                    if let lower = lanes.lower {
+                        Style.drawBar(in: &bars, x: barX, level: CGFloat(lanes.upper[index]), direction: -1, size: size, color: Style.systemTint.opacity(opacity))
+                        Style.drawBar(in: &bars, x: barX, level: CGFloat(lower[index]), direction: 1, size: size, color: Style.microphoneTint.opacity(opacity))
+                    } else {
+                        Style.drawBar(in: &bars, x: barX, level: CGFloat(lanes.upper[index]), direction: 0, size: size, color: recording.waveformTint.opacity(opacity))
+                    }
                 }
             }
         }
 
-        for section in recording.notes.sections {
-            Style.drawSection(in: &canvas, x: x(for: section.start, width: size.width), size: size, title: labelsSections ? section.title : nil)
+        for section in recording.notes.sections where (0...size.width).contains(x(section.start)) {
+            Style.drawSection(in: &bars, x: x(section.start), size: size, title: labelsSections ? section.title : nil)
         }
-        for moment in recording.notes.moments {
-            Style.drawMoment(in: &canvas, x: x(for: moment.time, width: size.width), size: size)
+        for moment in recording.notes.moments where (0...size.width).contains(x(moment.time)) {
+            Style.drawMoment(in: &bars, x: x(moment.time), size: size)
         }
-        for match in matches {
-            let x = x(for: match, width: size.width)
-            canvas.fill(
-                Path(roundedRect: CGRect(x: x - 2, y: size.height - 4, width: 4, height: 4), cornerRadius: 2),
+        for match in matches where (0...size.width).contains(x(match)) {
+            bars.fill(
+                Path(roundedRect: CGRect(x: x(match) - 2, y: size.height - 4, width: 4, height: 4), cornerRadius: 2),
                 with: .color(.yellow)
             )
         }
+        // Where the recording is: one quiet dot on the line.
         if duration > 0 {
-            Style.drawPlayhead(in: &canvas, x: playhead, size: size, color: .primary)
+            Style.drawPosition(in: &canvas, x: center, size: size)
         }
-    }
-
-    /// The loudest of the levels a bar covers.
-    private func level(_ levels: [Float], _ bar: Int, _ count: Int) -> CGFloat {
-        guard !levels.isEmpty else { return 0 }
-        let first = bar * levels.count / count
-        let last = max(first + 1, (bar + 1) * levels.count / count)
-        return CGFloat(levels[first..<min(last, levels.count)].max() ?? 0)
     }
 }

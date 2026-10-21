@@ -337,31 +337,24 @@ struct TranscriptContentView: View {
         // Take exactly the column's space: without a scroll view, the split view would
         // lay the column out at this content's ideal height, taller than the window.
         GeometryReader { proxy in
-            emptyTranscriptContent
+            emptyTranscriptContent(height: proxy.size.height)
                 .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 
-    private var emptyTranscriptContent: some View {
+    /// The waveform takes a good share of the height, as in the recorder; the player
+    /// bar below shows the times.
+    private func emptyTranscriptContent(height: CGFloat) -> some View {
         VStack(spacing: 28) {
             transcriptErrors
 
             if !recording.audioAssets.isEmpty {
-                VStack(spacing: 8) {
-                    RecordingWaveform(recording: recording, playback: playback)
-                        .frame(height: 120)
-                    HStack {
-                        Text(LibraryFormatting.duration(0))
-                        Spacer()
-                        Text(LibraryFormatting.duration(recording.duration ?? playback.duration))
-                    }
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                }
+                RecordingWaveform(recording: recording, playback: playback)
+                    .frame(height: min(320, max(120, height * 0.38)))
             }
 
             VStack(spacing: 8) {
-                Text(recording.processingState == .failed ? "No pudimos transcribir esta conversación" : "Aún no hay transcripción")
+                Text(recording.processingState == .failed ? "No se pudo transcribir esta conversación" : "Aún no hay transcripción")
                     .font(.title3.weight(.semibold))
                 Text(
                     model.transcriptionBlocker(for: recording.id)

@@ -17,12 +17,12 @@ struct LiveRecorderTrack: Identifiable {
     let meter: LiveAudioMeter
     var choice: LiveMicrophoneChoice?
 
-    /// Your voice, above the line, in the transcript's colour for you.
+    /// Your voice, below the line, in the transcript's colour for you.
     static func microphone(_ meter: LiveAudioMeter, device: String?, choice: LiveMicrophoneChoice? = nil) -> LiveRecorderTrack {
         LiveRecorderTrack(id: "microphone", title: "Tu micrófono", detail: device, tint: .blue, meter: meter, choice: choice)
     }
 
-    /// The Mac's audio, below the line, in the colour of the first other speaker.
+    /// The Mac's audio, above the line, in the colour of the first other speaker.
     static func system(_ meter: LiveAudioMeter) -> LiveRecorderTrack {
         LiveRecorderTrack(id: "system", title: "Audio del Mac", detail: nil, tint: .orange, meter: meter)
     }
@@ -282,7 +282,7 @@ extension LiveAudioMeter.Snapshot {
     }
 }
 
-/// Your voice rises above one shared line and the Mac's audio falls below it, so the
+/// The Mac's audio rises above one shared line and your voice falls below it, so the
 /// turns of a call read at a glance; a single source fills both sides. Audio enters at a
 /// red playhead on the right and drifts left, fading as it ages. The meters are read on
 /// every frame, so the levels never re-render anything else.
@@ -340,8 +340,8 @@ struct LiveConversationWave: View {
         let snapshot = track.meter.snapshot
         let glide = snapshot.glide(isPaused: isPaused, reduceMotion: reduceMotion)
         let middle = size.height / 2
-        // Each half draws only in its own band: your voice can never cross below the
-        // line, nor the Mac's audio above it.
+        // Each half draws only in its own band: the Mac's audio can never cross below
+        // the line, nor your voice above it.
         var canvas = context
         switch direction {
         case ..<0: canvas.clip(to: Path(CGRect(x: 0, y: 0, width: size.width, height: middle - gap)))

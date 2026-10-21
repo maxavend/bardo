@@ -242,12 +242,12 @@ struct RootView: View {
                 title: "Revisión semanal del equipo",
                 subtitle: liveSubtitle(startedAt: .now, sources: [.microphone, .systemAudio]),
                 tracks: [
+                    .system(previewMeters.system),
                     .microphone(
                         previewMeters.microphone,
                         device: DesignReview.microphoneName,
                         choice: LiveMicrophoneChoice(devices: audioDevices.inputs, selectedUID: audioDevices.inputs.first?.uid) { _ in }
-                    ),
-                    .system(previewMeters.system)
+                    )
                 ],
                 isPaused: previewsPausedRecorder,
                 pauseAction: {},
@@ -306,7 +306,11 @@ struct RootView: View {
             ))
         }
         guard systemAudio.isRecording else { return nil }
+        // The Mac's audio above the line, your microphone below it.
         var tracks: [LiveRecorderTrack] = []
+        if let meter = systemAudio.systemMeter {
+            tracks.append(.system(meter))
+        }
         if let meter = systemAudio.microphoneMeter {
             tracks.append(.microphone(
                 meter,
@@ -315,9 +319,6 @@ struct RootView: View {
                     systemAudio.switchMicrophone(to: device)
                 }
             ))
-        }
-        if let meter = systemAudio.systemMeter {
-            tracks.append(.system(meter))
         }
         guard !tracks.isEmpty else { return nil }
         return AnyView(LiveRecorderView(

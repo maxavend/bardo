@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// The full player's timeline: the recording's sections named along the top like
-/// chapters on a ruler, its waveform drawn like the recorder, the moments marked in it
-/// and where the search matched. Click or drag the waveform to jump; click a section's
-/// name or a moment's dot to edit it.
+/// The full player's timeline, close up: the recording's sections named along the top
+/// like chapters on a ruler, its waveform gliding under the current moment, the moments
+/// marked in it and where the search matched. The player bar keeps the whole recording
+/// and its times. Drag the waveform to scrub; click a section's name or a moment's dot
+/// to edit it.
 struct PlayerTimeline: View {
     let recording: Recording
     @ObservedObject var playback: AudioPlaybackController
@@ -14,14 +15,14 @@ struct PlayerTimeline: View {
     @State private var editingSection: RecordingSection.ID?
 
     private static let laneHeight: CGFloat = 22
-    private static let waveHeight: CGFloat = 150
+    private static let waveHeight: CGFloat = 240
 
     private var duration: TimeInterval {
         playback.duration > 0 ? playback.duration : (recording.duration ?? 0)
     }
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 0) {
             GeometryReader { proxy in
                 let width = proxy.size.width
                 ZStack(alignment: .topLeading) {
@@ -29,25 +30,17 @@ struct PlayerTimeline: View {
                         .frame(width: width, height: Self.waveHeight)
                         .offset(y: Self.laneHeight + 8)
 
-                    ForEach(recording.notes.sections) { section in
+                    ForEach(recording.notes.sections.filter { isVisible($0, width: width) }) { section in
                         sectionLabel(section, width: width)
                     }
 
-                    ForEach(recording.notes.moments) { moment in
+                    ForEach(recording.notes.moments.filter { (0...width).contains(x(for: $0.time, width: width)) }) { moment in
                         momentTarget(moment, width: width)
                     }
                 }
             }
             .frame(height: Self.laneHeight + 8 + Self.waveHeight)
-
-            HStack {
-                Text(LibraryFormatting.duration(playback.position))
-                    .foregroundStyle(.primary)
-                Spacer()
-                Text("-" + LibraryFormatting.duration(max(0, duration - playback.position)))
-            }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
+            .clipped()
         }
         #if DEBUG
         .onDesignReviewCommand { step in
@@ -59,16 +52,21 @@ struct PlayerTimeline: View {
 
     /// The same mapping as the waveform, so labels and dots sit on what it draws.
     private func x(for time: TimeInterval, width: CGFloat) -> CGFloat {
-        let inset = RecordingWaveform.inset
-        guard duration > 0 else { return inset }
-        return inset + CGFloat(min(1, max(0, time / duration))) * (width - inset * 2)
+        RecordingWaveform.x(for: time, at: playback.position, width: width)
+    }
+
+    /// A section on screen; the one already under way keeps its name at the leading
+    /// edge, like a chapter heading.
+    private func isVisible(_ section: RecordingSection, width: CGFloat) -> Bool {
+        let end = recording.notes.end(of: section, duration: duration) ?? duration
+        return x(for: section.start, width: width) < width && x(for: end, width: width) > 0
     }
 
     // MARK: Sections
 
     /// A section's name where it starts, in full colour while it plays.
     private func sectionLabel(_ section: RecordingSection, width: CGFloat) -> some View {
-        let start = x(for: section.start, width: width)
+        let start = max(0, x(for: section.start, width: width))
         let end = x(for: recording.notes.end(of: section, duration: duration) ?? duration, width: width)
         let isCurrent = playback.position >= section.start
             && playback.position < (recording.notes.end(of: section, duration: duration) ?? duration)

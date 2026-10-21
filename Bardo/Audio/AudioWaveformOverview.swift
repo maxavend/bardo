@@ -104,12 +104,12 @@ extension AudioWaveformOverview {
     }
 }
 
-/// A recording's waveform the way Bardo draws every conversation: the microphone above
-/// the line and the Mac's audio below it, or one track on both sides.
+/// A recording's waveform the way Bardo draws every conversation: the Mac's audio above
+/// the line and the microphone below it, or one track on both sides.
 struct WaveformLanes: Equatable, Sendable {
-    /// Above the line: the microphone, or the only track.
+    /// Above the line: the Mac's audio, or the only track.
     var upper: [Float]
-    /// Below the line: the Mac's audio. Nil mirrors `upper`.
+    /// Below the line: the microphone. Nil mirrors `upper`.
     var lower: [Float]?
 
     /// Scaled so the loudest moment of the recording reaches full height, as Voice Memos
@@ -136,8 +136,8 @@ struct WaveformLanes: Equatable, Sendable {
             return track.offset + Double(file.length) / file.processingFormat.sampleRate
         }.max() ?? 0
         return WaveformLanes(
-            upper: try AudioWaveformOverview.levels(of: microphone, resolution: resolution, timeline: timeline),
-            lower: try AudioWaveformOverview.levels(of: system, resolution: resolution, timeline: timeline)
+            upper: try AudioWaveformOverview.levels(of: system, resolution: resolution, timeline: timeline),
+            lower: try AudioWaveformOverview.levels(of: microphone, resolution: resolution, timeline: timeline)
         )
     }
 }
@@ -147,29 +147,35 @@ struct WaveformLanes: Equatable, Sendable {
 final class AudioWaveformOverviewModel: ObservableObject {
     @Published private(set) var lanes: WaveformLanes?
 
-    private static var cache: [[PlaybackTrack]: WaveformLanes] = [:]
-    private var loadedTracks: [PlaybackTrack] = []
+    private struct Key: Hashable {
+        var tracks: [PlaybackTrack]
+        var resolution: Int
+    }
+
+    private static var cache: [Key: WaveformLanes] = [:]
+    private var loadedKey: Key?
     private var task: Task<Void, Never>?
 
-    func load(_ tracks: [PlaybackTrack]) {
-        guard tracks != loadedTracks else { return }
-        loadedTracks = tracks
+    func load(_ tracks: [PlaybackTrack], resolution: Int = AudioWaveformOverview.resolution) {
+        let key = Key(tracks: tracks, resolution: resolution)
+        guard key != loadedKey else { return }
+        loadedKey = key
         task?.cancel()
         guard !tracks.isEmpty else {
             lanes = nil
             return
         }
-        if let cached = Self.cache[tracks] {
+        if let cached = Self.cache[key] {
             lanes = cached
             return
         }
         lanes = nil
         task = Task { [weak self] in
             let lanes = await Task.detached(priority: .utility) {
-                try? WaveformLanes.of(tracks)
+                try? WaveformLanes.of(tracks, resolution: resolution)
             }.value
-            guard !Task.isCancelled, let self, self.loadedTracks == tracks, let lanes else { return }
-            Self.cache[tracks] = lanes
+            guard !Task.isCancelled, let self, self.loadedKey == key, let lanes else { return }
+            Self.cache[key] = lanes
             self.lanes = lanes
         }
     }
