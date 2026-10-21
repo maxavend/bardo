@@ -88,6 +88,10 @@ protocol SystemAudioCapturing: AnyObject {
     var supportsPause: Bool { get }
     func pause()
     func resume()
+
+    /// Whether the microphone can be silenced while the Mac's audio keeps recording.
+    var supportsMicrophoneMute: Bool { get }
+    func setMicrophoneMuted(_ muted: Bool)
 }
 
 extension SystemAudioCapturing {
@@ -101,6 +105,8 @@ extension SystemAudioCapturing {
     var supportsPause: Bool { false }
     func pause() {}
     func resume() {}
+    var supportsMicrophoneMute: Bool { false }
+    func setMicrophoneMuted(_ muted: Bool) {}
 }
 
 enum SystemAudioCaptureError: Error, LocalizedError, Equatable, Sendable {

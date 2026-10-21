@@ -39,6 +39,8 @@ struct LiveRecorderView: View {
     var warning: String?
     var pauseAction: (() -> Void)?
     var resumeAction: (() -> Void)?
+    var isMicrophoneMuted = false
+    var muteAction: (() -> Void)?
     let stopAction: () -> Void
 
     var body: some View {
@@ -61,6 +63,21 @@ struct LiveRecorderView: View {
                 controlBar
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+        }
+        .toolbar {
+            // The recording's own actions, where a conversation keeps its actions.
+            ToolbarItemGroup(placement: .primaryAction) {
+                if let muteAction {
+                    Button(action: muteAction) {
+                        Label(
+                            isMicrophoneMuted ? "Activar micrófono" : "Silenciar micrófono",
+                            systemImage: isMicrophoneMuted ? "mic.slash.fill" : "mic"
+                        )
+                    }
+                    .foregroundStyle(isMicrophoneMuted ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                    .help(isMicrophoneMuted ? "Activar micrófono (⌥⌘S)" : "Silenciar tu micrófono sin pausar el audio del Mac (⌥⌘S)")
+                }
+            }
         }
     }
 
@@ -99,6 +116,11 @@ struct LiveRecorderView: View {
             Circle().fill(track.tint).frame(width: 7, height: 7)
             Text(track.title)
                 .foregroundStyle(.secondary)
+            if track.id == "microphone", isMicrophoneMuted {
+                Label("Silenciado", systemImage: "mic.slash.fill")
+                    .foregroundStyle(.red)
+                    .fontWeight(.semibold)
+            }
             deviceName(track)
         }
         .font(.caption)

@@ -28,7 +28,13 @@ final class MicrophoneRecordingController: ObservableObject {
         case failed
     }
 
-    @Published private(set) var phase: Phase = .idle
+    @Published private(set) var phase: Phase = .idle {
+        didSet {
+            if phase != .recording && phase != .paused { isMuted = false }
+        }
+    }
+    /// The microphone records silence; the recording keeps its timeline.
+    @Published private(set) var isMuted = false
     @Published private(set) var permissionState: MicrophonePermissionState
     @Published private(set) var elapsedTime: TimeInterval = 0
     @Published private(set) var inputDisplayName: String?
@@ -56,6 +62,14 @@ final class MicrophoneRecordingController: ObservableObject {
     /// Live loudness of the microphone, for the recorder.
     var meter: LiveAudioMeter? { backend.meter }
     var inputDeviceUID: String? { backend.inputDeviceUID }
+
+    var canMute: Bool { (phase == .recording || phase == .paused) && backend.supportsMute }
+
+    func toggleMute() {
+        guard canMute else { return }
+        isMuted.toggle()
+        backend.setMuted(isMuted)
+    }
 
     /// Records `device` from now on and remembers it for the next recordings.
     func switchInput(to device: AudioDevice) {

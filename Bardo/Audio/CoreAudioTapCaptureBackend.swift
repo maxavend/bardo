@@ -25,6 +25,7 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
     private let systemLevels = LiveAudioMeter()
     private let microphoneLevels = LiveAudioMeter()
     private let pauseClock = CapturePauseClock()
+    private let microphoneMute = MicrophoneMute()
 
     @MainActor private var tap: SystemAudioTap?
     @MainActor private var microphone: MicrophoneSession?
@@ -44,6 +45,12 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
     @MainActor var microphoneMeter: LiveAudioMeter? { microphoneLevels }
     @MainActor var microphoneName: String? { microphone?.deviceName }
     @MainActor var supportsPause: Bool { true }
+    @MainActor var supportsMicrophoneMute: Bool { microphone != nil }
+
+    @MainActor
+    func setMicrophoneMuted(_ muted: Bool) {
+        microphoneMute.isMuted = muted
+    }
     @MainActor var microphoneDeviceUID: String? { microphone?.deviceUID }
 
     @MainActor
@@ -82,6 +89,7 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
         systemLevels.reset()
         microphoneLevels.reset()
         pauseClock.reset()
+        microphoneMute.isMuted = false
 
         do {
             let tap = try SystemAudioTap(outputDevice: devices.outputDeviceID(), queue: systemQueue) { [weak self] sampleBuffer, heardSound in
@@ -155,7 +163,11 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
     }
 
     nonisolated private func handle(_ sampleBuffer: CMSampleBuffer, track: SystemAudioSampleProcessor.Track, heardSound: Bool) {
-        guard let sampleBuffer = pauseClock.retime(sampleBuffer) else { return }
+        guard var sampleBuffer = pauseClock.retime(sampleBuffer) else { return }
+        if track == .microphone {
+            guard let audible = microphoneMute.apply(to: sampleBuffer) else { return }
+            sampleBuffer = audible
+        }
         if track == .system, heardSound { silence.markHeard() }
         (track == .system ? systemLevels : microphoneLevels).append(sampleBuffer)
 

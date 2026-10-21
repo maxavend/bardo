@@ -67,8 +67,15 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 
 - Start a **Reunión en este Mac** recording: the detail column shows its title with **Grabando** in red, one line where your voice rises in blue and the Mac's audio falls in orange, a red playhead where audio enters, and below the line **Tu micrófono** and **Audio del Mac**, stacked and centered. Speak, then play a video: each side moves only with its own source.
 - **Micrófono del MacBook Air ⌄** lists the Mac's inputs: choose another and keep talking; the recording continues with the new microphone, and the next recording starts with it.
-- The red button shows ⏸ and the running time; click it (or Grabación › Pausar) to pause: the time, the line and the playhead stop, **En pausa** replaces **Grabando**, and the button becomes **Reanudar**. Your bars never cross below the line, nor the Mac's above it. Talk and play audio while paused, resume, stop: neither track contains what was said while paused, and both stay in sync.
+- The red button shows ⏸ and the running time; click it (or Grabación › Pausar, ⌥⌘P) to pause: the time, the line and the playhead stop, **En pausa** replaces **Grabando**, and the button becomes **Reanudar**. Your bars never cross below the line, nor the Mac's above it. Talk and play audio while paused, resume, stop: neither track contains what was said while paused, and both stay in sync.
 - Select a conversation during the recording: it opens with the compact recording bar on top; its waveform button returns to the recorder. With Reduce Motion on, the line steps instead of gliding.
+
+- The microphone button at the top (or Grabación › Silenciar micrófono, ⌥⌘S) turns red and **Silenciado** appears by **Tu micrófono**; your side of the line goes flat while the Mac's audio keeps recording. Stop: the microphone track has silence there, not a gap, and stays in sync.
+
+### 5a1b. A saved conversation
+
+- Without a transcript: the recording's waveform (click or drag to jump), the message and a large **Transcribir**, centered.
+- The toolbar reads ★ · Compartir · Copiar (with a transcript) · ⓘ · ⋯. Compartir offers the audio, or the transcript and the audio. Copiar puts a structured text on the pasteboard: the title and date, then one block per stretch of speech with who spoke and when (e.g. "Valentina (0:00–1:12)"); a long pause or another speaker starts a new block.
 
 ### 5a2. Microphone and output
 

@@ -8,6 +8,7 @@ enum BardoCommandNotification {
     static let pauseRecording = Notification.Name("Bardo.Command.PauseRecording")
     static let resumeRecording = Notification.Name("Bardo.Command.ResumeRecording")
     static let stopRecording = Notification.Name("Bardo.Command.StopRecording")
+    static let toggleMicrophoneMute = Notification.Name("Bardo.Command.ToggleMicrophoneMute")
     static let libraryChanged = Notification.Name("Bardo.Library.Changed")
 }
 
@@ -18,6 +19,8 @@ struct BardoCaptureCommandState: Equatable {
     var canPause: Bool
     var canResume: Bool
     var canStop: Bool
+    var canMute = false
+    var isMuted = false
 }
 
 extension FocusedValues {
@@ -61,17 +64,26 @@ struct BardoCommands: Commands {
         CommandGroup(replacing: .help) {}
 
         CommandMenu("Grabación") {
-            Button("Pausar grabación") {
-                post(BardoCommandNotification.pauseRecording)
+            // One item that alternates, like Play and Pause. ⌥⌘Space belongs to Finder's
+            // search window, so Bardo's own shortcuts use ⌥⌘ with a letter.
+            if capture?.canResume == true {
+                Button("Reanudar grabación") {
+                    post(BardoCommandNotification.resumeRecording)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .option])
+            } else {
+                Button("Pausar grabación") {
+                    post(BardoCommandNotification.pauseRecording)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .option])
+                .disabled(capture?.canPause != true)
             }
-            .keyboardShortcut(.space, modifiers: [.command, .option])
-            .disabled(capture?.canPause != true)
 
-            Button("Reanudar grabación") {
-                post(BardoCommandNotification.resumeRecording)
+            Button(capture?.isMuted == true ? "Activar micrófono" : "Silenciar micrófono") {
+                post(BardoCommandNotification.toggleMicrophoneMute)
             }
-            .keyboardShortcut(.space, modifiers: [.command, .option, .shift])
-            .disabled(capture?.canResume != true)
+            .keyboardShortcut("s", modifiers: [.command, .option])
+            .disabled(capture?.canMute != true)
 
             Divider()
 

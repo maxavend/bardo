@@ -16,6 +16,7 @@ struct RootView: View {
     @State private var previewsRecordingBanner = false
     @State private var previewMeters: LiveAudioMeter.DesignPreview?
     @State private var previewsPausedRecorder = false
+    @State private var previewsMutedRecorder = false
     #endif
 
     init(
@@ -128,6 +129,13 @@ struct RootView: View {
                     systemAudio.resume()
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.toggleMicrophoneMute)) { _ in
+                if microphone.canMute {
+                    microphone.toggleMute()
+                } else {
+                    systemAudio.toggleMicrophoneMute()
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.stopRecording)) { _ in
                 Task {
                     if microphone.phase == .recording || microphone.phase == .paused {
@@ -143,8 +151,9 @@ struct RootView: View {
                 if step.action == "recordingBanner" { previewsRecordingBanner = true }
                 if step.action == "liveRecorder" {
                     library.selection = nil
-                    previewMeters = LiveAudioMeter.DesignPreview()
-                    previewsPausedRecorder = step.value == "paused"
+                    previewMeters = LiveAudioMeter.DesignPreview(mutedTail: step.value.contains("muted") ? 7 : 0)
+                    previewsPausedRecorder = step.value.contains("paused")
+                    previewsMutedRecorder = step.value.contains("muted")
                 }
                 if step.action == "record" {
                     Task { await startSystemRecording(includeMicrophone: step.value == "conversation", title: "Prueba de audio") }
@@ -180,7 +189,9 @@ struct RootView: View {
             canStart: !microphone.isBusy && !systemAudio.isBusy,
             canPause: microphone.phase == .recording || systemAudio.canPause,
             canResume: microphone.phase == .paused || systemAudio.canResume,
-            canStop: microphone.phase == .recording || microphone.phase == .paused || systemAudio.isRecording
+            canStop: microphone.phase == .recording || microphone.phase == .paused || systemAudio.isRecording,
+            canMute: microphone.canMute || systemAudio.canMuteMicrophone,
+            isMuted: microphone.isMuted || systemAudio.isMicrophoneMuted
         )
     }
 
@@ -206,6 +217,8 @@ struct RootView: View {
                 isPaused: previewsPausedRecorder,
                 pauseAction: {},
                 resumeAction: {},
+                isMicrophoneMuted: previewsMutedRecorder,
+                muteAction: {},
                 stopAction: {}
             ))
         }
@@ -224,6 +237,8 @@ struct RootView: View {
                 isPaused: microphone.phase == .paused,
                 pauseAction: { microphone.pause() },
                 resumeAction: { microphone.resume() },
+                isMicrophoneMuted: microphone.isMuted,
+                muteAction: microphone.canMute ? { microphone.toggleMute() } : nil,
                 stopAction: { Task { await stopMicrophoneRecording() } }
             ))
         }
@@ -253,6 +268,8 @@ struct RootView: View {
             warning: systemAudio.captureWarning,
             pauseAction: systemAudio.canPause ? { systemAudio.pause() } : nil,
             resumeAction: systemAudio.canResume ? { systemAudio.resume() } : nil,
+            isMicrophoneMuted: systemAudio.isMicrophoneMuted,
+            muteAction: systemAudio.canMuteMicrophone ? { systemAudio.toggleMicrophoneMute() } : nil,
             stopAction: { Task { await stopSystemRecording() } }
         ))
     }

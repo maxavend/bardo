@@ -41,6 +41,9 @@ protocol AudioCapturing: AnyObject {
     var inputDeviceUID: String? { get }
     /// Records another microphone from now on, without stopping.
     func switchInput(toDeviceUID uid: String) throws
+    /// Records silence instead of the microphone, keeping the timeline going.
+    var supportsMute: Bool { get }
+    func setMuted(_ muted: Bool)
 
     func start(to url: URL) async throws
     func pause()
@@ -55,6 +58,8 @@ extension AudioCapturing {
     func switchInput(toDeviceUID uid: String) throws {
         throw AudioCaptureBackendError.noInputDevice
     }
+    var supportsMute: Bool { false }
+    func setMuted(_ muted: Bool) {}
     func pause() {}
     func resume() {}
 }

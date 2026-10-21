@@ -17,8 +17,15 @@ final class SystemAudioRecordingController: ObservableObject {
     }
 
     @Published private(set) var phase: Phase = .idle {
-        didSet { if phase != .recording { isPaused = false } }
+        didSet {
+            if phase != .recording {
+                isPaused = false
+                isMicrophoneMuted = false
+            }
+        }
     }
+    /// The microphone records silence while the Mac's audio keeps recording.
+    @Published private(set) var isMicrophoneMuted = false
     /// A paused capture keeps its devices open but records nothing until it resumes.
     @Published private(set) var isPaused = false
     @Published private(set) var elapsedTime: TimeInterval = 0
@@ -207,6 +214,14 @@ final class SystemAudioRecordingController: ObservableObject {
         guard canResume else { return }
         backend.resume()
         isPaused = false
+    }
+
+    var canMuteMicrophone: Bool { phase == .recording && includesMicrophone && backend.supportsMicrophoneMute }
+
+    func toggleMicrophoneMute() {
+        guard canMuteMicrophone else { return }
+        isMicrophoneMuted.toggle()
+        backend.setMicrophoneMuted(isMicrophoneMuted)
     }
 
     @discardableResult

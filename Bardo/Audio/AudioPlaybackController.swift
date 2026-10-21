@@ -8,7 +8,7 @@ struct AudioPlaybackMetadata: Equatable, Sendable {
 }
 
 /// One file to play and where it starts on the recording's timeline.
-struct PlaybackTrack: Equatable, Sendable {
+struct PlaybackTrack: Hashable, Sendable {
     let url: URL
     var offset: TimeInterval = 0
     var source: TranscriptSource? = nil
@@ -58,6 +58,11 @@ final class AudioPlaybackController: ObservableObject {
 
     var isLoaded: Bool {
         !tracks.isEmpty
+    }
+
+    /// The files on the timeline, for drawing the recording's waveform.
+    var loadedTracks: [PlaybackTrack] {
+        tracks.map(\.track)
     }
 
     /// Whether the microphone and the Mac's audio can be heard apart.

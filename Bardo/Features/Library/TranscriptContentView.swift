@@ -25,8 +25,19 @@ struct TranscriptContentView: View {
     var bottomContentInset: CGFloat = 0
 
     var body: some View {
-        transcriptViewport
-            .enableInjection()
+        Group {
+            if showsEmptyState {
+                emptyTranscriptView
+            } else {
+                transcriptViewport
+            }
+        }
+        .enableInjection()
+    }
+
+    /// A saved conversation that has no transcript and none on the way.
+    private var showsEmptyState: Bool {
+        !isTranscribingThisRecording && (model.transcript?.recordingID != recording.id)
     }
 
     private var transcriptViewport: some View {
@@ -45,8 +56,6 @@ struct TranscriptContentView: View {
 
                         transcriptHeader(for: transcript)
                         transcriptConversation(transcript)
-                    } else {
-                        emptyTranscriptView
                     }
 
                     Color.clear
@@ -322,29 +331,71 @@ struct TranscriptContentView: View {
         )
     }
 
+    /// The recording's waveform, what a transcript gives, and one large button to make
+    /// it, centered in the column.
     private var emptyTranscriptView: some View {
-        ContentUnavailableView {
-            Label(
-                recording.processingState == .failed ? "No pudimos transcribir esta conversación" : "Aún no hay transcripción",
-                systemImage: recording.processingState == .failed ? "exclamationmark.bubble" : "text.bubble"
-            )
-        } description: {
-            Text(
-                model.transcriptionBlocker(for: recording.id)
-                    ?? (recording.audioAssets.isEmpty
-                        ? "Esta conversación no tiene un audio que se pueda transcribir."
-                        : recording.processingState == .failed
-                            ? "La última transcripción no terminó. El audio está a salvo y puedes intentarlo de nuevo."
-                            : "Bardo la transcribe de forma privada en este Mac para que puedas leerla, buscar dentro de ella e identificar a los hablantes.")
-            )
-        } actions: {
-            Button(recording.processingState == .failed ? "Intentar de nuevo" : "Transcribir") {
-                model.beginTranscription()
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(recording.audioAssets.isEmpty || model.transcriptionBlocker(for: recording.id) != nil)
+        // Take exactly the column's space: without a scroll view, the split view would
+        // lay the column out at this content's ideal height, taller than the window.
+        GeometryReader { proxy in
+            emptyTranscriptContent
+                .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .frame(maxWidth: .infinity, minHeight: 320)
+    }
+
+    private var emptyTranscriptContent: some View {
+        VStack(spacing: 28) {
+            transcriptErrors
+
+            if !recording.audioAssets.isEmpty {
+                RecordingWaveformOverview(playback: playback)
+            }
+
+            VStack(spacing: 8) {
+                Text(recording.processingState == .failed ? "No pudimos transcribir esta conversación" : "Aún no hay transcripción")
+                    .font(.title3.weight(.semibold))
+                Text(
+                    model.transcriptionBlocker(for: recording.id)
+                        ?? (recording.audioAssets.isEmpty
+                            ? "Esta conversación no tiene un audio que se pueda transcribir."
+                            : recording.processingState == .failed
+                                ? "La última transcripción no terminó. El audio está a salvo y puedes intentarlo de nuevo."
+                                : "Bardo la transcribe de forma privada en este Mac para que puedas leerla, buscar dentro de ella e identificar a los hablantes.")
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 420)
+            }
+
+            transcribeButton
+        }
+        .frame(maxWidth: BardoLayout.detailContentMaxWidth)
+        .padding(.horizontal, BardoSpacing.detailHorizontal)
+        .padding(.bottom, bottomContentInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var transcribeButton: some View {
+        let button = Button {
+            model.beginTranscription()
+        } label: {
+            Text(recording.processingState == .failed ? "Intentar de nuevo" : "Transcribir")
+                .padding(.horizontal, 14)
+        }
+        .disabled(recording.audioAssets.isEmpty || model.transcriptionBlocker(for: recording.id) != nil)
+
+        return Group {
+            if #available(macOS 26.0, *) {
+                button
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.extraLarge)
+            } else {
+                button
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+            }
+        }
     }
 
     private func buildParagraphs(from segments: [TranscriptSegment]) -> [TranscriptParagraph] {

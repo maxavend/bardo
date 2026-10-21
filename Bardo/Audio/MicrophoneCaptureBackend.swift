@@ -46,6 +46,12 @@ final class MicrophoneCaptureBackend: AudioCapturing {
 
     var inputDeviceUID: String? { session?.deviceUID }
 
+    var supportsMute: Bool { true }
+
+    func setMuted(_ muted: Bool) {
+        writer?.isMuted = muted
+    }
+
     func switchInput(toDeviceUID uid: String) throws {
         guard let session else { throw AudioCaptureBackendError.noInputDevice }
         guard let device = AVCaptureDevice(uniqueID: uid), device.hasMediaType(.audio) else {
@@ -137,6 +143,7 @@ final class MicrophoneFileWriter: @unchecked Sendable {
     private var converter: AVAudioConverter?
     private var framesWritten: AVAudioFramePosition = 0
     private var paused = false
+    private var muted = false
     private var lastLevel: Double = 0
     private let sampleRate: Double
     private let meter: LiveAudioMeter?
@@ -157,6 +164,12 @@ final class MicrophoneFileWriter: @unchecked Sendable {
         lock.bardoWithLock { lastLevel }
     }
 
+    /// Muted audio is written as silence, so the file keeps its length.
+    var isMuted: Bool {
+        get { lock.bardoWithLock { muted } }
+        set { lock.bardoWithLock { muted = newValue } }
+    }
+
     var isPaused: Bool {
         get { lock.bardoWithLock { paused } }
         set { lock.bardoWithLock { paused = newValue; if newValue { lastLevel = 0 } } }
@@ -165,6 +178,11 @@ final class MicrophoneFileWriter: @unchecked Sendable {
     func append(_ sampleBuffer: CMSampleBuffer) {
         lock.bardoWithLock {
             guard !paused, let file, let buffer = pcmBuffer(from: sampleBuffer, writingTo: file.processingFormat) else { return }
+            if muted {
+                for channel in 0..<Int(buffer.format.channelCount) {
+                    buffer.floatChannelData.map { memset($0[channel], 0, Int(buffer.frameLength) * MemoryLayout<Float>.size) }
+                }
+            }
             do {
                 try file.write(from: buffer)
                 framesWritten += AVAudioFramePosition(buffer.frameLength)

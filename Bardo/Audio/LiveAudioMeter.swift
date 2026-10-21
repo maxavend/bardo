@@ -123,11 +123,20 @@ extension LiveAudioMeter {
     final class DesignPreview {
         let microphone = LiveAudioMeter()
         let system = LiveAudioMeter()
+        /// Like the real capture, a muted microphone records silence from then on.
+        var isMicrophoneMuted = false
         private var generator = Conversation()
         private var task: Task<Void, Never>?
 
-        init() {
-            for _ in 0..<Int(14 / LiveAudioMeter.bucketDuration) { advance() }
+        /// - Parameter mutedTail: Seconds at the end of the prefilled history recorded
+        ///   with the microphone muted, which then stays muted.
+        init(mutedTail: TimeInterval = 0) {
+            let bars = Int(14 / LiveAudioMeter.bucketDuration)
+            let mutedBars = Int(mutedTail / LiveAudioMeter.bucketDuration)
+            for bar in 0..<bars {
+                isMicrophoneMuted = bar >= bars - mutedBars
+                advance()
+            }
             task = Task { @MainActor [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(LiveAudioMeter.bucketDuration))
@@ -142,7 +151,7 @@ extension LiveAudioMeter {
 
         private func advance() {
             let (you, others) = generator.next()
-            microphone.appendPreviewLevel(you)
+            microphone.appendPreviewLevel(isMicrophoneMuted ? 0 : you)
             system.appendPreviewLevel(others)
         }
     }
