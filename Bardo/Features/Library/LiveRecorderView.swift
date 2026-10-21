@@ -396,11 +396,9 @@ struct LiveConversationWave: View {
             guard position > 0, position < size.width else { continue }
             let middle = size.height / 2
             canvas.fill(Path(CGRect(x: position - 0.5, y: middle - 14, width: 1.5, height: 14)), with: .color(.orange))
-            canvas.draw(
-                Image(systemName: "flag.fill"),
-                at: CGPoint(x: position - 1, y: middle - 14),
-                anchor: .bottomLeading
-            )
+            var flag = canvas.resolve(Image(systemName: "flag.fill"))
+            flag.shading = .color(.orange)
+            canvas.draw(flag, at: CGPoint(x: position - 1, y: middle - 14), anchor: .bottomLeading)
         }
     }
 

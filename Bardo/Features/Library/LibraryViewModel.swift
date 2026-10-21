@@ -170,6 +170,24 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    /// Changes a saved recording's moments and sections.
+    func updateNotes(_ recordingID: Recording.ID, _ change: (inout RecordingNotes) -> Void) async {
+        do {
+            try await updateRecording(recordingID) { change(&$0.notes) }
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+        }
+    }
+
+    func setSkipsSilences(_ recordingID: Recording.ID, _ skips: Bool) async {
+        do {
+            try await updateRecording(recordingID) { $0.skipsSilences = skips }
+            await applySilenceSkipping()
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+        }
+    }
+
     func deleteRecording(_ recordingID: Recording.ID) async {
         guard recordings.contains(where: { $0.id == recordingID }) else {
             recordingActionErrorMessage = String(localized: "That recording is no longer available.")
@@ -294,6 +312,29 @@ final class LibraryViewModel: ObservableObject {
         // Loading the audio that is already playing is a no-op, so reloads (an import,
         // a finished recording) never interrupt playback.
         _ = await preparePlayback(playback, for: recording)
+        await applySilenceSkipping()
+    }
+
+    /// Long silences of each recording, found once and kept for the session.
+    private var silentRanges: [Recording.ID: [ClosedRange<TimeInterval>]] = [:]
+
+    /// Has the player jump over long silences when the selected recording asks for it.
+    func applySilenceSkipping() async {
+        guard let recording = selectedRecording, recording.skipsSilences else {
+            playback.skippedRanges = []
+            return
+        }
+        if let ranges = silentRanges[recording.id] {
+            playback.skippedRanges = ranges
+            return
+        }
+        let tracks = playback.loadedTracks
+        let ranges = await Task.detached(priority: .utility) {
+            (try? AudioWaveformOverview.silentRanges(of: tracks)) ?? []
+        }.value
+        guard selection == recording.id else { return }
+        silentRanges[recording.id] = ranges
+        playback.skippedRanges = ranges
     }
 
     @discardableResult

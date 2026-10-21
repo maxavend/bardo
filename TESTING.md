@@ -83,6 +83,14 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 - Without a transcript: the recording's waveform (click or drag to jump), the message and a large **Transcribir**, centered.
 - The toolbar reads ★ · Compartir · Copiar (with a transcript) · ⓘ · ⋯. Compartir offers the audio, or the transcript and the audio. Copiar puts a structured text on the pasteboard: the title and date, then one block per stretch of speech with who spoke and when (e.g. "Valentina (0:00–1:12)"); a long pause or another speaker starts a new block.
 
+### 5a1c. Full player
+
+- In a saved conversation, the waveform button beside the search field opens the full player across the whole window; **‹** or Esc returns to the Library.
+- The timeline shows the named sections along the top and the moments as flags: click or drag the waveform to jump; click a section to rename or remove it, a flag to edit its title and note or remove it. **Marcar momento aquí** and **Nueva sección aquí** add them at the playhead, and the transcript and Copiar reflect every change.
+- Searching in the toolbar marks the matches on the timeline; the arrows step through them.
+- With a transcript, playing shows who speaks and their words lighting up as they are heard. Without one, a short message instead.
+- **Opciones › Omitir silencios** is saved with that conversation: playback jumps over pauses of two seconds or more, in the full player and the regular one, and never clips the words around them.
+
 ### 5a2. Microphone and output
 
 - In **Nueva grabación**, **Micrófono** and **Salida** list the Mac's devices under **Predeterminado del sistema**. Connect or disconnect a Bluetooth or USB device while the sheet is open: the lists follow.

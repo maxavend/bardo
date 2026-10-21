@@ -10,6 +10,8 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
     var audioAssets: [AudioAsset]
     /// Moments and sections marked while recording or afterwards.
     var notes: RecordingNotes
+    /// Playback jumps over long silences in this recording.
+    var skipsSilences: Bool
 
     init(
         id: UUID = UUID(),
@@ -19,7 +21,8 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
         sources: Set<AudioSource>,
         processingState: ProcessingState = .pending,
         audioAssets: [AudioAsset] = [],
-        notes: RecordingNotes = RecordingNotes()
+        notes: RecordingNotes = RecordingNotes(),
+        skipsSilences: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -29,6 +32,7 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
         self.processingState = processingState
         self.audioAssets = audioAssets
         self.notes = notes
+        self.skipsSilences = skipsSilences
     }
 
     var playbackAudioAssets: [AudioAsset] {
@@ -49,6 +53,7 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
         case processingState
         case audioAssets
         case notes
+        case skipsSilences
     }
 
     init(from decoder: Decoder) throws {
@@ -61,6 +66,7 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
         processingState = try container.decode(ProcessingState.self, forKey: .processingState)
         audioAssets = try container.decodeIfPresent([AudioAsset].self, forKey: .audioAssets) ?? []
         notes = try container.decodeIfPresent(RecordingNotes.self, forKey: .notes) ?? RecordingNotes()
+        skipsSilences = try container.decodeIfPresent(Bool.self, forKey: .skipsSilences) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -75,6 +81,9 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
         // Recordings without notes keep the manifest they always had.
         if !notes.isEmpty {
             try container.encode(notes, forKey: .notes)
+        }
+        if skipsSilences {
+            try container.encode(skipsSilences, forKey: .skipsSilences)
         }
     }
 }

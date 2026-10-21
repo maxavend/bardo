@@ -17,6 +17,8 @@ struct LibraryView: View {
     @ObservedObject private var favorites = BardoFavoritesStore.shared
     @SceneStorage("bardo.library.section") private var selectedSection: BardoLibrarySection = .all
     @State private var isInfoPresented = false
+    /// The selected conversation in the full player, which takes the whole window.
+    @State private var isFullPlayerPresented = false
     @AppStorage("bardo.library.sort") private var sort: BardoLibrarySort = .newest
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isFileImporterPresented = false
@@ -51,57 +53,28 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebar(
-                model: model,
-                favorites: favorites,
-                selection: $selectedSection,
-                onReviewIssues: { isIssuesReviewPresented = true }
-            )
-        } content: {
-            RecordingListView(
-                section: selectedSection,
-                searchQuery: searchQuery,
-                sort: $sort,
-                model: model,
-                favorites: favorites,
-                onNewRecording: onNewRecording,
-                onImport: { isFileImporterPresented = true },
-                onMoveToTrash: moveToTrash
-            )
-            .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    newRecordingButton
-
-                    Button {
-                        isFileImporterPresented = true
-                    } label: {
-                        Label("Importar audio", systemImage: "square.and.arrow.down")
-                    }
-                    .help("Importar audio (⇧⌘O)")
-                    .disabled(model.isImporting)
-                }
+        Group {
+            if isFullPlayerPresented, let recording = model.selectedRecording {
+                FullPlayerView(
+                    recording: recording,
+                    model: model,
+                    playback: model.playback,
+                    searchQuery: searchQuery,
+                    onClose: { isFullPlayerPresented = false }
+                )
+            } else {
+                libraryColumns
             }
-        } detail: {
-            detailColumn
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .navigationSplitViewColumnWidth(min: BardoLayout.detailColumnMinWidth, ideal: 640)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    // The recorder has its own controls; the banner returns while
-                    // another conversation is open during the recording.
-                    if let activeCaptureBanner, !showsLiveRecorder {
-                        activeCaptureBanner
-                            .padding(.horizontal, 8)
-                            .padding(.top, 4)
-                            .padding(.bottom, 8)
-                    }
-                }
         }
-        // One toolbar search field for the window; it searches the whole Library.
+        // One toolbar search field for the window; it searches the whole Library, or
+        // the conversation open in the full player.
         // Keep the prompt short so it never truncates in a narrow toolbar.
         .searchable(text: $searchText, placement: .toolbar, prompt: Text("Buscar"))
         .searchFocused($isSearchFocused)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .onChange(of: model.selection) { _, selection in
+            if selection == nil { isFullPlayerPresented = false }
+        }
         // Details open as a sheet: nothing slides in beside the transcript, so the
         // columns and the search field never move.
         .sheet(isPresented: $isInfoPresented) {
@@ -197,6 +170,8 @@ struct LibraryView: View {
                 searchText = step.value
             case "inspector":
                 isInfoPresented = true
+            case "player":
+                isFullPlayerPresented = true
             case "sidebar":
                 columnVisibility = step.value == "hidden" ? .doubleColumn : .all
             case "settings":
@@ -219,6 +194,56 @@ struct LibraryView: View {
         }
         #endif
         .enableInjection()
+    }
+
+    /// The Library's three columns: filters, conversations and the selected one.
+    private var libraryColumns: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            LibrarySidebar(
+                model: model,
+                favorites: favorites,
+                selection: $selectedSection,
+                onReviewIssues: { isIssuesReviewPresented = true }
+            )
+        } content: {
+            RecordingListView(
+                section: selectedSection,
+                searchQuery: searchQuery,
+                sort: $sort,
+                model: model,
+                favorites: favorites,
+                onNewRecording: onNewRecording,
+                onImport: { isFileImporterPresented = true },
+                onMoveToTrash: moveToTrash
+            )
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    newRecordingButton
+
+                    Button {
+                        isFileImporterPresented = true
+                    } label: {
+                        Label("Importar audio", systemImage: "square.and.arrow.down")
+                    }
+                    .help("Importar audio (⇧⌘O)")
+                    .disabled(model.isImporting)
+                }
+            }
+        } detail: {
+            detailColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .navigationSplitViewColumnWidth(min: BardoLayout.detailColumnMinWidth, ideal: 640)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    // The recorder has its own controls; the banner returns while
+                    // another conversation is open during the recording.
+                    if let activeCaptureBanner, !showsLiveRecorder {
+                        activeCaptureBanner
+                            .padding(.horizontal, 8)
+                            .padding(.top, 4)
+                            .padding(.bottom, 8)
+                    }
+                }
+        }
     }
 
     @ViewBuilder
@@ -250,6 +275,7 @@ struct LibraryView: View {
                 playback: model.playback,
                 searchQuery: searchQuery,
                 isInfoPresented: $isInfoPresented,
+                isFullPlayerPresented: $isFullPlayerPresented,
                 onMoveToTrash: moveToTrash
             )
         } else if model.recordings.isEmpty {

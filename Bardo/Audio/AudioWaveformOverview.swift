@@ -65,6 +65,44 @@ enum AudioWaveformOverview {
     }
 }
 
+extension AudioWaveformOverview {
+    /// The silences in a recording worth skipping: stretches below `threshold` (on the
+    /// meter's scale, about -40 dB) lasting at least `minimum` seconds, trimmed by
+    /// `margin` at each end so speech is never clipped.
+    static func silentRanges(
+        of tracks: [PlaybackTrack],
+        window: TimeInterval = 0.1,
+        threshold: Float = 0.2,
+        minimum: TimeInterval = 2,
+        margin: TimeInterval = 0.3
+    ) throws -> [ClosedRange<TimeInterval>] {
+        let duration = try tracks.map { track -> TimeInterval in
+            let file = try AVAudioFile(forReading: track.url)
+            return track.offset + Double(file.length) / file.processingFormat.sampleRate
+        }.max() ?? 0
+        guard duration > 0 else { return [] }
+        let count = max(1, Int((duration / window).rounded(.up)))
+        let levels = try levels(of: tracks, resolution: count)
+        let slot = duration / Double(count)
+
+        var ranges: [ClosedRange<TimeInterval>] = []
+        var start: Int?
+        for index in 0...levels.count {
+            let quiet = index < levels.count && levels[index] < threshold
+            if quiet, start == nil { start = index }
+            if !quiet, let first = start {
+                let lower = Double(first) * slot + margin
+                let upper = Double(index) * slot - margin
+                if Double(index - first) * slot >= minimum, upper > lower {
+                    ranges.append(lower...upper)
+                }
+                start = nil
+            }
+        }
+        return ranges
+    }
+}
+
 /// Loads a recording's overview off the main thread and remembers it for the session.
 @MainActor
 final class AudioWaveformOverviewModel: ObservableObject {

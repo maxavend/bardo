@@ -60,6 +60,9 @@ final class AudioPlaybackController: ObservableObject {
         !tracks.isEmpty
     }
 
+    /// Stretches of the timeline playback jumps over, such as long silences.
+    var skippedRanges: [ClosedRange<TimeInterval>] = []
+
     /// The files on the timeline, for drawing the recording's waveform.
     var loadedTracks: [PlaybackTrack] {
         tracks.map(\.track)
@@ -332,6 +335,11 @@ final class AudioPlaybackController: ObservableObject {
 
         duration = timelineDuration
         let current = currentTimelinePosition
+
+        if isPlaying, let skipped = skippedRanges.first(where: { $0.contains(current) }), skipped.upperBound < duration {
+            seek(to: skipped.upperBound)
+            return
+        }
 
         if let playbackEndTime, isPlaying, current >= playbackEndTime {
             pausePlayers()

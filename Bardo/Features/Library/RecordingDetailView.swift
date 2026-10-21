@@ -14,6 +14,7 @@ struct RecordingDetailView: View {
     /// The window's search: matches are highlighted in the transcript.
     let searchQuery: String
     @Binding var isInfoPresented: Bool
+    @Binding var isFullPlayerPresented: Bool
     let onMoveToTrash: (Recording) -> Void
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
@@ -76,6 +77,21 @@ struct RecordingDetailView: View {
                 .help("Mostrar información (⌥⌘I)")
 
                 recordingActionsMenu
+            }
+
+            // Beside the search field, balancing the toolbar: the whole recording in
+            // the whole window.
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isFullPlayerPresented = true
+                } label: {
+                    Label("Reproductor completo", systemImage: "waveform")
+                }
+                .help("Abrir el reproductor completo")
+                .disabled(recording.audioAssets.isEmpty)
             }
         }
         .task(id: recording.id) {
