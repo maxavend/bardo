@@ -41,6 +41,7 @@ struct SettingsView: View {
     @AppStorage("bardo.default-recording-mode") private var recordingModeRaw = BardoRecordingMode.conversation.rawValue
     @AppStorage(TranscriptionTrackMode.defaultsKey) private var trackModeRaw = TranscriptionTrackMode.perTrack.rawValue
     @AppStorage(LocalSpeakerName.defaultsKey) private var localSpeakerName = ""
+    @AppStorage(TranscriptionEngine.defaultsKey) private var engineRaw = TranscriptionEngine.default.rawValue
     @AppStorage(AudioEncodingPreferences.presetKey) private var qualityRaw = AudioQualityPreset.default.rawValue
     @AppStorage(AudioEncodingPreferences.formatKey) private var formatRaw = AudioStorageFormat.default.rawValue
     @StateObject private var devices = AudioDeviceCatalog()
@@ -60,7 +61,7 @@ struct SettingsView: View {
                 .tag(SettingsTab.recording)
 
             transcriptionTab
-                .frame(width: Self.width, height: 600)
+                .frame(width: Self.width, height: 720)
                 .tabItem { Label("Transcripción", systemImage: "waveform") }
                 .tag(SettingsTab.transcription)
 
@@ -208,6 +209,20 @@ struct SettingsView: View {
         .onAppear { devices.startObserving() }
     }
 
+    private var selectedEngine: TranscriptionEngine {
+        TranscriptionEngine(rawValue: engineRaw).flatMap { $0.isSupported ? $0 : nil } ?? .default
+    }
+
+    /// Uses an engine once it can transcribe: Apple's after macOS has its language,
+    /// Whisper's once downloaded.
+    private func select(_ engine: TranscriptionEngine) {
+        if engine == .apple, !model.isAppleReady {
+            model.prepareApple { engineRaw = engine.rawValue }
+        } else {
+            engineRaw = engine.rawValue
+        }
+    }
+
     private var encoding: AudioEncoding {
         AudioEncoding(
             preset: AudioQualityPreset(rawValue: qualityRaw) ?? .default,
@@ -242,6 +257,39 @@ struct SettingsView: View {
 
     private var transcriptionTab: some View {
         Form {
+            Section {
+                ForEach(TranscriptionEngine.allCases) { engine in
+                    TranscriptionEngineRow(
+                        engine: engine,
+                        isSelected: selectedEngine == engine,
+                        managedRow: engine.managedModel.flatMap { model.row(for: $0) },
+                        isAppleReady: model.isAppleReady,
+                        isPreparingApple: model.isPreparingApple,
+                        appleFailure: model.appleFailure,
+                        select: { select(engine) },
+                        action: { action in
+                            if let managed = engine.managedModel { handle(action, for: managed) }
+                        }
+                    )
+                }
+            } header: {
+                Text("Transcripción")
+            } footer: {
+                Text("Todos transcriben en este Mac, sin enviar tus conversaciones a internet. El que elijas se usa en las próximas transcripciones.")
+            }
+
+            Section {
+                if let row = model.row(for: .speakerKit) {
+                    ModelSettingsRow(row: row) { action in
+                        handle(action, for: .speakerKit)
+                    }
+                }
+            } header: {
+                Text("Participantes")
+            } footer: {
+                Text("Es el mismo con cualquier forma de transcribir.")
+            }
+
             Section("Idioma") {
                 LabeledContent("Idioma de la conversación", value: "Detectar automáticamente")
                 Text("Bardo reconoce el idioma a partir del audio y mantiene la transcripción en ese idioma.")
@@ -263,39 +311,6 @@ struct SettingsView: View {
                     : "Tu micrófono y el audio del Mac se transcriben por separado: las voces no se pisan y lo que dices tú queda con tu nombre. Si la llamada sonó por los parlantes, Bardo descarta el eco que captó el micrófono.")
             }
 
-            Section {
-                if model.rows.isEmpty {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Comprobando lo necesario…")
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    ForEach(model.rows) { row in
-                        ModelSettingsRow(row: row) { action in
-                            handle(action, for: row.id)
-                        }
-                    }
-                }
-
-                HStack {
-                    Spacer()
-                    Button("Comprobar recursos") {
-                        model.refresh()
-                    }
-                    .disabled(model.isRefreshing)
-
-                    if model.isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                }
-            } header: {
-                Text("Recursos locales")
-            } footer: {
-                Text("Estos recursos se guardan en este Mac y permiten transcribir y distinguir voces sin enviar tus conversaciones a servicios externos.")
-            }
         }
         .formStyle(.grouped)
         .padding(.top, 8)
@@ -669,6 +684,9 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
 private final class ModelSettingsViewModel: ObservableObject {
     @Published private(set) var rows: [ModelSettingsRowState] = []
     @Published private(set) var isRefreshing = false
+    /// Whether macOS has Apple's recognition ready for this Mac's language.
+    @Published private(set) var isAppleReady = false
+    @Published private(set) var isPreparingApple = false
     private var didRefresh = false
     private var refreshTask: Task<Void, Never>?
     private var operationTasks: [ManagedModel: Task<Void, Never>] = [:]
@@ -737,12 +755,34 @@ private final class ModelSettingsViewModel: ObservableObject {
 
     private func resetRuntimeModel(_ model: ManagedModel) async throws {
         switch model {
-        case .whisperTurbo:
-            try await WhisperTranscriptionService.live().reset()
+        case .whisperTurbo, .whisperLarge:
+            try await WhisperTranscriptionService.live().reset(model)
         case .speakerKit:
             try await SpeakerDiarizationService.live().reset()
         }
         try BardoModelStore.live().reset(model)
+    }
+
+    /// Asks macOS for Apple's recognition in this Mac's language, then selects it.
+    func prepareApple(then select: @escaping @MainActor () -> Void) {
+        guard #available(macOS 26.0, *), !isPreparingApple else { return }
+        isPreparingApple = true
+        Task { @MainActor [weak self] in
+            do {
+                try await AppleSpeechTranscriber.prepare { _ in }
+                self?.isAppleReady = true
+                select()
+            } catch {
+                self?.appleFailure = error.localizedDescription
+            }
+            self?.isPreparingApple = false
+        }
+    }
+
+    @Published var appleFailure: String?
+
+    func row(for model: ManagedModel) -> ModelSettingsRowState? {
+        rows.first { $0.id == model }
     }
 
     func revealModelsFolder() {
@@ -762,8 +802,8 @@ private final class ModelSettingsViewModel: ObservableObject {
         do {
             _ = try BardoModelStore.live()
             switch model {
-            case .whisperTurbo:
-                let manager = try TranscriptionModelManager.live()
+            case .whisperTurbo, .whisperLarge:
+                let manager = try TranscriptionModelManager.live(for: model)
                 _ = try await manager.ensureResourcesAvailable { [weak self] fraction in
                     let state = Self.runtimeDownloadState(for: fraction)
                     Task { @MainActor [weak self] in
@@ -810,14 +850,17 @@ private final class ModelSettingsViewModel: ObservableObject {
             return
         }
 
-        if operationTasks[.whisperTurbo] == nil {
+        for whisperModel in [ManagedModel.whisperTurbo, .whisperLarge] where operationTasks[whisperModel] == nil {
             do {
                 let whisper = try WhisperTranscriptionService.live()
-                let installed = await whisper.hasInstalledModel()
-                setState(installed ? .installed : .notInstalled, for: .whisperTurbo)
+                let installed = await whisper.hasInstalledModel(whisperModel)
+                setState(installed ? .installed : .notInstalled, for: whisperModel)
             } catch {
-                setState(.failed(error.localizedDescription), for: .whisperTurbo)
+                setState(.failed(error.localizedDescription), for: whisperModel)
             }
+        }
+        if #available(macOS 26.0, *) {
+            isAppleReady = await AppleSpeechTranscriber.isReady()
         }
 
         if operationTasks[.speakerKit] == nil {
@@ -839,9 +882,9 @@ private final class ModelSettingsViewModel: ObservableObject {
     private func refreshModel(_ model: ManagedModel) async {
         guard (try? BardoModelStore.live()) != nil else { return }
         switch model {
-        case .whisperTurbo:
+        case .whisperTurbo, .whisperLarge:
             let service = try? WhisperTranscriptionService.live()
-            setState(await service?.hasInstalledModel() == true ? .installed : .notInstalled, for: model)
+            setState(await service?.hasInstalledModel(model) == true ? .installed : .notInstalled, for: model)
         case .speakerKit:
             let service = try? SpeakerDiarizationService.live()
             setState(await service?.hasInstalledModels() == true ? .installed : .notInstalled, for: model)
@@ -858,11 +901,12 @@ private final class ModelSettingsViewModel: ObservableObject {
 
     private func makeRow(for model: ManagedModel, state: ManagedModelState) -> ModelSettingsRowState {
         switch model {
-        case .whisperTurbo:
+        case .whisperTurbo, .whisperLarge:
+            let engine: TranscriptionEngine = model == .whisperLarge ? .precise : .balanced
             return ModelSettingsRowState(
                 id: model,
-                title: "Transcripción",
-                detail: "Convierte el audio en texto y conserva los tiempos necesarios para la reproducción.",
+                title: engine.title,
+                detail: engine.detail,
                 supportsInstallation: true,
                 state: state
             )

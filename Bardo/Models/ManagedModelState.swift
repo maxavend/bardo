@@ -2,6 +2,7 @@ import Foundation
 
 enum ManagedModel: String, CaseIterable, Sendable {
     case whisperTurbo
+    case whisperLarge
     case speakerKit
 }
 

@@ -339,14 +339,26 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     )
 
     private static let sharedServiceResult: Result<WhisperTranscriptionService, Error> = Result {
-        WhisperTranscriptionService(modelManager: try TranscriptionModelManager.live())
+        WhisperTranscriptionService(
+            modelManager: try TranscriptionModelManager.live(),
+            preciseModelManager: try TranscriptionModelManager.live(for: .whisperLarge),
+            engineChoice: { TranscriptionEngine.current() }
+        )
     }
 
+    /// Whisper Turbo: what first-run setup installs and the default engine.
     private let modelManager: TranscriptionModelManager
+    /// Whisper large-v3 in full, when the person chose precision over speed.
+    private let preciseModelManager: TranscriptionModelManager?
+    /// The engine chosen in Settings, read when work starts.
+    private let engineChoice: @Sendable () -> TranscriptionEngine
     private let performanceProfile: WhisperPerformanceProfile
     private let idleUnloadNanoseconds: UInt64
 
     private var loadedWhisper: WhisperKit?
+    /// Which Whisper model is loaded, so choosing the other one loads it instead.
+    private var loadedVariant: String?
+    private var engineLoadVariant: String?
     /// One Core ML load at a time; concurrent callers share it instead of loading the
     /// model twice and doubling peak memory.
     private var engineLoad: Task<LoadedWhisperEngine, Error>?
@@ -364,10 +376,14 @@ actor WhisperTranscriptionService: RecordingTranscribing {
 
     init(
         modelManager: TranscriptionModelManager,
+        preciseModelManager: TranscriptionModelManager? = nil,
+        engineChoice: @escaping @Sendable () -> TranscriptionEngine = { .balanced },
         performanceProfile: WhisperPerformanceProfile = WhisperPerformanceProfile(),
         idleUnloadNanoseconds: UInt64 = WhisperTranscriptionService.defaultIdleUnloadNanoseconds
     ) {
         self.modelManager = modelManager
+        self.preciseModelManager = preciseModelManager
+        self.engineChoice = engineChoice
         self.performanceProfile = performanceProfile
         self.idleUnloadNanoseconds = idleUnloadNanoseconds
     }
@@ -376,8 +392,25 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         try sharedServiceResult.get()
     }
 
+    /// The Whisper model behind an engine; Apple's has none.
+    private func manager(for engine: TranscriptionEngine) -> TranscriptionModelManager {
+        engine == .precise ? (preciseModelManager ?? modelManager) : modelManager
+    }
+
+    /// Whether the chosen engine can transcribe now.
     func hasInstalledModel() async -> Bool {
-        (try? await modelManager.hasInstalledModel()) == true
+        let engine = engineChoice()
+        if engine == .apple {
+            if #available(macOS 26.0, *) { return await AppleSpeechTranscriber.isReady() }
+            return false
+        }
+        return (try? await manager(for: engine).hasInstalledModel()) == true
+    }
+
+    /// Whether a Whisper model is installed, whichever engine is chosen.
+    func hasInstalledModel(_ model: ManagedModel) async -> Bool {
+        let manager = model == .whisperLarge ? (preciseModelManager ?? modelManager) : modelManager
+        return (try? await manager.hasInstalledModel()) == true
     }
 
     var isInUse: Bool {
@@ -385,16 +418,23 @@ actor WhisperTranscriptionService: RecordingTranscribing {
     }
 
     func reset() async throws {
+        try await reset(.whisperTurbo)
+    }
+
+    /// Removes one Whisper model, letting go of it first if it is loaded.
+    func reset(_ model: ManagedModel) async throws {
         guard !isInUse else { throw ModelOperationError.inUse }
         isResetting = true
         defer { isResetting = false }
-        idleUnloadTask?.cancel()
-        idleUnloadTask = nil
-        if let loadedWhisper {
+        let manager = model == .whisperLarge ? (preciseModelManager ?? modelManager) : modelManager
+        if let loadedWhisper, loadedVariant == manager.variant {
+            idleUnloadTask?.cancel()
+            idleUnloadTask = nil
             self.loadedWhisper = nil
+            loadedVariant = nil
             await loadedWhisper.unloadModels()
         }
-        try await modelManager.reset()
+        try await manager.reset()
     }
 
     func prepareForUse(
@@ -405,23 +445,33 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         defer { endOperation() }
         progress(.init(stage: .checking, fractionCompleted: 0))
         progress(.init(stage: .downloading, fractionCompleted: 0))
+        let chosen = engineChoice()
+        if chosen == .apple, #available(macOS 26.0, *) {
+            try await AppleSpeechTranscriber.prepare { fraction in
+                progress(.init(stage: .downloading, fractionCompleted: Self.clamped(fraction)))
+            }
+            progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
+            return
+        }
+        let modelManager = manager(for: chosen)
         var resources = try await modelManager.ensureResourcesAvailable { fraction in
             progress(.init(stage: .downloading, fractionCompleted: Self.clamped(fraction)))
         }
         progress(.init(stage: .optimizingForMac, fractionCompleted: 0))
         do {
-            _ = try await engine(resources: resources, progress: { _ in })
+            _ = try await engine(resources: resources, variant: modelManager.variant, progress: { _ in })
         } catch {
             // A complete-looking Core ML cache can still be stale or corrupted after an
             // interrupted update. Repair only that private root and retry once.
             try Task.checkCancellation()
             loadedWhisper = nil
+            loadedVariant = nil
             try await modelManager.reset()
             progress(.init(stage: .downloading, fractionCompleted: 0))
             resources = try await modelManager.ensureResourcesAvailable { fraction in
                 progress(.init(stage: .downloading, fractionCompleted: Self.clamped(fraction)))
             }
-            _ = try await engine(resources: resources, progress: { _ in })
+            _ = try await engine(resources: resources, variant: modelManager.variant, progress: { _ in })
         }
         progress(.init(stage: .optimizingForMac, fractionCompleted: 1))
     }
@@ -430,12 +480,15 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         guard !isResetting else { return }
         beginOperation()
         defer { endOperation() }
-        guard loadedWhisper == nil else { return }
+        let chosen = engineChoice()
+        guard chosen != .apple else { return }
+        let modelManager = manager(for: chosen)
+        guard loadedWhisper == nil || loadedVariant != modelManager.variant else { return }
 
         do {
             guard try await modelManager.hasInstalledModel() else { return }
             let resources = try await modelManager.ensureResourcesAvailable()
-            _ = try await engine(resources: resources, progress: { _ in })
+            _ = try await engine(resources: resources, variant: modelManager.variant, progress: { _ in })
         } catch {
             Self.logger.debug("Background Whisper warm-up skipped: \(error.localizedDescription, privacy: .public)")
         }
@@ -546,23 +599,35 @@ actor WhisperTranscriptionService: RecordingTranscribing {
 
         progress(.init(stage: .preparingModel, fractionCompleted: 0))
         Self.logger.notice("Transcription started: \(duration, format: .fixed(precision: 1)) s of audio")
-        let resources = try await modelManager.ensureResourcesAvailable { fraction in
-            progress(.init(stage: .preparingModel, fractionCompleted: Self.clamped(fraction)))
-        }
-        try checkCancellation(cancellation)
-        Self.logger.notice("Transcription resources ready after \(ProcessInfo.processInfo.systemUptime - overallStart, format: .fixed(precision: 1)) s")
+        let chosen = engineChoice()
+        let modelManager = manager(for: chosen)
+        let useApple = chosen == .apple && chosen.isSupported
 
-        let whisper: WhisperKit
-        do {
-            whisper = try await engine(resources: resources, progress: progress)
-        } catch {
-            try checkCancellation(cancellation)
-            loadedWhisper = nil
-            try await modelManager.reset()
-            let repairedResources = try await modelManager.ensureResourcesAvailable { fraction in
+        var loadedEngine: WhisperKit?
+        if useApple {
+            if #available(macOS 26.0, *) {
+                try await AppleSpeechTranscriber.prepare { fraction in
+                    progress(.init(stage: .preparingModel, fractionCompleted: Self.clamped(fraction)))
+                }
+            }
+        } else {
+            let resources = try await modelManager.ensureResourcesAvailable { fraction in
                 progress(.init(stage: .preparingModel, fractionCompleted: Self.clamped(fraction)))
             }
-            whisper = try await engine(resources: repairedResources, progress: progress)
+            try checkCancellation(cancellation)
+            Self.logger.notice("Transcription resources ready after \(ProcessInfo.processInfo.systemUptime - overallStart, format: .fixed(precision: 1)) s")
+            do {
+                loadedEngine = try await engine(resources: resources, variant: modelManager.variant, progress: progress)
+            } catch {
+                try checkCancellation(cancellation)
+                loadedWhisper = nil
+                loadedVariant = nil
+                try await modelManager.reset()
+                let repairedResources = try await modelManager.ensureResourcesAvailable { fraction in
+                    progress(.init(stage: .preparingModel, fractionCompleted: Self.clamped(fraction)))
+                }
+                loadedEngine = try await engine(resources: repairedResources, variant: modelManager.variant, progress: progress)
+            }
         }
         try checkCancellation(cancellation)
         progress(.init(stage: .transcribing, fractionCompleted: 0))
@@ -578,9 +643,9 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         let provisionalRateLimiter = TranscriptionLiveRateLimiter()
         liveUpdate(liveBuffer.snapshot())
 
-        let previousSegmentDiscoveryCallback = whisper.segmentDiscoveryCallback
+        let previousSegmentDiscoveryCallback = loadedEngine?.segmentDiscoveryCallback
         defer {
-            whisper.segmentDiscoveryCallback = previousSegmentDiscoveryCallback
+            loadedEngine?.segmentDiscoveryCallback = previousSegmentDiscoveryCallback
         }
 
         var results: [TranscriptionResult] = []
@@ -608,6 +673,20 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             } else {
                 isEcho = { _ in false }
             }
+
+            if useApple, #available(macOS 26.0, *) {
+                let heard = try await AppleSpeechTranscriber.transcribe(pass) { converted in
+                    let kept = converted.filter { !isEcho($0) }
+                    guard !kept.isEmpty else { return }
+                    let snapshot = liveBuffer.merge(kept)
+                    liveUpdate(snapshot)
+                    progress(.init(stage: .transcribing, fractionCompleted: snapshot.fractionCompleted))
+                }
+                try checkCancellation(cancellation)
+                segmentsBySource[pass.source] = heard
+                continue
+            }
+            guard let whisper = loadedEngine else { throw RecordingTranscriptionError.emptyTranscription }
 
             whisper.segmentDiscoveryCallback = { discoveredSegments in
                 let converted = discoveredSegments
@@ -665,7 +744,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         // Whisper's own label can name the language of an early, nearly silent window;
         // the recognised text says which language the conversation was in.
         let language = Self.dominantLanguage(of: segments) ?? results.lazy.map(\.language).first { !$0.isEmpty }
-        let selection = await modelManager.selectedSelection()
+        let selection = useApple ? TranscriptionEngine.apple.selection : await modelManager.selectedSelection()
         let elapsed = max(0, ProcessInfo.processInfo.systemUptime - overallStart)
         let transcript = Transcript(
             recordingID: recording.id,
@@ -673,7 +752,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             speakers: speakers,
             segments: segments,
             metadata: TranscriptMetadata(
-                engine: "WhisperKit",
+                engine: useApple ? "Apple Speech" : "WhisperKit",
                 engineVersion: Self.engineVersion,
                 modelID: selection.modelID,
                 selection: selection,
@@ -795,18 +874,25 @@ actor WhisperTranscriptionService: RecordingTranscribing {
 
     private func engine(
         resources: TranscriptionModelResources,
+        variant: String,
         progress: @escaping @Sendable (TranscriptionProgressSnapshot) -> Void
     ) async throws -> WhisperKit {
         if let loadedWhisper {
-            progress(.init(stage: .loadingModel, fractionCompleted: 1))
-            return loadedWhisper
+            if loadedVariant == variant {
+                progress(.init(stage: .loadingModel, fractionCompleted: 1))
+                return loadedWhisper
+            }
+            // The other model was chosen: let go of this one before loading it.
+            self.loadedWhisper = nil
+            loadedVariant = nil
+            await loadedWhisper.unloadModels()
         }
 
         progress(.init(stage: .loadingModel, fractionCompleted: 0))
         let loadStart = ProcessInfo.processInfo.systemUptime
         Self.logger.notice("Loading the Whisper model; the first load on a Mac compiles it for the Neural Engine")
         let load: Task<LoadedWhisperEngine, Error>
-        if let engineLoad {
+        if let engineLoad, engineLoadVariant == variant {
             load = engineLoad
         } else {
             let modelFolder = resources.modelFolder.path
@@ -824,6 +910,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                 return LoadedWhisperEngine(try await WhisperKit(config))
             }
             engineLoad = load
+            engineLoadVariant = variant
             Task { [weak self] in
                 let engine = try? await load.value
                 await self?.engineLoadFinished(load, engine: engine)
@@ -844,6 +931,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
         engineLoad = nil
         if let engine, loadedWhisper == nil {
             loadedWhisper = engine.whisper
+            loadedVariant = engineLoadVariant
         }
         if activeOperations == 0, loadedWhisper != nil {
             scheduleIdleUnload()

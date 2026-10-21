@@ -115,6 +115,8 @@ struct BardoModelStore {
         switch model {
         case .whisperTurbo:
             return "whisper-turbo"
+        case .whisperLarge:
+            return "whisper-large-v3"
         case .speakerKit:
             return "speaker-kit"
         }

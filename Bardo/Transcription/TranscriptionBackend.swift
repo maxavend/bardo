@@ -2,10 +2,11 @@ import Foundation
 
 enum TranscriptionBackend: String, Codable, CaseIterable, Sendable {
     case whisperKit
+    case appleSpeech
 }
 
-/// Metadata kept with a transcript. The decoder accepts the old shape so
-/// existing transcripts remain readable, while new transcripts use one engine.
+/// Which engine and model made a transcript. Transcripts from before Bardo offered a
+/// choice decode as Whisper large-v3 Turbo, the one engine there was.
 struct TranscriptionSelection: Codable, Equatable, Sendable {
     let backend: TranscriptionBackend
     let modelID: String
@@ -14,10 +15,8 @@ struct TranscriptionSelection: Codable, Equatable, Sendable {
         backend: TranscriptionBackend = .whisperKit,
         modelID: String = TranscriptionModelManager.modelID
     ) {
-        _ = backend
-        _ = modelID
-        self.backend = .whisperKit
-        self.modelID = TranscriptionModelManager.modelID
+        self.backend = backend
+        self.modelID = modelID
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -27,9 +26,18 @@ struct TranscriptionSelection: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        _ = try container.decodeIfPresent(String.self, forKey: .backend)
-        _ = try container.decodeIfPresent(String.self, forKey: .modelID)
-        self.backend = .whisperKit
-        self.modelID = TranscriptionModelManager.modelID
+        let backend = try container.decodeIfPresent(String.self, forKey: .backend).flatMap(TranscriptionBackend.init(rawValue:))
+        let modelID = try container.decodeIfPresent(String.self, forKey: .modelID)
+        switch backend {
+        case .appleSpeech:
+            self.backend = .appleSpeech
+            self.modelID = modelID ?? TranscriptionEngine.apple.rawValue
+        case .whisperKit where modelID == TranscriptionModelManager.largeModelID:
+            self.backend = .whisperKit
+            self.modelID = TranscriptionModelManager.largeModelID
+        default:
+            self.backend = .whisperKit
+            self.modelID = TranscriptionModelManager.modelID
+        }
     }
 }
