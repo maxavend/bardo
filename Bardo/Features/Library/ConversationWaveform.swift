@@ -333,15 +333,15 @@ struct RecordingWaveform: View {
         }
     }
 
-    /// Dragging moves the audio under the playhead, as in Voice Memos; a click jumps to
-    /// what was clicked.
+    /// Dragging moves the playhead like a slider's knob: to the right is later. A click
+    /// jumps to what was clicked.
     private func scrubGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 guard duration > 0, abs(value.translation.width) > 2 else { return }
                 let origin = scrubOrigin ?? playback.position
                 scrubOrigin = origin
-                playback.seek(to: clamped(origin - Double(value.translation.width / Self.pointsPerSecond)))
+                playback.seek(to: clamped(origin + Double(value.translation.width / Self.pointsPerSecond)))
             }
             .onEnded { value in
                 defer { scrubOrigin = nil }
