@@ -344,7 +344,7 @@ struct LiveConversationWave: View {
         case 0: break
         default: canvas.clip(to: Path(CGRect(x: 0, y: middle + gap, width: size.width, height: middle - gap)))
         }
-        let reach = (direction == 0 ? middle : middle - gap) - 6
+        let reach = middle - gap - 6
         let levels = snapshot.levels
         let newest = size.width - playheadInset - barWidth - 3
         let count = Int(newest / step) + 2
@@ -356,13 +356,13 @@ struct LiveConversationWave: View {
             let height = pow(CGFloat(levels[index]), 2) * reach
             // Room noise leaves the line clean instead of dotting it.
             guard height > 2 else { continue }
-            let rect: CGRect
-            switch direction {
-            case ..<0: rect = CGRect(x: x, y: middle - gap - height, width: barWidth, height: height)
-            case 0: rect = CGRect(x: x, y: middle - height, width: barWidth, height: height * 2)
-            default: rect = CGRect(x: x, y: middle + gap, width: barWidth, height: height)
+            // A single source mirrors on both sides; nothing ever crosses the line.
+            if direction <= 0 {
+                canvas.fill(Path(roundedRect: CGRect(x: x, y: middle - gap - height, width: barWidth, height: height), cornerRadius: barWidth / 2), with: .color(track.tint))
             }
-            canvas.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(track.tint))
+            if direction >= 0 {
+                canvas.fill(Path(roundedRect: CGRect(x: x, y: middle + gap, width: barWidth, height: height), cornerRadius: barWidth / 2), with: .color(track.tint))
+            }
         }
     }
 

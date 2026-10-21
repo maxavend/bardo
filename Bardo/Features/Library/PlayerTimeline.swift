@@ -54,7 +54,7 @@ struct PlayerTimeline: View {
 
     /// The same mapping as the waveform, so labels and dots sit on what it draws.
     private func x(for time: TimeInterval, width: CGFloat) -> CGFloat {
-        RecordingWaveform.x(for: time, at: playback.position, width: width)
+        RecordingWaveform.x(for: time, at: playback.position, duration: duration, width: width)
     }
 
     /// A section on screen; the one already under way keeps its name at the leading
