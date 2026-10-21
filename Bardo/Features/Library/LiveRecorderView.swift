@@ -142,72 +142,92 @@ struct LiveRecorderView: View {
         }
     }
 
-    /// Time, pause and finish on one floating glass bar, like the player's.
+    /// One large red pause button that carries the running time, and Finalizar on its
+    /// own beside it.
     private var controlBar: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             if let warning {
                 Label(warning, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 pauseButton
                 Button(action: stopAction) {
                     Label("Finalizar", systemImage: "stop.fill")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(LiveRecorderButtonStyle(kind: .finish))
                 .help(String(localized: "Stop recording (⌘.)"))
             }
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
-            .padding(.horizontal, 10)
-            .frame(height: BardoLayout.playbackSurfaceHeight)
-            .bardoPlaybackSurface()
         }
         .padding(.horizontal, BardoLayout.playbackHorizontalPadding)
-        .padding(.bottom, BardoLayout.playbackBottomPadding)
+        .padding(.bottom, BardoLayout.playbackBottomPadding + 4)
     }
 
-    /// The main control, as in Voice Memos: red with a white pause symbol and the running
-    /// time while recording; "Reanudar" in red on a soft red capsule while paused.
-    @ViewBuilder
+    /// As in Voice Memos: red with a white pause symbol and the running time while
+    /// recording; "Reanudar" in red on a soft red capsule while paused.
     private var pauseButton: some View {
-        let clock = LiveRecorderClock(meters: tracks.map(\.meter), isPaused: isPaused)
-        if isPaused {
-            Button {
-                resumeAction?()
-            } label: {
-                HStack(spacing: 8) {
+        Button {
+            (isPaused ? resumeAction : pauseAction)?()
+        } label: {
+            HStack(spacing: 10) {
+                if isPaused {
                     Text("Reanudar")
-                        .fontWeight(.semibold)
-                    clock.opacity(0.75)
-                }
-                .padding(.horizontal, 6)
-            }
-            .buttonStyle(.bordered)
-            .tint(.red)
-            .foregroundStyle(.red)
-            .disabled(resumeAction == nil)
-            .help(String(localized: "Resume recording"))
-            .accessibilityLabel(String(localized: "Resume recording"))
-        } else {
-            // A deep red keeps the white label above 4.5:1; the system red does not.
-            Button {
-                pauseAction?()
-            } label: {
-                HStack(spacing: 8) {
+                } else {
                     Image(systemName: "pause.fill")
-                    clock
                 }
-                .padding(.horizontal, 6)
+                LiveRecorderClock(meters: tracks.map(\.meter), isPaused: isPaused)
+                    .opacity(isPaused ? 0.75 : 1)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(BardoColor.stopRecording)
-            .disabled(pauseAction == nil)
-            .help(String(localized: "Pause recording"))
-            .accessibilityLabel(String(localized: "Pause recording"))
         }
+        .buttonStyle(LiveRecorderButtonStyle(kind: isPaused ? .resume : .pause))
+        .disabled((isPaused ? resumeAction : pauseAction) == nil)
+        .help(isPaused ? String(localized: "Resume recording") : String(localized: "Pause recording"))
+        .accessibilityLabel(isPaused ? String(localized: "Resume recording") : String(localized: "Pause recording"))
+    }
+}
+
+/// The recorder's large capsule buttons.
+struct LiveRecorderButtonStyle: ButtonStyle {
+    enum Kind {
+        /// Solid red with white content.
+        case pause
+        /// Red content on a soft red capsule.
+        case resume
+        /// A quiet glass capsule.
+        case finish
+    }
+
+    let kind: Kind
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let label = configuration.label
+            .font(.title3.weight(.semibold))
+            .padding(.horizontal, kind == .finish ? 22 : 28)
+            .frame(height: 52)
+            .contentShape(.capsule)
+
+        Group {
+            switch kind {
+            case .pause:
+                // A deep red keeps the white label above 4.5:1; the system red does not.
+                label
+                    .foregroundStyle(.white)
+                    .background(BardoColor.stopRecording, in: .capsule)
+            case .resume:
+                label
+                    .foregroundStyle(.red)
+                    .background(Color.red.opacity(0.16), in: .capsule)
+            case .finish:
+                label
+                    .bardoGlassCapsule()
+            }
+        }
+        .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.5)
+        .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
