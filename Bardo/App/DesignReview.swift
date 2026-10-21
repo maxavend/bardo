@@ -37,6 +37,19 @@ enum DesignReview {
         isActive && arguments.string(forKey: "BardoDesignAppearance") != nil
     }
 
+    /// `-BardoDesignSetup downloading|optimizing|paused|failed` shows first-run setup in
+    /// that state without touching the models.
+    static var setupState: TranscriptionSetupCoordinator.State? {
+        guard isActive else { return nil }
+        switch arguments.string(forKey: "BardoDesignSetup") {
+        case "downloading": return .installing(.init(stage: .downloading, fractionCompleted: 0.42))
+        case "optimizing": return .installing(.init(stage: .optimizingForMac, fractionCompleted: 1))
+        case "paused": return .cancelled
+        case "failed": return .failed(String(localized: "Bardo could not connect to the internet. Check your connection and try again."))
+        default: return nil
+        }
+    }
+
     /// `-BardoDesignMicrophone <name>` shows that input device instead of the Mac's own.
     static var microphoneName: String? {
         isActive ? arguments.string(forKey: "BardoDesignMicrophone") : nil

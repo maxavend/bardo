@@ -8,6 +8,8 @@ struct BardoLaunchView: View {
         #if DEBUG
         if DesignReview.showsWelcome {
             BardoWelcomeView {}
+        } else if let state = DesignReview.setupState {
+            TranscriptionSetupView(state: state, retry: {}, continueWithoutModels: {})
         } else {
             launchContent
         }
@@ -63,7 +65,6 @@ private struct BardoWelcomeView: View {
                     .resizable()
                     .interpolation(.high)
                     .frame(width: 96, height: 96)
-                    .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
                     .accessibilityHidden(true)
                     .entrance(step: 0, isVisible: isVisible)
 
@@ -72,7 +73,7 @@ private struct BardoWelcomeView: View {
                         .font(.largeTitle.weight(.bold))
                         .multilineTextAlignment(.center)
 
-                    Text(String(localized: "Record or import conversations and turn them into text you can read, search and share."))
+                    Text(String(localized: "Turn conversations into text you can read, search and share."))
                         .font(.title3)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -84,37 +85,38 @@ private struct BardoWelcomeView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     WelcomeFeatureRow(
                         systemImage: "waveform.and.mic",
-                        title: String(localized: "Transcribe conversations"),
-                        detail: String(localized: "Turn recordings into clear text, with the moment of every sentence.")
+                        title: String(localized: "Every word, in its moment"),
+                        detail: String(localized: "Read along as it plays and go back to any sentence.")
                     )
                     .entrance(step: 2, isVisible: isVisible)
 
                     WelcomeFeatureRow(
                         systemImage: "person.2.wave.2",
-                        title: String(localized: "Identify participants"),
-                        detail: String(localized: "Organize conversations by speaker so each voice has its own place.")
+                        title: String(localized: "Who said what"),
+                        detail: String(localized: "Bardo tells each voice in the conversation apart.")
                     )
                     .entrance(step: 3, isVisible: isVisible)
 
                     WelcomeFeatureRow(
                         systemImage: "lock.shield",
-                        title: String(localized: "Everything stays on your Mac"),
-                        detail: String(localized: "Audio and transcripts are processed here and are never sent to an online service.")
+                        title: String(localized: "Private, on your Mac"),
+                        detail: String(localized: "Audio and text never leave this Mac.")
                     )
                     .entrance(step: 4, isVisible: isVisible)
                 }
+                .frame(maxWidth: 420)
                 .padding(.top, 28)
 
                 VStack(spacing: 12) {
                     Button(action: continueAction) {
                         Text(String(localized: "Continue"))
-                            .frame(minWidth: 180)
+                            .padding(.horizontal, 36)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .bardoPrimaryAction()
                     .controlSize(.extraLarge)
                     .keyboardShortcut(.defaultAction)
 
-                    Text(String(localized: "Bardo will download about 650 MB of voice resources so it can work offline."))
+                    Text(String(localized: "Bardo downloads about 650 MB once to transcribe offline."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -123,7 +125,8 @@ private struct BardoWelcomeView: View {
                 .padding(.top, 32)
                 .entrance(step: 5, isVisible: isVisible)
             }
-            .frame(maxWidth: 460)
+            // The welcome line reads on one line; the features keep a narrower column.
+            .frame(maxWidth: 580)
             .padding(.horizontal, 32)
             .padding(.vertical, 32)
             .frame(maxWidth: .infinity)

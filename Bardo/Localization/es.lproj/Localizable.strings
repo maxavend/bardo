@@ -283,10 +283,10 @@
 "The recording metadata is safe, but its audio file is missing." = "La información de la grabación está a salvo, pero falta su archivo de audio.";
 "Bardo left this item untouched for review." = "Bardo dejó este elemento intacto para que puedas revisarlo.";
 "Welcome to" = "Bienvenido a";
-"Transcribe conversations" = "Transcribe tus conversaciones";
+"Every word, in its moment" = "Cada palabra, en su momento";
 "Turn recordings into readable text locally on your Mac." = "Convierte tus grabaciones en texto claro, sin salir de tu Mac.";
-"Identify participants" = "Identifica a los participantes";
-"Organize conversations by speaker so each voice has its own place." = "Separa la conversación por participante para que sea fácil seguir quién dijo qué.";
+"Who said what" = "Quién dijo qué";
+"Bardo tells each voice in the conversation apart." = "Bardo distingue cada voz de la conversación.";
 "Create meeting minutes" = "Crea minutas";
 "Summarize decisions, tasks, and next steps on-device." = "Recoge decisiones, tareas y próximos pasos automáticamente.";
 "Bardo processes your recordings locally on this Mac. Audio, transcripts, and minutes stay on your device." = "Todo ocurre en este Mac: tus grabaciones, transcripciones y minutas no se envían a internet.";
@@ -483,11 +483,11 @@
 
 /* Welcome */
 "Welcome to Bardo" = "Te damos la bienvenida a Bardo";
-"Record or import conversations and turn them into text you can read, search and share." = "Graba o importa conversaciones y conviértelas en texto que puedes leer, buscar y compartir.";
-"Turn recordings into clear text, with the moment of every sentence." = "Convierte tus grabaciones en texto claro, con el momento exacto de cada frase.";
-"Everything stays on your Mac" = "Todo se queda en tu Mac";
-"Audio and transcripts are processed here and are never sent to an online service." = "El audio y las transcripciones se procesan aquí y nunca se envían a un servicio en línea.";
-"Bardo will download about 650 MB of voice resources so it can work offline." = "Bardo descargará unos 650 MB de recursos de voz para poder trabajar sin conexión.";
+"Turn conversations into text you can read, search and share." = "Convierte tus conversaciones en texto que puedes leer, buscar y compartir.";
+"Read along as it plays and go back to any sentence." = "Lee mientras escuchas y vuelve a cualquier frase.";
+"Private, on your Mac" = "Privado, en tu Mac";
+"Audio and text never leave this Mac." = "El audio y el texto nunca salen de este Mac.";
+"Bardo downloads about 650 MB once to transcribe offline." = "Bardo descarga unos 650 MB, una sola vez, para transcribir sin conexión.";
 "That item is no longer in the Library." = "Ese elemento ya no está en la biblioteca.";
 "Bardo did not hear any Mac audio. If something was playing, allow Bardo in System Settings › Privacy & Security › Screen & System Audio Recording." = "Bardo no escuchó audio del Mac. Si algo estaba sonando, permite a Bardo en Ajustes del Sistema › Privacidad y seguridad › Grabación de pantalla y audio del sistema.";
 "Bardo could not listen to the Mac's audio (Core Audio error %d)." = "Bardo no pudo escuchar el audio del Mac (error de Core Audio %d).";

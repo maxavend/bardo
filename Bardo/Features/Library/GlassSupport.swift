@@ -26,6 +26,27 @@ extension View {
         }
     }
 
+    /// A screen's one main action: prominent Liquid Glass on macOS 26 and later,
+    /// the bordered prominent button before.
+    @ViewBuilder
+    func bardoPrimaryAction() -> some View {
+        if #available(macOS 26.0, *) {
+            buttonStyle(.glassProminent)
+        } else {
+            buttonStyle(.borderedProminent)
+        }
+    }
+
+    /// A screen's other actions, in clear Liquid Glass beside the main one.
+    @ViewBuilder
+    func bardoSecondaryAction() -> some View {
+        if #available(macOS 26.0, *) {
+            buttonStyle(.glass)
+        } else {
+            buttonStyle(.bordered)
+        }
+    }
+
     /// A full-radius glass surface for floating status, such as an active recording.
     @ViewBuilder
     func bardoGlassCapsule() -> some View {

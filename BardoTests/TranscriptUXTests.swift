@@ -22,35 +22,29 @@ final class TranscriptUXTests: XCTestCase {
     }
 
     func testSetupCopyUsesPlainSpanishForTheFirstRun() {
-        XCTAssertEqual(TranscriptionSetupCopy.title(for: .listening), "Preparando Bardo")
+        XCTAssertEqual(TranscriptionSetupCopy.title(for: .listening), "Preparando la transcripción")
         XCTAssertEqual(
             TranscriptionSetupCopy.detail(for: .listening),
-            "Estamos preparando todo para que puedas empezar."
+            "Solo ocurre una vez. Después, Bardo transcribe sin conexión."
         )
-        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .listening), "Preparando el reconocimiento de voz…")
         XCTAssertEqual(TranscriptionSetupCopy.cancelButton, "Pausar")
-        XCTAssertEqual(TranscriptionSetupCopy.footer, "Esto solo ocurre una vez. Después, Bardo estará listo para ti.")
     }
 
-    func testEachSetupStageHasRotatingMessages() {
-        for stage in TranscriptionSetupCopy.Stage.allCases {
-            XCTAssertGreaterThanOrEqual(
-                TranscriptionSetupCopy.messages(for: stage).count,
-                3,
-                "Stage \(stage) should have enough messages to feel alive"
-            )
-        }
+    func testSetupKeepsOneHeadlineAndNamesEachStepUnderTheBar() {
+        let activeStages: [TranscriptionSetupCopy.Stage] = [
+            .checking, .listening, .settling, .meetingVoices, .welcomingVoices, .namingVoices
+        ]
+        XCTAssertEqual(Set(activeStages.map(TranscriptionSetupCopy.title(for:))).count, 1)
+        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .listening), "Reconocimiento de voz")
+        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .welcomingVoices), "Identificación de participantes")
     }
 
-    func testFirstRunProgressCopyCoversTranscriptionAndSpeakerPreparation() {
-        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .listening), "Preparando el reconocimiento de voz…")
-        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .welcomingVoices), "Organizando las voces…")
-
-        for stage in [
-            TranscriptionSetupCopy.Stage.listening,
-            .welcomingVoices
-        ] {
-            XCTAssertGreaterThanOrEqual(TranscriptionSetupCopy.messages(for: stage).count, 3)
+    func testSetupCopyNeverSpeaksAsWe() {
+        for copy in TranscriptionSetupCopy.allVisibleCopy {
+            let words = copy.lowercased().split { !$0.isLetter }
+            for we in ["estamos", "pudimos", "nosotros", "volveremos", "aseguramos", "terminamos"] {
+                XCTAssertFalse(words.contains(Substring(we)), "“\(copy)” speaks as “we”")
+            }
         }
     }
 
