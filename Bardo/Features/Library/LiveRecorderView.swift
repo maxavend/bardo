@@ -152,13 +152,15 @@ struct LiveRecorderView: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            HStack(spacing: 12) {
-                pauseButton
-                Button(action: stopAction) {
-                    Label("Finalizar", systemImage: "stop.fill")
+            LiveRecorderGlassGroup {
+                HStack(spacing: 12) {
+                    pauseButton
+                    Button(action: stopAction) {
+                        Label("Finalizar", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(LiveRecorderButtonStyle(kind: .finish))
+                    .help(String(localized: "Stop recording (⌘.)"))
                 }
-                .buttonStyle(LiveRecorderButtonStyle(kind: .finish))
-                .help(String(localized: "Stop recording (⌘.)"))
             }
         }
         .padding(.horizontal, BardoLayout.playbackHorizontalPadding)
@@ -216,18 +218,45 @@ struct LiveRecorderButtonStyle: ButtonStyle {
                 // A deep red keeps the white label above 4.5:1; the system red does not.
                 label
                     .foregroundStyle(.white)
-                    .background(BardoColor.stopRecording, in: .capsule)
+                    .liveRecorderGlass(tint: BardoColor.stopRecording, fallback: BardoColor.stopRecording)
             case .resume:
                 label
                     .foregroundStyle(.red)
-                    .background(Color.red.opacity(0.16), in: .capsule)
+                    .liveRecorderGlass(tint: .red.opacity(0.22), fallback: Color.red.opacity(0.16))
             case .finish:
                 label
-                    .bardoGlassCapsule()
+                    .liveRecorderGlass(tint: nil, fallback: .regularMaterial)
             }
         }
-        .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.5)
+        .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1) : 0.5)
         .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+private extension View {
+    /// Liquid Glass that reacts to the pointer, tinted when `tint` is set; a plain
+    /// capsule of `fallback` before macOS 26.
+    @ViewBuilder
+    func liveRecorderGlass(tint: Color?, fallback: some ShapeStyle) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect((tint.map { Glass.regular.tint($0) } ?? .regular).interactive(), in: .capsule)
+        } else {
+            background(fallback, in: .capsule)
+                .overlay { Capsule().stroke(.separator.opacity(0.3), lineWidth: 0.5) }
+        }
+    }
+}
+
+/// Lets the recorder's glass buttons render and blend as one group on macOS 26.
+private struct LiveRecorderGlassGroup<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer(spacing: 12) { content }
+        } else {
+            content
+        }
     }
 }
 
