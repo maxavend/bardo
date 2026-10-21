@@ -95,12 +95,12 @@ extension View {
 
     /// A bar pinned above a scrolling document, with the same scroll-edge treatment as
     /// `bardoBottomBar` on macOS 26 and a plain material before that.
-    /// The system's own edge under the top bars is replaced by `ProgressiveBackdrop`,
-    /// which fades out instead of ending at a line.
+    /// Content scrolling under the top bars blurs away progressively, with the system's
+    /// soft scroll edge, rather than being cut at a line. Applied to the scroll view itself.
     @ViewBuilder
     func bardoSoftTopEdge() -> some View {
         if #available(macOS 26.0, *) {
-            scrollEdgeEffectHidden(true, for: .top)
+            scrollEdgeEffectStyle(.soft, for: .top)
         } else {
             self
         }
@@ -123,34 +123,4 @@ extension View {
     // .searchable(..., placement: .toolbar) or bridge to NSSearchToolbarItem
     // when explicit collapsed/expanded AppKit behavior is required.
 
-}
-
-/// A frosted backdrop for a bar at the top that reaches `fadeLength` past the bar and
-/// fades out over it: what scrolls beneath is blurred under the bar and comes back into
-/// focus gradually below it.
-struct ProgressiveBackdrop: View {
-    let fadeLength: CGFloat
-
-    var body: some View {
-        GeometryReader { proxy in
-            let height = proxy.size.height + fadeLength
-            Rectangle()
-                .fill(.bar)
-                .frame(height: height)
-                .mask {
-                    LinearGradient(
-                        stops: [
-                            .init(color: .black, location: 0),
-                            .init(color: .black, location: proxy.size.height / height * 0.75),
-                            .init(color: .black.opacity(0.45), location: proxy.size.height / height),
-                            .init(color: .clear, location: 1)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
-                .ignoresSafeArea(edges: .top)
-                .allowsHitTesting(false)
-        }
-    }
 }

@@ -68,6 +68,7 @@ struct TranscriptContentView: View {
                 .padding(.bottom, BardoSpacing.section)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
+            .bardoSoftTopEdge()
             .onScrollPhaseChange { _, phase in
                 if phase == .tracking || phase == .interacting {
                     followsLiveTranscription = false
@@ -127,17 +128,16 @@ struct TranscriptContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .bardoSoftTopEdge()
-        .bardoTopBar {
-            if isTranscribingThisRecording && hasLiveText {
-                transcriptionLiveStatus
-                    .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
-                    .padding(.horizontal, BardoSpacing.detailHorizontal)
-                    .padding(.top, 4)
-                    .padding(.bottom, 24)
-                    .frame(maxWidth: .infinity)
-            }
-        }
+        // A bar only while there is live status to show: an empty one would still draw
+        // its own hard edge over the title's soft one.
+        .modifier(LiveStatusBar(isShown: isTranscribingThisRecording && hasLiveText) {
+            transcriptionLiveStatus
+                .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
+                .padding(.horizontal, BardoSpacing.detailHorizontal)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity)
+        })
     }
 
     @ViewBuilder
@@ -608,6 +608,20 @@ private struct ParticipantAvatars: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// Pins live transcription status above the transcript, and adds no bar otherwise.
+private struct LiveStatusBar<Status: View>: ViewModifier {
+    let isShown: Bool
+    @ViewBuilder let status: () -> Status
+
+    func body(content: Content) -> some View {
+        if isShown {
+            content.bardoTopBar(status)
+        } else {
+            content
+        }
     }
 }
 

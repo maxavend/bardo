@@ -36,8 +36,7 @@ struct RecordingDetailView: View {
             bottomContentInset: playbackContentInset
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // The title is a bar the transcript scrolls under. Its frosted backdrop reaches
-        // past it and fades out, so text blurs away gradually instead of being cut.
+        // The title is a bar the transcript scrolls under, softly blurring away.
         .bardoTopBar {
             RecordingDocumentHeader(recording: recording)
                 .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
@@ -45,8 +44,8 @@ struct RecordingDetailView: View {
                 .padding(.top, BardoSpacing.section)
                 .padding(.bottom, 12)
                 .frame(maxWidth: .infinity, alignment: .top)
-                .background(alignment: .top) { ProgressiveBackdrop(fadeLength: 36) }
         }
+        .bardoSoftTopEdge()
         .toolbar {
             // One item per control, so a menu or the share picker opens under its own
             // button instead of the middle of the group. Adjacent items still share one
