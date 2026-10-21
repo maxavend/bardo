@@ -44,3 +44,41 @@ extension String {
         return trimmed.isEmpty ? nil : trimmed
     }
 }
+
+extension Transcript {
+    /// The transcript with everything `sourceID` said given to `targetID`, for one person
+    /// that was told apart as two. You on the microphone always stay you, and a name
+    /// someone typed is kept when the other has none.
+    func mergingSpeaker(_ sourceID: Speaker.ID, into targetID: Speaker.ID) -> Transcript {
+        guard sourceID != targetID,
+              let source = speakers.first(where: { $0.id == sourceID }),
+              let target = speakers.first(where: { $0.id == targetID }) else { return self }
+        let (kept, removed) = source.role == .localUser && target.role != .localUser
+            ? (source, target)
+            : (target, source)
+
+        var merged = self
+        if let index = merged.speakers.firstIndex(where: { $0.id == kept.id }),
+           kept.name?.nonEmptyTrimmed == nil {
+            merged.speakers[index].name = removed.name?.nonEmptyTrimmed
+        }
+        for index in merged.segments.indices where merged.segments[index].speakerID == removed.id {
+            merged.segments[index].speakerID = kept.id
+        }
+        merged.speakers.removeAll { $0.id == removed.id }
+        return merged
+    }
+
+    /// Participants given the same name, which are most likely one person.
+    func speakersSharingAName(_ names: [Speaker.ID: String]) -> [[Speaker.ID]] {
+        var groups: [String: [Speaker.ID]] = [:]
+        var order: [String] = []
+        for speaker in speakers {
+            guard let name = (names[speaker.id] ?? speaker.name)?.nonEmptyTrimmed else { continue }
+            let key = name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(speaker.id)
+        }
+        return order.compactMap { groups[$0] }.filter { $0.count > 1 }
+    }
+}

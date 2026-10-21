@@ -9,10 +9,17 @@ struct RootView: View {
     @StateObject private var library = LibraryViewModel()
     @StateObject private var microphone = MicrophoneRecordingController()
     @StateObject private var systemAudio = SystemAudioRecordingController()
+    @StateObject private var audioDevices = AudioDeviceCatalog()
+    /// The recorder alone in the window, with the sidebar and list hidden.
+    @State private var isFocusMode = false
     @State private var isRecoveryPresented = false
     @State private var isRecordingSetupPresented = false
     #if DEBUG
     @State private var previewsRecordingBanner = false
+    @State private var previewMeters: LiveAudioMeter.DesignPreview?
+    @State private var previewsPausedRecorder = false
+    @State private var previewsMutedRecorder = false
+    @State private var previewNotes = RecordingNotes()
     #endif
 
     init(
@@ -28,6 +35,8 @@ struct RootView: View {
             model: library,
             captureMenu: AnyView(captureMenuButton),
             activeCaptureBanner: activeCaptureBanner,
+            liveRecorder: liveRecorder,
+            isFocusMode: isFocusMode,
             onNewRecording: presentRecordingSetup
         )
             .task {
@@ -113,11 +122,22 @@ struct RootView: View {
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.pauseRecording)) { _ in
                 if microphone.phase == .recording {
                     microphone.pause()
+                } else {
+                    systemAudio.pause()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.resumeRecording)) { _ in
                 if microphone.phase == .paused {
                     microphone.resume()
+                } else {
+                    systemAudio.resume()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.toggleMicrophoneMute)) { _ in
+                if microphone.canMute {
+                    microphone.toggleMute()
+                } else {
+                    systemAudio.toggleMicrophoneMute()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.stopRecording)) { _ in
@@ -133,12 +153,57 @@ struct RootView: View {
             .onDesignReviewCommand { step in
                 if step.action == "recovery" { isRecoveryPresented = true }
                 if step.action == "recordingBanner" { previewsRecordingBanner = true }
+                if step.action == "liveRecorder" {
+                    library.selection = nil
+                    previewMeters = LiveAudioMeter.DesignPreview(mutedTail: step.value.contains("muted") ? 7 : 0)
+                    if step.value.contains("notes") {
+                        var notes = RecordingNotes()
+                        notes.addSection(at: 3, title: "Planificación")
+                        notes.addMoment(at: 6.5, title: "Fecha de lanzamiento", note: "Definir con Diego antes del jueves")
+                        notes.addMoment(at: 11, title: "", note: nil)
+                        previewNotes = notes
+                    }
+                    isFocusMode = step.value.contains("focus")
+                    previewsPausedRecorder = step.value.contains("paused")
+                    previewsMutedRecorder = step.value.contains("muted")
+                }
+                if step.action == "markMoment" { NotificationCenter.default.post(name: LiveRecorderCommand.newMoment, object: nil) }
+                if step.action == "startSection" { NotificationCenter.default.post(name: LiveRecorderCommand.newSection, object: nil) }
                 if step.action == "record" {
                     Task { await startSystemRecording(includeMicrophone: step.value == "conversation", title: "Prueba de audio") }
                 }
                 if step.action == "stopRecording" { Task { await stopSystemRecording() } }
             }
             #endif
+            // A new recording opens in the detail column, as in Voice Memos.
+            .onChange(of: isLiveRecording) { _, isRecording in
+                if isRecording {
+                    library.selection = nil
+                    audioDevices.startObserving()
+                } else {
+                    audioDevices.stopObserving()
+                    isFocusMode = false
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.markMoment)) { _ in
+                // On screen, the recorder opens its note; elsewhere the moment is just marked.
+                if library.selection == nil {
+                    NotificationCenter.default.post(name: LiveRecorderCommand.newMoment, object: nil)
+                } else if microphone.isBusy {
+                    microphone.addMoment(at: microphone.recordingPosition, title: "", note: nil)
+                } else {
+                    systemAudio.addMoment(at: systemAudio.recordingPosition, title: "", note: nil)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.startSection)) { _ in
+                if library.selection == nil {
+                    NotificationCenter.default.post(name: LiveRecorderCommand.newSection, object: nil)
+                } else if microphone.isBusy {
+                    microphone.addSection(at: microphone.recordingPosition, title: "")
+                } else {
+                    systemAudio.addSection(at: systemAudio.recordingPosition, title: "")
+                }
+            }
             .onDisappear {
                 Task {
                     if microphone.requiresTerminationFinalization {
@@ -156,10 +221,140 @@ struct RootView: View {
     private var captureCommandState: BardoCaptureCommandState {
         BardoCaptureCommandState(
             canStart: !microphone.isBusy && !systemAudio.isBusy,
-            canPause: microphone.phase == .recording,
-            canResume: microphone.phase == .paused,
-            canStop: microphone.phase == .recording || microphone.phase == .paused || systemAudio.isRecording
+            canPause: microphone.phase == .recording || systemAudio.canPause,
+            canResume: microphone.phase == .paused || systemAudio.canResume,
+            canStop: microphone.phase == .recording || microphone.phase == .paused || systemAudio.isRecording,
+            canMute: microphone.canMute || systemAudio.canMuteMicrophone,
+            isMuted: microphone.isMuted || systemAudio.isMicrophoneMuted,
+            canMark: isLiveRecording
         )
+    }
+
+    private var isLiveRecording: Bool {
+        microphone.phase == .recording || microphone.phase == .paused || systemAudio.isRecording
+    }
+
+    /// The recording in progress, with a live waveform for each source.
+    private var liveRecorder: AnyView? {
+        #if DEBUG
+        if let previewMeters {
+            return AnyView(LiveRecorderView(
+                title: "Revisión semanal del equipo",
+                subtitle: liveSubtitle(startedAt: .now, sources: [.microphone, .systemAudio]),
+                tracks: [
+                    .system(previewMeters.system),
+                    .microphone(
+                        previewMeters.microphone,
+                        device: DesignReview.microphoneName,
+                        choice: LiveMicrophoneChoice(devices: audioDevices.inputs, selectedUID: audioDevices.inputs.first?.uid) { _ in }
+                    )
+                ],
+                isPaused: previewsPausedRecorder,
+                pauseAction: {},
+                resumeAction: {},
+                isMicrophoneMuted: previewsMutedRecorder,
+                muteAction: {},
+                notes: previewNotes,
+                actions: LiveRecorderActions(
+                    position: { previewMeters.microphone.snapshot.duration },
+                    addMoment: { time in previewNotes.addMoment(at: time, title: "", note: nil) },
+                    editMoment: { id, title, note in previewNotes.editMoment(id, title: title, note: note) },
+                    removeMoment: { previewNotes.removeMoment($0) },
+                    addSection: { time in previewNotes.addSection(at: time, title: "") },
+                    renameSection: { id, title in previewNotes.renameSection(id, to: title) },
+                    removeSection: { previewNotes.removeSection($0) },
+                    rename: { _ in },
+                    discard: {},
+                    isFocused: isFocusMode,
+                    toggleFocus: { isFocusMode.toggle() }
+                ),
+                stopAction: {}
+            ))
+        }
+        #endif
+        if microphone.phase == .recording || microphone.phase == .paused, let meter = microphone.meter {
+            return AnyView(LiveRecorderView(
+                title: microphone.activeTitle ?? "Nueva grabación",
+                subtitle: liveSubtitle(startedAt: microphone.startedAt, sources: [.microphone]),
+                tracks: [.microphone(
+                    meter,
+                    device: microphone.inputDisplayName,
+                    choice: LiveMicrophoneChoice(devices: audioDevices.inputs, selectedUID: microphone.inputDeviceUID) { device in
+                        microphone.switchInput(to: device)
+                    }
+                )],
+                isPaused: microphone.phase == .paused,
+                pauseAction: { microphone.pause() },
+                resumeAction: { microphone.resume() },
+                isMicrophoneMuted: microphone.isMuted,
+                muteAction: microphone.canMute ? { microphone.toggleMute() } : nil,
+                notes: microphone.notes,
+                actions: LiveRecorderActions(
+                    position: { microphone.recordingPosition },
+                    addMoment: { microphone.addMoment(at: $0, title: "", note: nil) },
+                    editMoment: { microphone.editMoment($0, title: $1, note: $2) },
+                    removeMoment: { microphone.removeMoment($0) },
+                    addSection: { microphone.addSection(at: $0, title: "") },
+                    renameSection: { microphone.renameSection($0, to: $1) },
+                    removeSection: { microphone.removeSection($0) },
+                    rename: { microphone.renameActiveRecording(to: $0) },
+                    discard: { Task { await microphone.discard() } },
+                    isFocused: isFocusMode,
+                    toggleFocus: { isFocusMode.toggle() }
+                ),
+                stopAction: { Task { await stopMicrophoneRecording() } }
+            ))
+        }
+        guard systemAudio.isRecording else { return nil }
+        // The Mac's audio above the line, your microphone below it.
+        var tracks: [LiveRecorderTrack] = []
+        if let meter = systemAudio.systemMeter {
+            tracks.append(.system(meter))
+        }
+        if let meter = systemAudio.microphoneMeter {
+            tracks.append(.microphone(
+                meter,
+                device: systemAudio.microphoneName,
+                choice: LiveMicrophoneChoice(devices: audioDevices.inputs, selectedUID: systemAudio.microphoneDeviceUID) { device in
+                    systemAudio.switchMicrophone(to: device)
+                }
+            ))
+        }
+        guard !tracks.isEmpty else { return nil }
+        return AnyView(LiveRecorderView(
+            title: systemAudio.activeTitle ?? "Nueva grabación",
+            subtitle: liveSubtitle(
+                startedAt: systemAudio.startedAt,
+                sources: systemAudio.includesMicrophone ? [.microphone, .systemAudio] : [.systemAudio]
+            ),
+            tracks: tracks,
+            isPaused: systemAudio.isPaused,
+            warning: systemAudio.captureWarning,
+            pauseAction: systemAudio.canPause ? { systemAudio.pause() } : nil,
+            resumeAction: systemAudio.canResume ? { systemAudio.resume() } : nil,
+            isMicrophoneMuted: systemAudio.isMicrophoneMuted,
+            muteAction: systemAudio.canMuteMicrophone ? { systemAudio.toggleMicrophoneMute() } : nil,
+            notes: systemAudio.notes,
+            actions: LiveRecorderActions(
+                position: { systemAudio.recordingPosition },
+                addMoment: { systemAudio.addMoment(at: $0, title: "", note: nil) },
+                editMoment: { systemAudio.editMoment($0, title: $1, note: $2) },
+                removeMoment: { systemAudio.removeMoment($0) },
+                addSection: { systemAudio.addSection(at: $0, title: "") },
+                renameSection: { systemAudio.renameSection($0, to: $1) },
+                removeSection: { systemAudio.removeSection($0) },
+                rename: { systemAudio.renameActiveRecording(to: $0) },
+                discard: { Task { await systemAudio.discard() } },
+                isFocused: isFocusMode,
+                toggleFocus: { isFocusMode.toggle() }
+            ),
+            stopAction: { Task { await stopSystemRecording() } }
+        ))
+    }
+
+    private func liveSubtitle(startedAt: Date?, sources: Set<AudioSource>) -> String {
+        let start = (startedAt ?? .now).formatted(.dateTime.day().month(.wide).hour().minute())
+        return "\(start) · \(LibraryFormatting.source(sources))"
     }
 
     private var activeCaptureBanner: AnyView? {
@@ -212,6 +407,7 @@ struct RootView: View {
                 duration: microphone.elapsedTime,
                 inputLevel: microphone.inputLevel,
                 pauseAction: { microphone.pause() },
+                showAction: { library.selection = nil },
                 stopAction: {
                     Task { await stopMicrophoneRecording() }
                 }
@@ -223,6 +419,7 @@ struct RootView: View {
                 duration: microphone.elapsedTime,
                 inputLevel: 0,
                 resumeAction: { microphone.resume() },
+                showAction: { library.selection = nil },
                 stopAction: {
                     Task { await stopMicrophoneRecording() }
                 }
@@ -260,12 +457,17 @@ struct RootView: View {
             )
         case .recording:
             activeRecordingPill(
-                title: "Grabando",
-                detail: systemAudio.captureWarning ?? (systemAudio.includesMicrophone
-                    ? "Tu voz y el audio del Mac se están guardando por separado."
-                    : "Todo lo que suena en el Mac se está guardando."),
+                title: systemAudio.isPaused ? "Grabación en pausa" : "Grabando",
+                detail: systemAudio.captureWarning ?? (systemAudio.isPaused
+                    ? "Reanuda cuando quieras continuar."
+                    : systemAudio.includesMicrophone
+                        ? "Tu voz y el audio del Mac se están guardando por separado."
+                        : "Todo lo que suena en el Mac se está guardando."),
                 duration: systemAudio.elapsedTime,
                 isWarning: systemAudio.captureWarning != nil,
+                pauseAction: systemAudio.canPause ? { systemAudio.pause() } : nil,
+                resumeAction: systemAudio.canResume ? { systemAudio.resume() } : nil,
+                showAction: { library.selection = nil },
                 stopAction: {
                     Task { await stopSystemRecording() }
                 }
@@ -275,6 +477,7 @@ struct RootView: View {
                 title: "Grabando · elige otra fuente",
                 detail: "La grabación continúa mientras eliges otro contenido.",
                 duration: systemAudio.elapsedTime,
+                showAction: { library.selection = nil },
                 stopAction: {
                     Task { await stopSystemRecording() }
                 }
@@ -333,6 +536,7 @@ struct RootView: View {
         isWarning: Bool = false,
         pauseAction: (() -> Void)? = nil,
         resumeAction: (() -> Void)? = nil,
+        showAction: (() -> Void)? = nil,
         stopAction: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 12) {
@@ -361,6 +565,16 @@ struct RootView: View {
                 }
 
                 Spacer(minLength: 16)
+
+                if let showAction {
+                    // An icon keeps room for the title and time beside a selected
+                    // conversation; the label still names it for VoiceOver.
+                    Button(action: showAction) {
+                        Label("Ver grabación", systemImage: "waveform")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Ver la grabación en curso")
+                }
 
                 if let pauseAction {
                     Button(action: pauseAction) {

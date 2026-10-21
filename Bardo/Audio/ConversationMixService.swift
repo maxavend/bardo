@@ -13,6 +13,8 @@ protocol ConversationMixing: Sendable {
 
 struct AVFoundationConversationMixer: ConversationMixing {
     private let metadataReader = AudioMetadataReader()
+    /// The mix is AAC at the quality chosen in Settings, read when it is made.
+    var encoding: @Sendable () -> AudioEncoding = { AudioEncodingPreferences.current() }
 
     func makeMix(
         systemURL: URL,
@@ -63,18 +65,16 @@ struct AVFoundationConversationMixer: ConversationMixing {
         let audioMix = AVMutableAudioMix()
         audioMix.inputParameters = [systemParameters, microphoneParameters]
 
-        guard let exporter = AVAssetExportSession(
-            asset: composition,
-            presetName: AVAssetExportPresetAppleM4A
-        ) else {
-            throw ConversationMixError.couldNotCreateExporter
-        }
-        exporter.audioMix = audioMix
-
         try? FileManager.default.removeItem(at: outputURL)
         do {
-            try await exporter.export(to: outputURL, as: .m4a)
+            try await MixRenderer.render(
+                composition,
+                audioMix: audioMix,
+                to: outputURL,
+                settings: encoding().mixSettings
+            )
         } catch {
+            try? FileManager.default.removeItem(at: outputURL)
             throw ConversationMixError.exportFailed(error.localizedDescription)
         }
 
@@ -98,6 +98,90 @@ enum ConversationMixError: Error, LocalizedError, Equatable, Sendable {
             return String(localized: "Bardo could not create an audio-only M4A exporter.")
         case .exportFailed(let message):
             return String(localized: "Bardo could not generate the conversation mix: \(message)")
+        }
+    }
+}
+
+/// Reads the composition through its mix and writes it in one pass, so the mix lands
+/// directly at the chosen quality.
+private final class MixRenderer: @unchecked Sendable {
+    private let reader: AVAssetReader
+    private let output: AVAssetReaderAudioMixOutput
+    private let writer: AVAssetWriter
+    private let input: AVAssetWriterInput
+    private let queue = DispatchQueue(label: "com.maxavend.bardo.mix")
+
+    private init(
+        reader: AVAssetReader,
+        output: AVAssetReaderAudioMixOutput,
+        writer: AVAssetWriter,
+        input: AVAssetWriterInput
+    ) {
+        self.reader = reader
+        self.output = output
+        self.writer = writer
+        self.input = input
+    }
+
+    static func render(
+        _ composition: AVComposition,
+        audioMix: AVAudioMix,
+        to outputURL: URL,
+        settings: [String: Any]
+    ) async throws {
+        let tracks = try await composition.loadTracks(withMediaType: .audio)
+        let reader = try AVAssetReader(asset: composition)
+        let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 48_000,
+            AVNumberOfChannelsKey: 2,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
+        ])
+        output.audioMix = audioMix
+        guard reader.canAdd(output) else { throw ConversationMixError.couldNotCreateExporter }
+        reader.add(output)
+
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .m4a)
+        let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+        input.expectsMediaDataInRealTime = false
+        guard writer.canAdd(input) else { throw ConversationMixError.couldNotCreateExporter }
+        writer.add(input)
+
+        try await MixRenderer(reader: reader, output: output, writer: writer, input: input).run()
+    }
+
+    private func run() async throws {
+        guard reader.startReading() else {
+            throw reader.error ?? ConversationMixError.couldNotCreateExporter
+        }
+        guard writer.startWriting() else {
+            reader.cancelReading()
+            throw writer.error ?? ConversationMixError.couldNotCreateExporter
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            input.requestMediaDataWhenReady(on: queue) { [self] in
+                while input.isReadyForMoreMediaData {
+                    guard let buffer = output.copyNextSampleBuffer(), input.append(buffer) else {
+                        input.markAsFinished()
+                        continuation.resume()
+                        return
+                    }
+                }
+            }
+        }
+
+        if reader.status == .failed {
+            writer.cancelWriting()
+            throw reader.error ?? ConversationMixError.couldNotCreateExporter
+        }
+        await writer.finishWriting()
+        guard writer.status == .completed else {
+            throw writer.error ?? ConversationMixError.couldNotCreateExporter
         }
     }
 }

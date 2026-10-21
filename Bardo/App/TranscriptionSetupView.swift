@@ -13,112 +13,53 @@ enum TranscriptionSetupCopy {
         case failed
     }
 
+    /// One title for the whole download, so the screen doesn't change its headline
+    /// at every step; the step itself is named under the progress bar.
     static func title(for stage: Stage) -> String {
         switch stage {
-        case .checking: return "Preparando Bardo"
-        case .listening: return "Preparando Bardo"
-        case .settling: return "Bardo está terminando de preparar la voz"
-        case .meetingVoices: return "Preparando la identificación de participantes"
-        case .welcomingVoices: return "Bardo está organizando las voces"
-        case .namingVoices: return "Bardo está ordenando la conversación"
+        case .checking, .listening, .settling, .meetingVoices, .welcomingVoices, .namingVoices:
+            return "Preparando la transcripción"
         case .ready: return "Bardo está listo"
-        case .paused: return "Puedes continuar después"
-        case .failed: return "Algo salió mal"
+        case .paused: return "Descarga en pausa"
+        case .failed: return "No se pudo completar la descarga"
         }
     }
 
     static func detail(for stage: Stage) -> String {
         switch stage {
-        case .checking: return "Estamos revisando que todo esté listo."
-        case .listening: return "Estamos preparando todo para que puedas empezar."
-        case .settling: return "Estamos dejando listo el reconocimiento de voz."
-        case .meetingVoices: return "Estamos preparando la identificación de participantes."
-        case .welcomingVoices: return "Cada voz tendrá su propio espacio."
-        case .namingVoices: return "Estamos ordenando quién dijo cada cosa."
-        case .ready: return "La transcripción se procesa de forma privada en este Mac."
-        case .paused: return "Tu progreso está guardado y podrás retomarlo después."
-        case .failed: return "No pudimos terminar. Inténtalo de nuevo cuando quieras."
+        case .checking, .listening, .settling, .meetingVoices, .welcomingVoices, .namingVoices:
+            return "Solo ocurre una vez. Después, Bardo transcribe sin conexión."
+        case .ready: return "Ya puedes transcribir sin conexión."
+        case .paused: return "Lo descargado se guarda. Reanuda cuando quieras."
+        case .failed: return "Comprueba tu conexión a internet e inténtalo de nuevo."
         }
     }
 
+    /// What is happening now, named plainly under the progress bar.
     static func stageLabel(for stage: Stage) -> String {
         switch stage {
-        case .checking: return "Revisando…"
-        case .listening: return "Preparando el reconocimiento de voz…"
-        case .settling: return "Terminando de preparar la voz…"
-        case .meetingVoices: return "Preparando participantes…"
-        case .welcomingVoices: return "Organizando las voces…"
-        case .namingVoices: return "Ordenando la conversación…"
+        case .checking, .meetingVoices: return "Comprobando…"
+        case .listening: return "Reconocimiento de voz"
+        case .welcomingVoices: return "Identificación de participantes"
+        case .settling, .namingVoices: return "Optimizando para este Mac…"
         case .ready: return "Listo"
         case .paused: return "En pausa"
-        case .failed: return "Necesita otro intento"
-        }
-    }
-
-    static func messages(for stage: Stage) -> [String] {
-        switch stage {
-        case .checking:
-            return [
-                "Comprobando que todo esté en su sitio.",
-                "Buscando lo necesario para empezar.",
-                "Dejando listo lo importante para después."
-            ]
-        case .listening:
-            return [
-                "Preparando el reconocimiento de voz.",
-                "Dejando todo listo para escuchar.",
-                "Bardo está aprendiendo a reconocer voces.",
-                "La parte silenciosa está avanzando.",
-                "Ya falta menos para empezar."
-            ]
-        case .settling:
-            return [
-                "Terminando de preparar el reconocimiento de voz.",
-                "Bardo está ajustando los últimos detalles.",
-                "Un momento más y esta parte estará lista.",
-                "Ya casi terminamos con la voz.",
-                "Todo está tomando su lugar."
-            ]
-        case .meetingVoices:
-            return [
-                "Preparando un lugar para cada participante.",
-                "Nos aseguramos de incluir todas las voces.",
-                "Bardo está identificando quién participa."
-            ]
-        case .welcomingVoices:
-            return [
-                "Organizando cada voz de la conversación.",
-                "Dando a cada participante su propio espacio.",
-                "Todo se procesa de forma privada en este Mac."
-            ]
-        case .namingVoices:
-            return [
-                "Ordenando quién dijo cada cosa.",
-                "Colocando cada voz en el lugar correcto.",
-                "Terminando de organizar la conversación."
-            ]
-        case .ready:
-            return ["Listo cuando tú quieras.", "Todo está preparado.", "Bardo ya puede empezar."]
-        case .paused:
-            return ["Tu progreso está guardado.", "Podrás continuar cuando quieras.", "Bardo estará aquí."]
-        case .failed:
-            return ["No se perdió nada.", "Puedes intentarlo otra vez.", "Volveremos a empezar desde aquí."]
+        case .failed: return "Sin completar"
         }
     }
 
     static let retryButton = "Intentar de nuevo"
-    static let resetButton = "Empezar de nuevo"
+    static let resumeButton = "Reanudar"
+    static let resetButton = "Empezar la descarga desde cero"
     static let cancelButton = "Pausar"
     static let useMeanwhileButton = "Usar Bardo mientras tanto"
     static let skipButton = "Continuar sin transcribir"
-    static let skipFootnote = "Puedes grabar, importar y escuchar audio ahora. Transcribir estará disponible cuando termine la preparación."
-    static let footer = "Esto solo ocurre una vez. Después, Bardo estará listo para ti."
 
     static var allVisibleCopy: [String] {
         let stageCopy = Stage.allCases.flatMap { stage in
-            [title(for: stage), detail(for: stage), stageLabel(for: stage)] + messages(for: stage)
+            [title(for: stage), detail(for: stage), stageLabel(for: stage)]
         }
-        return stageCopy + [retryButton, resetButton, cancelButton, useMeanwhileButton, skipButton, skipFootnote, footer]
+        return stageCopy + [retryButton, resumeButton, resetButton, cancelButton, useMeanwhileButton, skipButton]
     }
 }
 
@@ -146,81 +87,71 @@ struct TranscriptionSetupView: View {
         self.continueWithoutModels = continueWithoutModels
     }
 
+    /// Like the setup assistant: who is asking, what is happening, one line of progress,
+    /// and a single clear action, without boxes around any of it.
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer(minLength: 24)
+        VStack(spacing: 0) {
+            Spacer(minLength: 32)
 
-            Image(systemName: "waveform.badge.mic")
-                .font(.largeTitle)
-                .symbolRenderingMode(.hierarchical)
-                .accessibilityHidden(true)
+            BardoAppIcon(size: 60)
 
             VStack(spacing: 6) {
                 Text(title)
                     .font(.title2.weight(.semibold))
-                    .multilineTextAlignment(.center)
-
                 Text(detail)
-                    .font(.body)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: 520)
+            .multilineTextAlignment(.center)
+            .padding(.top, 18)
 
-            GroupBox {
-                VStack(alignment: .leading, spacing: 14) {
-                    if isTerminalState {
-                        terminalStateContent
-                    } else {
-                        activeSetupContent
-                    }
+            Group {
+                if isTerminalState {
+                    terminalStateContent
+                } else {
+                    activeSetupContent
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: 520)
+            .padding(.top, 28)
 
-            Text(continueWithoutModels == nil ? TranscriptionSetupCopy.footer : TranscriptionSetupCopy.skipFootnote)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 520)
-
-            Spacer(minLength: 24)
+            Spacer(minLength: 32)
         }
+        .frame(maxWidth: 420)
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .enableInjection()
     }
 
+    /// A thin bar with one line under it: what is happening, and how far along.
     private var activeSetupContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            setupProgressIndicator
-
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Label {
+        VStack(spacing: 22) {
+            VStack(spacing: 8) {
+                setupProgressIndicator
+                HStack(alignment: .firstTextBaseline) {
                     Text(stageLabel)
-                } icon: {
-                    ProgressView()
-                        .controlSize(.small)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .contentTransition(.opacity)
+                        .animation(.easeInOut(duration: 0.2), value: stageLabel)
+                    Spacer(minLength: 12)
+                    Text(stepLabel)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
-
-                Spacer(minLength: 12)
-
-                Text(stepLabel)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
             }
 
-            rotatingProgressMessage
-                .frame(minHeight: 18, alignment: .leading)
-
             if isCancellable {
-                HStack {
+                VStack(spacing: 10) {
                     if let continueWithoutModels {
                         Button(TranscriptionSetupCopy.useMeanwhileButton, action: continueWithoutModels)
+                        .bardoPrimaryAction()
+                        .controlSize(.large)
+                        .keyboardShortcut(.defaultAction)
                     }
-                    Spacer()
                     Button(TranscriptionSetupCopy.cancelButton, role: .cancel, action: cancel)
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -234,58 +165,55 @@ struct TranscriptionSetupView: View {
                 .accessibilityValue("\(Int((fraction * 100).rounded()))%")
         } else {
             ProgressView()
-                .progressViewStyle(LinearProgressViewStyle())
+                .progressViewStyle(.linear)
                 .accessibilityLabel(stageLabel)
         }
     }
 
-    private var rotatingProgressMessage: some View {
-        TimelineView(.periodic(from: .now, by: 4)) { context in
-            let messages = TranscriptionSetupCopy.messages(for: copyStage)
-            let tick = Int(context.date.timeIntervalSinceReferenceDate / 4)
-            let message = messages[tick % messages.count]
-
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .contentTransition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: message)
-        }
-    }
-
+    /// One main action, the alternative beside it, and starting over as a quiet link.
     private var terminalStateContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label(stageLabel, systemImage: terminalStateSymbol)
-                .font(.headline)
+        VStack(spacing: 14) {
+            HStack(spacing: 10) {
+                if let continueWithoutModels {
+                    Button(TranscriptionSetupCopy.skipButton, action: continueWithoutModels)
+                        .bardoSecondaryAction()
+                }
+                Button(isPaused ? TranscriptionSetupCopy.resumeButton : TranscriptionSetupCopy.retryButton, action: retry)
+                    .bardoPrimaryAction()
+                    .keyboardShortcut(.defaultAction)
+            }
+            .controlSize(.large)
 
-            Text(failureReason ?? detail)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            setupActions
-        }
-    }
-
-    private var setupActions: some View {
-        HStack(spacing: 10) {
-            Button(TranscriptionSetupCopy.retryButton, action: retry)
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
+            if let failureReason {
+                Text(failureReason)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
 
             Button(TranscriptionSetupCopy.resetButton, action: resetAndRetry)
-
-            Spacer()
-
-            if let continueWithoutModels {
-                Button(TranscriptionSetupCopy.skipButton, action: continueWithoutModels)
-            }
+                .buttonStyle(.borderless)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
     }
 
+    private var isPaused: Bool {
+        switch state {
+        case .cancelled, .needsInstall: true
+        default: false
+        }
+    }
+
+    /// What went wrong, when it says more than the screen already does.
     private var failureReason: String? {
-        if case .failed(let message) = state, !message.isEmpty { return message }
-        return nil
+        guard case .failed(let message) = state, !message.isEmpty else { return nil }
+        let alreadySaid = [
+            String(localized: "Bardo could not connect to the internet. Check your connection and try again.")
+        ]
+        return alreadySaid.contains(message) ? nil : message
     }
 
     private var isTerminalState: Bool {
@@ -294,17 +222,6 @@ struct TranscriptionSetupView: View {
             return true
         case .checking, .installing, .installingSpeakers, .ready:
             return false
-        }
-    }
-
-    private var terminalStateSymbol: String {
-        switch state {
-        case .failed:
-            return "exclamationmark.triangle"
-        case .cancelled:
-            return "pause.circle"
-        default:
-            return "checkmark.circle"
         }
     }
 
@@ -365,26 +282,15 @@ struct TranscriptionSetupView: View {
         }
     }
 
+    /// How far along: which of the two downloads, and its share when it is measured.
     private var stepLabel: String {
         let step: Int
         switch state {
-        case .checking:
-            return "Comprobando…"
-        case .installing:
-            step = 1
-        case .installingSpeakers:
-            step = 2
-        case .ready:
-            return "Listo"
-        case .cancelled, .needsInstall:
-            return "En pausa"
-        case .failed:
-            return "Necesita otro intento"
+        case .installing: step = 1
+        case .installingSpeakers: step = 2
+        case .checking, .ready, .cancelled, .failed, .needsInstall: return ""
         }
-
-        if let fraction = measuredProgressFraction {
-            return "Paso \(step) de 2 · \(Int((fraction * 100).rounded()))%"
-        }
-        return "Paso \(step) de 2"
+        guard let fraction = measuredProgressFraction else { return "\(step) de 2" }
+        return "\(step) de 2 · \(fraction.formatted(.percent.precision(.fractionLength(0))))"
     }
 }

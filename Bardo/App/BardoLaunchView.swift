@@ -6,8 +6,12 @@ struct BardoLaunchView: View {
 
     var body: some View {
         #if DEBUG
-        if DesignReview.showsWelcome {
-            BardoWelcomeView {}
+        if DesignReview.showsWelcome || DesignReview.welcomeStartsOnChoice {
+            BardoWelcomeView(startsOnChoice: DesignReview.welcomeStartsOnChoice) { _ in }
+        } else if let tab = DesignReview.settingsTab {
+            SettingsView(initialTab: tab)
+        } else if let state = DesignReview.setupState {
+            TranscriptionSetupView(state: state, retry: {}, continueWithoutModels: {})
         } else {
             launchContent
         }
@@ -28,7 +32,8 @@ struct BardoLaunchView: View {
                         : nil
                 )
             } else if !hasCompletedWelcome {
-                BardoWelcomeView {
+                BardoWelcomeView { engine in
+                    UserDefaults.standard.set(engine.rawValue, forKey: TranscriptionEngine.defaultsKey)
                     hasCompletedWelcome = true
                     setup.startPreparation()
                 }
@@ -43,6 +48,10 @@ struct BardoLaunchView: View {
             }
         }
         .task {
+            // Set up before there was a choice: keep the Whisper model it installed.
+            if hasCompletedWelcome, UserDefaults.standard.string(forKey: TranscriptionEngine.defaultsKey) == nil {
+                UserDefaults.standard.set(TranscriptionEngine.balanced.rawValue, forKey: TranscriptionEngine.defaultsKey)
+            }
             if hasCompletedWelcome || setup.isLibraryUnlocked {
                 setup.startPreparation()
             }
@@ -50,7 +59,36 @@ struct BardoLaunchView: View {
     }
 }
 
+/// The first launch, as Apple's own setup: what Bardo does, then how to transcribe.
 private struct BardoWelcomeView: View {
+    var startsOnChoice = false
+    let continueAction: (TranscriptionEngine) -> Void
+
+    @State private var isChoosing = false
+    @State private var engine = TranscriptionEngine.recommended
+
+    var body: some View {
+        ZStack {
+            if isChoosing {
+                TranscriptionChoicePage(
+                    engine: $engine,
+                    back: { withAnimation(.smooth(duration: 0.4)) { isChoosing = false } },
+                    start: { continueAction(engine) }
+                )
+                .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)).combined(with: .opacity))
+            } else {
+                WelcomePage {
+                    withAnimation(.smooth(duration: 0.4)) { isChoosing = true }
+                }
+                .transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
+            }
+        }
+        .onAppear { isChoosing = startsOnChoice }
+    }
+}
+
+/// What Bardo does, in three lines.
+private struct WelcomePage: View {
     let continueAction: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -59,12 +97,7 @@ private struct BardoWelcomeView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 96, height: 96)
-                    .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
-                    .accessibilityHidden(true)
+                BardoAppIcon(size: 80)
                     .entrance(step: 0, isVisible: isVisible)
 
                 VStack(spacing: 8) {
@@ -72,7 +105,7 @@ private struct BardoWelcomeView: View {
                         .font(.largeTitle.weight(.bold))
                         .multilineTextAlignment(.center)
 
-                    Text(String(localized: "Record or import conversations and turn them into text you can read, search and share."))
+                    Text(String(localized: "Turn conversations into text you can read, search and share."))
                         .font(.title3)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -84,46 +117,40 @@ private struct BardoWelcomeView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     WelcomeFeatureRow(
                         systemImage: "waveform.and.mic",
-                        title: String(localized: "Transcribe conversations"),
-                        detail: String(localized: "Turn recordings into clear text, with the moment of every sentence.")
+                        title: String(localized: "Every word, in its moment"),
+                        detail: String(localized: "Read along as it plays and go back to any sentence.")
                     )
                     .entrance(step: 2, isVisible: isVisible)
 
                     WelcomeFeatureRow(
                         systemImage: "person.2.wave.2",
-                        title: String(localized: "Identify participants"),
-                        detail: String(localized: "Organize conversations by speaker so each voice has its own place.")
+                        title: String(localized: "Who said what"),
+                        detail: String(localized: "Bardo tells each voice in the conversation apart.")
                     )
                     .entrance(step: 3, isVisible: isVisible)
 
                     WelcomeFeatureRow(
                         systemImage: "lock.shield",
-                        title: String(localized: "Everything stays on your Mac"),
-                        detail: String(localized: "Audio and transcripts are processed here and are never sent to an online service.")
+                        title: String(localized: "Private, on your Mac"),
+                        detail: String(localized: "Audio and text never leave this Mac.")
                     )
                     .entrance(step: 4, isVisible: isVisible)
                 }
+                .frame(maxWidth: 420)
                 .padding(.top, 28)
 
-                VStack(spacing: 12) {
-                    Button(action: continueAction) {
-                        Text(String(localized: "Continue"))
-                            .frame(minWidth: 180)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.extraLarge)
-                    .keyboardShortcut(.defaultAction)
-
-                    Text(String(localized: "Bardo will download about 650 MB of voice resources so it can work offline."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
+                Button(action: continueAction) {
+                    Text(String(localized: "Continue"))
+                        .padding(.horizontal, 36)
                 }
+                .bardoPrimaryAction()
+                .controlSize(.extraLarge)
+                .keyboardShortcut(.defaultAction)
                 .padding(.top, 32)
                 .entrance(step: 5, isVisible: isVisible)
             }
-            .frame(maxWidth: 460)
+            // The welcome line reads on one line; the features keep a narrower column.
+            .frame(maxWidth: 580)
             .padding(.horizontal, 32)
             .padding(.vertical, 32)
             .frame(maxWidth: .infinity)
@@ -134,6 +161,141 @@ private struct BardoWelcomeView: View {
     }
 
     private var isVisible: Bool { reduceMotion || hasAppeared }
+}
+
+/// How to transcribe: Apple's, with nothing to download, or Whisper for more precision.
+/// Any of them can be changed later in Settings.
+private struct TranscriptionChoicePage: View {
+    @Binding var engine: TranscriptionEngine
+    let back: () -> Void
+    let start: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                Image(systemName: "captions.bubble")
+                    .font(.system(size: 52, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(Color.accentColor)
+                    .accessibilityHidden(true)
+
+                VStack(spacing: 8) {
+                    Text("Elige cómo transcribir")
+                        .font(.largeTitle.weight(.bold))
+                    Text("Todo sucede en este Mac, sin enviar nada a internet.")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .multilineTextAlignment(.center)
+                .padding(.top, 16)
+
+                VStack(spacing: 10) {
+                    ForEach(TranscriptionEngine.allCases) { option in
+                        EngineCard(engine: option, isSelected: engine == option) {
+                            withAnimation(.smooth(duration: 0.25)) { engine = option }
+                        }
+                    }
+                }
+                .frame(maxWidth: 480)
+                .padding(.top, 28)
+
+                Text("Puedes cambiar de opción y gestionar las descargas cuando quieras en Configuración › Transcripción.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 440)
+                    .padding(.top, 16)
+
+                HStack(spacing: 12) {
+                    Button("Atrás", action: back)
+                        .bardoSecondaryAction()
+                        .keyboardShortcut(.cancelAction)
+                    Button(action: start) {
+                        Text(engine.approximateBytes == nil ? "Empezar" : "Descargar y empezar")
+                            .padding(.horizontal, 20)
+                    }
+                    .bardoPrimaryAction()
+                    .keyboardShortcut(.defaultAction)
+                }
+                .controlSize(.extraLarge)
+                .padding(.top, 28)
+            }
+            .frame(maxWidth: 580)
+            .padding(.horizontal, 32)
+            .padding(.vertical, 32)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .defaultScrollAnchor(.center)
+    }
+}
+
+/// One way of transcribing, as a card to choose.
+private struct EngineCard: View {
+    let engine: TranscriptionEngine
+    let isSelected: Bool
+    let select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title2)
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(engine.title)
+                            .font(.headline)
+                        if engine == .recommended {
+                            RecommendedBadge()
+                        }
+                    }
+                    Text(engine.detail)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(engine.isSupported ? engine.downloadSummary : "Requiere macOS 26 o posterior")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .multilineTextAlignment(.leading)
+            .padding(14)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(.quaternary.opacity(0.5)))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 1.5)
+            }
+            .contentShape(.rect(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+        .disabled(!engine.isSupported)
+        .opacity(engine.isSupported ? 1 : 0.5)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// The app icon on its own, without the drop shadow macOS draws around it: the icon
+/// image carries its squircle in the middle 824 of 1024 points, shadow around it.
+struct BardoAppIcon: View {
+    let size: CGFloat
+
+    var body: some View {
+        Image(nsImage: NSApp.applicationIconImage)
+            .resizable()
+            .interpolation(.high)
+            .frame(width: size * 1024 / 824, height: size * 1024 / 824)
+            .frame(width: size, height: size)
+            .clipShape(.rect(cornerRadius: size * 0.2237, style: .continuous))
+            .accessibilityHidden(true)
+    }
 }
 
 private struct WelcomeFeatureRow: View {

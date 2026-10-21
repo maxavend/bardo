@@ -24,7 +24,9 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
 
     private let outputURL: URL
     private let channelCount: Int
-    private let bitRate: Int
+    /// What the track is written as; Apple Lossless when the recording keeps lossless
+    /// audio, AAC otherwise.
+    private let outputSettings: [String: Any]
     private let maximumPendingBuffers: Int
     /// Tests replace the encoder's readiness to exercise the backlog deterministically.
     private let isReadyForMoreData: @Sendable (AVAssetWriterInput) -> Bool
@@ -44,12 +46,19 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
         outputURL: URL,
         channelCount: Int,
         bitRate: Int = 128_000,
+        encoding: AudioEncoding? = nil,
         maximumPendingBuffers: Int = CMSampleBufferAudioWriter.defaultMaximumPendingBuffers,
         isReadyForMoreData: @escaping @Sendable (AVAssetWriterInput) -> Bool = { $0.isReadyForMoreMediaData }
     ) {
         self.outputURL = outputURL
         self.channelCount = channelCount
-        self.bitRate = bitRate
+        self.outputSettings = encoding?.liveOutputSettings(channels: channelCount) ?? [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 48_000,
+            AVNumberOfChannelsKey: channelCount,
+            AVEncoderBitRateKey: bitRate,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+        ]
         self.maximumPendingBuffers = max(1, maximumPendingBuffers)
         self.isReadyForMoreData = isReadyForMoreData
     }
@@ -221,14 +230,7 @@ final class CMSampleBufferAudioWriter: @unchecked Sendable {
         try? FileManager.default.removeItem(at: outputURL)
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .m4a)
         writer.movieFragmentInterval = Self.fragmentInterval
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 48_000,
-            AVNumberOfChannelsKey: channelCount,
-            AVEncoderBitRateKey: bitRate,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-        ]
-        let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+        let input = AVAssetWriterInput(mediaType: .audio, outputSettings: outputSettings)
         input.expectsMediaDataInRealTime = true
         guard writer.canAdd(input) else {
             throw SystemAudioCaptureError.writer(String(localized: "AVAssetWriter cannot add the requested audio input."))

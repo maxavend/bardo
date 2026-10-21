@@ -25,8 +25,19 @@ struct TranscriptContentView: View {
     var bottomContentInset: CGFloat = 0
 
     var body: some View {
-        transcriptViewport
-            .enableInjection()
+        Group {
+            if showsEmptyState {
+                emptyTranscriptView
+            } else {
+                transcriptViewport
+            }
+        }
+        .enableInjection()
+    }
+
+    /// A saved conversation that has no transcript and none on the way.
+    private var showsEmptyState: Bool {
+        !isTranscribingThisRecording && (model.transcript?.recordingID != recording.id)
     }
 
     private var transcriptViewport: some View {
@@ -45,8 +56,6 @@ struct TranscriptContentView: View {
 
                         transcriptHeader(for: transcript)
                         transcriptConversation(transcript)
-                    } else {
-                        emptyTranscriptView
                     }
 
                     Color.clear
@@ -59,6 +68,7 @@ struct TranscriptContentView: View {
                 .padding(.bottom, BardoSpacing.section)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
+            .bardoSoftTopEdge()
             .onScrollPhaseChange { _, phase in
                 if phase == .tracking || phase == .interacting {
                     followsLiveTranscription = false
@@ -118,16 +128,16 @@ struct TranscriptContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .bardoTopBar {
-            if isTranscribingThisRecording && hasLiveText {
-                transcriptionLiveStatus
-                    .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
-                    .padding(.horizontal, BardoSpacing.detailHorizontal)
-                    .padding(.top, 4)
-                    .padding(.bottom, 24)
-                    .frame(maxWidth: .infinity)
-            }
-        }
+        // A bar only while there is live status to show: an empty one would still draw
+        // its own hard edge over the title's soft one.
+        .modifier(LiveStatusBar(isShown: isTranscribingThisRecording && hasLiveText) {
+            transcriptionLiveStatus
+                .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
+                .padding(.horizontal, BardoSpacing.detailHorizontal)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity)
+        })
     }
 
     @ViewBuilder
@@ -178,6 +188,7 @@ struct TranscriptContentView: View {
             } label: {
                 Label(String(localized: "Identify Speakers"), systemImage: "person.2.wave.2")
             }
+            .bardoSecondaryAction()
             .disabled(recording.audioAssets.isEmpty || model.isTranscribing || model.isDiarizing)
 
         case .singleSpeaker:
@@ -188,11 +199,13 @@ struct TranscriptContentView: View {
             Button {
                 isSpeakerNamingPresented = true
             } label: {
-                Label(
-                    String.localizedStringWithFormat(String(localized: "%lld Participants"), count),
-                    systemImage: "person.2"
-                )
+                HStack(spacing: 8) {
+                    ParticipantAvatars(transcript: transcript)
+                    Text(String.localizedStringWithFormat(String(localized: "%lld Participants"), count))
+                }
             }
+            .bardoSecondaryAction()
+            .help("Escuchar, nombrar y fusionar a los participantes")
             .disabled(model.isTranscribing || model.isDiarizing)
         }
     }
@@ -322,77 +335,82 @@ struct TranscriptContentView: View {
         )
     }
 
+    /// The recording's waveform, what a transcript gives, and one large button to make
+    /// it, centered in the column.
     private var emptyTranscriptView: some View {
-        ContentUnavailableView {
-            Label(
-                recording.processingState == .failed ? "No pudimos transcribir esta conversación" : "Aún no hay transcripción",
-                systemImage: recording.processingState == .failed ? "exclamationmark.bubble" : "text.bubble"
-            )
-        } description: {
-            Text(
-                model.transcriptionBlocker(for: recording.id)
-                    ?? (recording.audioAssets.isEmpty
-                        ? "Esta conversación no tiene un audio que se pueda transcribir."
-                        : recording.processingState == .failed
-                            ? "La última transcripción no terminó. El audio está a salvo y puedes intentarlo de nuevo."
-                            : "Bardo la transcribe de forma privada en este Mac para que puedas leerla, buscar dentro de ella e identificar a los hablantes.")
-            )
-        } actions: {
-            Button(recording.processingState == .failed ? "Intentar de nuevo" : "Transcribir") {
-                model.beginTranscription()
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(recording.audioAssets.isEmpty || model.transcriptionBlocker(for: recording.id) != nil)
+        // Take exactly the column's space: without a scroll view, the split view would
+        // lay the column out at this content's ideal height, taller than the window.
+        GeometryReader { proxy in
+            emptyTranscriptContent(height: proxy.size.height)
+                .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .frame(maxWidth: .infinity, minHeight: 320)
     }
 
-    private func buildParagraphs(from segments: [TranscriptSegment]) -> [TranscriptParagraph] {
-        guard !segments.isEmpty else { return [] }
+    /// The waveform takes a good share of the height, as in the recorder; the player
+    /// bar below shows the times.
+    private func emptyTranscriptContent(height: CGFloat) -> some View {
+        VStack(spacing: 28) {
+            transcriptErrors
 
-        var paragraphs: [TranscriptParagraph] = []
-        var currentBatch: [TranscriptSegment] = []
-        var currentSpeakerID: Speaker.ID? = segments.first?.speakerID
-        var batchStartTime: TimeInterval = segments.first?.startTime ?? 0
+            if !recording.audioAssets.isEmpty {
+                RecordingWaveform(recording: recording, playback: playback)
+                    .frame(height: min(320, max(120, height * 0.38)))
+            }
 
-        for segment in segments {
-            let speakerChanged = segment.speakerID != currentSpeakerID
-            let pauseDuration = currentBatch.last.map { segment.startTime - $0.endTime } ?? 0
-            let significantPause = pauseDuration > 1.5
-
-            if !currentBatch.isEmpty && (speakerChanged || significantPause) {
-                paragraphs.append(
-                    TranscriptParagraph(
-                        id: currentBatch.first?.id ?? UUID(),
-                        speakerID: currentSpeakerID,
-                        startTime: batchStartTime,
-                        segments: currentBatch
-                    )
+            VStack(spacing: 8) {
+                Text(recording.processingState == .failed ? "No se pudo transcribir esta conversación" : "Aún no hay transcripción")
+                    .font(.title3.weight(.semibold))
+                Text(
+                    model.transcriptionBlocker(for: recording.id)
+                        ?? (recording.audioAssets.isEmpty
+                            ? "Esta conversación no tiene un audio que se pueda transcribir."
+                            : recording.processingState == .failed
+                                ? "La última transcripción no terminó. El audio está a salvo y puedes intentarlo de nuevo."
+                                : "Bardo la transcribe de forma privada en este Mac para que puedas leerla, buscar dentro de ella e identificar a los hablantes.")
                 )
-                currentBatch = [segment]
-                currentSpeakerID = segment.speakerID
-                batchStartTime = segment.startTime
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 420)
+            }
+
+            transcribeButton
+        }
+        .frame(maxWidth: BardoLayout.detailContentMaxWidth)
+        .padding(.horizontal, BardoSpacing.detailHorizontal)
+        .padding(.bottom, bottomContentInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var transcribeButton: some View {
+        let button = Button {
+            model.beginTranscription()
+        } label: {
+            Text(recording.processingState == .failed ? "Intentar de nuevo" : "Transcribir")
+                .padding(.horizontal, 14)
+        }
+        .disabled(recording.audioAssets.isEmpty || model.transcriptionBlocker(for: recording.id) != nil)
+
+        return Group {
+            if #available(macOS 26.0, *) {
+                button
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.extraLarge)
             } else {
-                if currentBatch.isEmpty {
-                    batchStartTime = segment.startTime
-                    currentSpeakerID = segment.speakerID
-                }
-                currentBatch.append(segment)
+                button
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
             }
         }
+    }
 
-        if !currentBatch.isEmpty {
-            paragraphs.append(
-                TranscriptParagraph(
-                    id: currentBatch.first?.id ?? UUID(),
-                    speakerID: currentSpeakerID,
-                    startTime: batchStartTime,
-                    segments: currentBatch
-                )
-            )
+    /// Paragraphs of a comfortable length, as `TranscriptParagraphing` decides.
+    private func buildParagraphs(from segments: [TranscriptSegment]) -> [TranscriptParagraph] {
+        TranscriptParagraphing.paragraphs(of: segments).compactMap { group in
+            guard let first = group.first else { return nil }
+            return TranscriptParagraph(id: first.id, speakerID: first.speakerID, startTime: first.startTime, segments: group)
         }
-
-        return paragraphs
     }
 
     @ViewBuilder
@@ -407,7 +425,11 @@ struct TranscriptContentView: View {
             )
             .frame(maxWidth: .infinity, minHeight: 240)
         } else {
+            let placement = TranscriptNotePlacement(notes: recording.notes, paragraphStarts: paragraphs.map(\.startTime))
             LazyVStack(alignment: .leading, spacing: 20) {
+                ForEach(placement.leadingMoments) { moment in
+                    momentRow(moment)
+                }
                 ForEach(Array(paragraphs.enumerated()), id: \.element.id) { index, paragraph in
                     let currentSpeaker = speakerLabel(for: paragraph.speakerID, in: transcript)
                     let previousSpeaker = index > 0
@@ -441,9 +463,81 @@ struct TranscriptContentView: View {
                     }
                     .padding(.top, startsSpeakerTurn && index > 0 ? 6 : 0)
                     .id(paragraph.id)
+                    // A section's name heads the first paragraph it covers; a moment
+                    // follows the paragraph during which it was marked.
+                    .modifier(TranscriptNotesAround(
+                        sections: placement.sections(before: index),
+                        moments: placement.moments(after: index),
+                        sectionHeading: sectionHeading,
+                        momentRow: momentRow
+                    ))
+                }
+                ForEach(placement.trailingSections) { section in
+                    sectionHeading(section)
                 }
             }
         }
+    }
+
+    private func sectionHeading(_ section: RecordingSection) -> AnyView {
+        AnyView(
+            Button {
+                playback.seek(to: section.start)
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(section.title)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(LibraryFormatting.duration(section.start))
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 10)
+            .help("Ir al inicio de esta sección")
+            .accessibilityAddTraits(.isHeader)
+        )
+    }
+
+    private func momentRow(_ moment: RecordingMoment) -> AnyView {
+        AnyView(
+            Button {
+                playback.seek(to: moment.time)
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    // The moment's mark, as on the waveform.
+                    Circle()
+                        .fill(ConversationWaveformStyle.momentTint)
+                        .frame(width: 7, height: 7)
+                        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(moment.title)
+                                .fontWeight(.semibold)
+                            Text(LibraryFormatting.duration(moment.time))
+                                .font(.callout.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        if let note = moment.note {
+                            Text(note)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.orange.opacity(0.08), in: .rect(cornerRadius: 10))
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help("Ir a este momento")
+        )
     }
 
     @ViewBuilder
@@ -488,6 +582,49 @@ struct TranscriptContentView: View {
 
 /// Distinct, system-adaptive colours that make speaker turns easy to scan. The name
 /// always accompanies the colour, so it never carries meaning on its own.
+/// The first participants as overlapping circles in their colours, with an initial
+/// once they have a name, as Messages shows a group.
+private struct ParticipantAvatars: View {
+    let transcript: Transcript
+
+    var body: some View {
+        HStack(spacing: -5) {
+            ForEach(transcript.speakers.prefix(4)) { speaker in
+                Circle()
+                    .fill(SpeakerPalette.color(for: speaker.id, in: transcript).gradient)
+                    .frame(width: 18, height: 18)
+                    .overlay {
+                        if let initial = speaker.name?.nonEmptyTrimmed?.first {
+                            Text(String(initial).uppercased())
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                        } else {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
+                    }
+                    .overlay(Circle().stroke(.background, lineWidth: 1.5))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Pins live transcription status above the transcript, and adds no bar otherwise.
+private struct LiveStatusBar<Status: View>: ViewModifier {
+    let isShown: Bool
+    @ViewBuilder let status: () -> Status
+
+    func body(content: Content) -> some View {
+        if isShown {
+            content.bardoTopBar(status)
+        } else {
+            content
+        }
+    }
+}
+
 enum SpeakerPalette {
     private static let colors: [Color] = [.blue, .orange, .green, .purple, .pink, .teal, .indigo, .brown]
 
@@ -526,6 +663,26 @@ private enum LiveTranscriptAnchor {
     static let tail = "bardo.transcript.live.tail"
 }
 
+/// Places section headings above a paragraph and moments below it.
+private struct TranscriptNotesAround: ViewModifier {
+    let sections: [RecordingSection]
+    let moments: [RecordingMoment]
+    let sectionHeading: (RecordingSection) -> AnyView
+    let momentRow: (RecordingMoment) -> AnyView
+
+    func body(content: Content) -> some View {
+        if sections.isEmpty && moments.isEmpty {
+            content
+        } else {
+            VStack(alignment: .leading, spacing: 20) {
+                ForEach(sections) { sectionHeading($0) }
+                content
+                ForEach(moments) { momentRow($0) }
+            }
+        }
+    }
+}
+
 private struct TranscriptParagraph: Identifiable {
     let id: UUID
     let speakerID: Speaker.ID?
@@ -554,9 +711,18 @@ private struct TranscriptSpeakerChoice: Identifiable {
     let label: String
 }
 
+/// Where playback is relative to a paragraph. A row redraws only when this changes, not
+/// on each of the player's ten position reports a second.
+private enum ParagraphPlayback: Equatable {
+    case ahead
+    case active
+    case heard
+}
+
 private struct TranscriptParagraphRow: View {
     let paragraph: TranscriptParagraph
-    @ObservedObject var playback: AudioPlaybackController
+    /// Not observed: the row follows playback through `playbackPhase` alone.
+    let playback: AudioPlaybackController
     let canEdit: Bool
     var searchQuery: String = ""
     var usesKaraoke: Bool = true
@@ -564,7 +730,31 @@ private struct TranscriptParagraphRow: View {
     let onEditSegment: (TranscriptSegment) -> Void
     var onAssignSpeaker: ((Speaker.ID) -> Void)? = nil
 
+    @State private var playbackPhase = ParagraphPlayback.ahead
+    @State private var canPlay = false
+
     var body: some View {
+        rowContent
+            .onReceive(playback.$position) { phase(at: $0, isPlaying: playback.isPlaying) }
+            .onReceive(playback.$isPlaying) { phase(at: playback.position, isPlaying: $0) }
+            .onReceive(playback.$duration) { _ in
+                // Published before it is set; read once it is.
+                DispatchQueue.main.async { if canPlay != playback.isLoaded { canPlay = playback.isLoaded } }
+            }
+    }
+
+    private func phase(at position: TimeInterval, isPlaying: Bool) {
+        let hasEntered = position > paragraph.startTime + 0.02
+        let phase: ParagraphPlayback
+        if position >= paragraph.startTime, position <= paragraph.endTime, isPlaying || hasEntered {
+            phase = .active
+        } else {
+            phase = position > paragraph.endTime ? .heard : .ahead
+        }
+        if phase != playbackPhase { playbackPhase = phase }
+    }
+
+    private var rowContent: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Button {
                 playback.seek(to: paragraph.startTime)
@@ -587,7 +777,7 @@ private struct TranscriptParagraphRow: View {
             }
             .buttonStyle(.plain)
             .pointerStyle(.link)
-            .disabled(!playback.isLoaded)
+            .disabled(!canPlay)
             .help(
                 String.localizedStringWithFormat(
                     String(localized: "Play from %@"),
@@ -613,7 +803,7 @@ private struct TranscriptParagraphRow: View {
                 playback.seek(to: paragraph.startTime)
                 _ = playback.play()
             }
-            .disabled(!playback.isLoaded)
+            .disabled(!canPlay)
 
             if paragraph.segments.count == 1, let segment = paragraph.segments.first {
                 Button(String(localized: "Edit Segment…")) {
@@ -657,10 +847,7 @@ private struct TranscriptParagraphRow: View {
     }
 
     private var isActivePlaybackParagraph: Bool {
-        let hasEnteredParagraph = playback.position > paragraph.startTime + 0.02
-        return playback.position >= paragraph.startTime
-            && playback.position <= paragraph.endTime
-            && (playback.isPlaying || hasEnteredParagraph)
+        playbackPhase == .active
     }
 
     @ViewBuilder
@@ -677,11 +864,17 @@ private struct TranscriptParagraphRow: View {
             KaraokeTranscriptText(
                 words: paragraph.timedWords,
                 fallbackText: paragraph.fullText,
-                playbackPosition: playback.position,
-                isPlaying: playback.isPlaying,
-                paragraphStart: paragraph.startTime,
-                paragraphEnd: paragraph.endTime
+                playback: isActivePlaybackParagraph ? playback : nil
             )
+            // Each word is a link to its moment: the hand shows over it, a click plays
+            // from there, and the words still select for copying.
+            .tint(.primary)
+            .environment(\.openURL, OpenURLAction { url in
+                guard let time = KaraokeTranscriptText.time(in: url) else { return .systemAction }
+                playback.seek(to: time)
+                if !playback.isPlaying { _ = playback.play() }
+                return .handled
+            })
         }
     }
 
@@ -693,138 +886,68 @@ private struct TranscriptParagraphRow: View {
     }
 }
 
+/// A paragraph's words as one piece of text. Only the paragraph being heard follows
+/// the player, lighting the current word and dimming those still ahead; every other
+/// paragraph is plain text that never redraws with playback.
 private struct KaraokeTranscriptText: View {
     let words: [TranscriptWord]
     let fallbackText: String
-    let playbackPosition: TimeInterval
-    let isPlaying: Bool
-    let paragraphStart: TimeInterval
-    let paragraphEnd: TimeInterval
+    /// Set only while this paragraph is being heard.
+    let playback: AudioPlaybackController?
 
     var body: some View {
         if words.isEmpty {
             Text(fallbackText)
                 .font(.body)
                 .lineSpacing(4)
+        } else if let playback {
+            LiveKaraokeText(words: words, playback: playback)
         } else {
-            BardoWordFlowLayout(horizontalSpacing: 4, verticalSpacing: 2) {
-                ForEach(words) { word in
-                    Text(word.text.trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(.body.weight(isCurrent(word) ? .medium : .regular))
-                        .foregroundStyle(color(for: word))
-                        .padding(.horizontal, isCurrent(word) ? 2 : 0)
-                        .padding(.vertical, 1)
-                        .background {
-                            if isCurrent(word) {
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(Color.accentColor.opacity(0.14))
-                            }
-                        }
+            Text(Self.text(of: words, at: nil))
+                .font(.body)
+                .lineSpacing(4)
+                .accessibilityLabel(fallbackText)
+        }
+    }
+
+    static let seekScheme = "bardo-seek"
+
+    /// The moment a word's link plays from.
+    static func time(in url: URL) -> TimeInterval? {
+        guard url.scheme == seekScheme else { return nil }
+        return TimeInterval(url.absoluteString.dropFirst(seekScheme.count + 1))
+    }
+
+    /// The words joined once, coloured by `position` when there is one. The same string
+    /// either way, so a paragraph never reflows as it starts or stops playing.
+    static func text(of words: [TranscriptWord], at position: TimeInterval?) -> AttributedString {
+        var text = AttributedString()
+        for (index, word) in words.enumerated() {
+            if index > 0 { text += AttributedString(" ") }
+            var piece = AttributedString(word.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            piece.link = URL(string: "\(seekScheme):\(word.startTime)")
+            if let position {
+                if position >= word.startTime && position <= word.endTime {
+                    piece.foregroundColor = .accentColor
+                } else if position < word.startTime {
+                    piece.foregroundColor = Color.secondary.opacity(0.78)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.linear(duration: 0.08), value: playbackPosition)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(fallbackText)
+            text += piece
         }
-    }
-
-    private var isActiveParagraph: Bool {
-        let hasEnteredParagraph = playbackPosition > paragraphStart + 0.02
-        return playbackPosition >= paragraphStart
-            && playbackPosition <= paragraphEnd
-            && (isPlaying || hasEnteredParagraph)
-    }
-
-    private func isCurrent(_ word: TranscriptWord) -> Bool {
-        guard isActiveParagraph else { return false }
-        return playbackPosition >= word.startTime && playbackPosition <= word.endTime
-    }
-
-    private func color(for word: TranscriptWord) -> Color {
-        guard isActiveParagraph else { return .primary }
-        if isCurrent(word) {
-            return Color.accentColor
-        }
-        if playbackPosition > word.endTime {
-            return .primary
-        }
-        return .secondary.opacity(0.78)
+        return text
     }
 }
 
-private struct BardoWordFlowLayout: Layout {
-    var horizontalSpacing: CGFloat = 4
-    var verticalSpacing: CGFloat = 5
+/// The paragraph being heard, following the player word by word.
+private struct LiveKaraokeText: View {
+    let words: [TranscriptWord]
+    @ObservedObject var playback: AudioPlaybackController
 
-    func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) -> CGSize {
-        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
-        var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var widestLine: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            let requiredWidth = currentX == 0 ? size.width : currentX + horizontalSpacing + size.width
-
-            if requiredWidth > maxWidth, currentX > 0 {
-                widestLine = max(widestLine, currentX)
-                currentY += lineHeight + verticalSpacing
-                currentX = size.width
-                lineHeight = size.height
-            } else {
-                if currentX > 0 {
-                    currentX += horizontalSpacing
-                }
-                currentX += size.width
-                lineHeight = max(lineHeight, size.height)
-            }
-        }
-
-        widestLine = max(widestLine, currentX)
-        return CGSize(
-            width: proposal.width ?? widestLine,
-            height: currentY + lineHeight
-        )
-    }
-
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) {
-        var currentX = bounds.minX
-        var currentY = bounds.minY
-        var lineHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            let nextX = currentX == bounds.minX
-                ? currentX + size.width
-                : currentX + horizontalSpacing + size.width
-
-            if nextX > bounds.maxX, currentX > bounds.minX {
-                currentX = bounds.minX
-                currentY += lineHeight + verticalSpacing
-                lineHeight = 0
-            } else if currentX > bounds.minX {
-                currentX += horizontalSpacing
-            }
-
-            subview.place(
-                at: CGPoint(x: currentX, y: currentY),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: size.width, height: size.height)
-            )
-            currentX += size.width
-            lineHeight = max(lineHeight, size.height)
-        }
+    var body: some View {
+        Text(KaraokeTranscriptText.text(of: words, at: playback.position))
+            .font(.body)
+            .lineSpacing(4)
     }
 }
 

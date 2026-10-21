@@ -73,6 +73,40 @@ protocol SystemAudioCapturing: AnyObject {
 
     func update(selection: SystemContentSelection) async throws
     func stop() async -> SystemAudioCaptureResult
+
+    /// Live loudness of each track while capturing, for the recorder's waveform.
+    var systemMeter: LiveAudioMeter? { get }
+    var microphoneMeter: LiveAudioMeter? { get }
+    /// The microphone being recorded, while capturing with one.
+    var microphoneName: String? { get }
+    var microphoneDeviceUID: String? { get }
+    /// Records another microphone from now on, without stopping.
+    func switchMicrophone(toDeviceUID uid: String) throws
+
+    /// Whether `pause()` and `resume()` work: the capture keeps running and drops what it
+    /// hears in between, and the files continue as if there had been no pause.
+    var supportsPause: Bool { get }
+    func pause()
+    func resume()
+
+    /// Whether the microphone can be silenced while the Mac's audio keeps recording.
+    var supportsMicrophoneMute: Bool { get }
+    func setMicrophoneMuted(_ muted: Bool)
+}
+
+extension SystemAudioCapturing {
+    var systemMeter: LiveAudioMeter? { nil }
+    var microphoneMeter: LiveAudioMeter? { nil }
+    var microphoneName: String? { nil }
+    var microphoneDeviceUID: String? { nil }
+    func switchMicrophone(toDeviceUID uid: String) throws {
+        throw SystemAudioCaptureError.notCapturing
+    }
+    var supportsPause: Bool { false }
+    func pause() {}
+    func resume() {}
+    var supportsMicrophoneMute: Bool { false }
+    func setMicrophoneMuted(_ muted: Bool) {}
 }
 
 enum SystemAudioCaptureError: Error, LocalizedError, Equatable, Sendable {

@@ -63,6 +63,41 @@ Whisper Large v3 Turbo is the transcription engine. SpeakerKit is used only to i
 - In the player, **Pistas** switches between **Todos**, **Solo yo** and **Solo los demás** and balances the two tracks without losing sync, also after seeking and changing speed.
 - **Más acciones › Transcribir de nuevo** offers each track apart or the mix; **Más acciones › Exportar** saves the transcript, the conversation audio, or each track alone.
 
+### 5a1. Live recorder
+
+- Start a **Reunión en este Mac** recording: the detail column shows its title with **Grabando** in red, one line where your voice rises in blue and the Mac's audio falls in orange, a red playhead where audio enters, and below the line **Tu micrófono** and **Audio del Mac**, stacked and centered. Speak, then play a video: each side moves only with its own source.
+- **Micrófono del MacBook Air ⌄** lists the Mac's inputs: choose another and keep talking; the recording continues with the new microphone, and the next recording starts with it.
+- The red button shows ⏸ and the running time; click it (or Grabación › Pausar, ⌥⌘P) to pause: the time, the line and the playhead stop, **En pausa** replaces **Grabando**, and the button becomes **Reanudar**. Your bars never cross below the line, nor the Mac's above it. Talk and play audio while paused, resume, stop: neither track contains what was said while paused, and both stay in sync.
+- Select a conversation during the recording: it opens with the compact recording bar on top; its waveform button returns to the recorder. With Reduce Motion on, the line steps instead of gliding.
+
+- The microphone button at the top (or Grabación › Silenciar micrófono, ⌥⌘S) turns red and **Silenciado** appears by **Tu micrófono**; your side of the line goes flat while the Mac's audio keeps recording. Stop: the microphone track has silence there, not a gap, and stays in sync.
+
+- **Marcar momento** (flag, or ⌥⌘N) marks the minute at once and opens a note: type a title and, optionally, a text; Enter or a click outside keeps it, **Quitar** removes it, and a blank title becomes "Momento 12:31". A flag appears on the live line.
+- **Nueva sección** (⇧⌥⌘N) starts a named part where the recording is; its name appears on the live line. Reading another conversation, ⌥⌘N and ⇧⌥⌘N mark without opening anything.
+- **⋯ › Modo enfoque** leaves the recorder alone in the window; **Renombrar…** names the recording in progress; **Descartar grabación…** stops without saving and moves the audio to the Trash.
+- Force quit during a recording with moments, then recover it: the title, moments and sections come back.
+- After saving, sections head the transcript where they start and moments follow the passage where they were marked; clicking either jumps there. **Copiar** includes them (sections in capitals, moments with ⚑).
+
+### 5a1b. A saved conversation
+
+- Without a transcript: the recording's waveform (click or drag to jump), the message and a large **Transcribir**, centered.
+- The toolbar reads ★ · Compartir · Copiar (with a transcript) · ⓘ · ⋯. Compartir offers the audio, or the transcript and the audio. Copiar puts a structured text on the pasteboard: the title and date, then one block per stretch of speech with who spoke and when (e.g. "Valentina (0:00–1:12)"); a long pause or another speaker starts a new block.
+
+### 5a1c. Full player
+
+- In a saved conversation, the waveform button beside the search field opens the full player across the whole window; **‹** or Esc returns to the Library.
+- The timeline shows the named sections along the top and the moments as flags: click or drag the waveform to jump; click a section to rename or remove it, a flag to edit its title and note or remove it. **Marcar momento aquí** and **Nueva sección aquí** add them at the playhead, and the transcript and Copiar reflect every change.
+- Searching in the toolbar marks the matches on the timeline; the arrows step through them.
+- With a transcript, playing shows who speaks and their words lighting up as they are heard. Without one, a short message instead.
+- **Opciones › Omitir silencios** is saved with that conversation: playback jumps over pauses of two seconds or more, in the full player and the regular one, and never clips the words around them.
+
+### 5a2. Microphone and output
+
+- In **Nueva grabación**, **Micrófono** and **Salida** list the Mac's devices under **Predeterminado del sistema**. Connect or disconnect a Bluetooth or USB device while the sheet is open: the lists follow.
+- Choose the Mac's own microphone while a Bluetooth speaker is the macOS default input and output, and record a call with **Reunión en este Mac**: the microphone track uses the Mac's microphone and the speaker keeps playing in stereo.
+- Choose the Bluetooth speaker's microphone: the sheet warns about hands-free mode. Record a minute anyway; both tracks must play at normal speed and last as long as the recording.
+- Quit and reopen Bardo: the choices are remembered. Disconnect the chosen device: the sheet shows it as **no conectado** and recordings use the macOS default.
+
 ### 5b. Interruptions and recovery
 
 - Start a microphone recording, speak for 20 seconds, then force quit Bardo (⌥⌘⎋).
@@ -116,7 +151,9 @@ Debug builds can drive the real windows into a known state, save each window as 
    open -n -W Bardo.app --env CFFIXED_USER_HOME=<home> --args -BardoDesignCapture <folder> -BardoDesignScenario "open:0+inspector" -BardoDesignAppearance dark -BardoDesignWindowSize 980x620
    ```
 
-Steps are joined with `+`: `section:<all|recorded|imported|favorites>`, `open:<index>`, `deselect`, `search:<text>`, `inspector`, `sidebar:hidden`, `speakers`, `rename`, `edit`, `delete`, `seek:<seconds>`, `newRecording`, `settings`, `settingsTab:<general|recording|transcription|storage|privacy>`, `recovery`, `focusList[:index]`, `press:<down|up|space|return|escape|delete|tab>` (real key events), `mute`, `transcribe`, `trash`, `wait:<seconds>` and `menus` (writes every menu item with its shortcut and state). `transcribe` and `trash` change the Library: run them against a copy.
+Steps are joined with `+`: `section:<all|recorded|imported|favorites>`, `open:<index>`, `deselect`, `search:<text>`, `inspector`, `sidebar:hidden`, `speakers`, `rename`, `edit[:<segment>]`, `delete`, `seek:<seconds>`, `play`, `tracks`, `newRecording`, `settings`, `settingsTab:<general|recording|transcription|storage|privacy>`, `recovery`, `focusList[:index]`, `press:<down|up|space|return|escape|delete|tab>` (real key events), `mute[:<volume>]`, `transcribe`, `trash`, `wait:<seconds>` and `menus` (writes every menu item with its shortcut and state). `transcribe` and `trash` change the Library: run them against a copy.
+
+`-BardoDesignScreen sharpest` places the windows on the Retina screen, `-BardoDesignComposite YES` saves each window with its sheets and popovers in one image, `-BardoDesignForceActive YES` draws the front window's controls as focused while you use another app (the sidebar accent still needs Bardo to be frontmost), and `-BardoDesignMicrophone <name>` shows a neutral input device. `tools/portfolio` builds a sample Library with real transcripts and captures every flow with these options.
 
 Keep the screen unlocked. A locked screen composites windows as blank sheets; the review then draws the views directly, which shows the layout but not Liquid Glass, vibrancy, sidebars or scrolling content.
 

@@ -3,8 +3,9 @@ import XCTest
 @testable import Bardo
 
 final class TranscriptionBackendTests: XCTestCase {
-    func testWhisperKitIsTheOnlyBackendAndUsesTurboByDefault() {
-        XCTAssertEqual(TranscriptionBackend.allCases, [.whisperKit])
+    func testWhisperTurboIsTheDefaultEngine() {
+        XCTAssertEqual(TranscriptionBackend.allCases, [.whisperKit, .appleSpeech])
+        XCTAssertEqual(TranscriptionEngine.default, .balanced)
         XCTAssertEqual(TranscriptionSelection(), TranscriptionSelection())
         XCTAssertEqual(TranscriptionSelection().modelID, TranscriptionModelManager.modelID)
     }
@@ -26,5 +27,15 @@ final class TranscriptionBackendTests: XCTestCase {
         )
         let decoded = try JSONDecoder().decode(Transcript.self, from: JSONEncoder().encode(transcript))
         XCTAssertEqual(decoded.metadata.selection, TranscriptionSelection())
+    }
+
+    func testEachEngineKeepsItsOwnSelection() throws {
+        for selection in [
+            TranscriptionSelection(modelID: TranscriptionModelManager.largeModelID),
+            TranscriptionSelection(backend: .appleSpeech, modelID: TranscriptionEngine.apple.rawValue)
+        ] {
+            let decoded = try JSONDecoder().decode(TranscriptionSelection.self, from: JSONEncoder().encode(selection))
+            XCTAssertEqual(decoded, selection)
+        }
     }
 }

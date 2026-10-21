@@ -283,10 +283,10 @@
 "The recording metadata is safe, but its audio file is missing." = "The recording metadata is safe, but its audio file is missing.";
 "Bardo left this item untouched for review." = "Bardo left this item untouched for review.";
 "Welcome to" = "Welcome to";
-"Transcribe conversations" = "Transcribe conversations";
+"Every word, in its moment" = "Every word, in its moment";
 "Turn recordings into readable text locally on your Mac." = "Turn recordings into clear text without leaving your Mac.";
-"Identify participants" = "Identify participants";
-"Organize conversations by speaker so each voice has its own place." = "Separate the conversation by participant so it's easy to follow who said what.";
+"Who said what" = "Who said what";
+"Bardo tells each voice in the conversation apart." = "Bardo tells each voice in the conversation apart.";
 "Create meeting minutes" = "Create meeting minutes";
 "Summarize decisions, tasks, and next steps on-device." = "Capture decisions, tasks, and next steps automatically.";
 "Bardo processes your recordings locally on this Mac. Audio, transcripts, and minutes stay on your device." = "Everything happens on this Mac: your recordings, transcripts, and meeting minutes are not sent to the internet.";
@@ -374,9 +374,6 @@
 "The microphone recorder could not prepare its output file." = "The microphone recorder could not prepare its output file.";
 "The microphone recorder could not start capturing audio." = "The microphone recorder could not start capturing audio.";
 "The microphone recorder could not be created: %@" = "The microphone recorder could not be created: %@";
-"The audio encoder reported an unknown recording error." = "The audio encoder reported an unknown recording error.";
-"Microphone recording ended unexpectedly." = "Microphone recording ended unexpectedly.";
-"Microphone recording stopped because the audio recorder could not continue." = "Microphone recording stopped because the audio recorder could not continue.";
 "A microphone capture is already active." = "A microphone capture is already active.";
 "The microphone capture is no longer active." = "The microphone capture is no longer active.";
 "Bardo found existing temporary data for this capture and left it untouched." = "Bardo found existing temporary data for this capture and left it untouched.";
@@ -486,18 +483,21 @@
 
 /* Welcome */
 "Welcome to Bardo" = "Welcome to Bardo";
-"Record or import conversations and turn them into text you can read, search and share." = "Record or import conversations and turn them into text you can read, search and share.";
-"Turn recordings into clear text, with the moment of every sentence." = "Turn recordings into clear text, with the moment of every sentence.";
-"Everything stays on your Mac" = "Everything stays on your Mac";
-"Audio and transcripts are processed here and are never sent to an online service." = "Audio and transcripts are processed here and are never sent to an online service.";
-"Bardo will download about 650 MB of voice resources so it can work offline." = "Bardo will download about 650 MB of voice resources so it can work offline.";
+"Turn conversations into text you can read, search and share." = "Turn conversations into text you can read, search and share.";
+"Read along as it plays and go back to any sentence." = "Read along as it plays and go back to any sentence.";
+"Private, on your Mac" = "Private, on your Mac";
+"Audio and text never leave this Mac." = "Audio and text never leave this Mac.";
 "That item is no longer in the Library." = "That item is no longer in the Library.";
 "Bardo did not hear any Mac audio. If something was playing, allow Bardo in System Settings › Privacy & Security › Screen & System Audio Recording." = "Bardo did not hear any Mac audio. If something was playing, allow Bardo in System Settings › Privacy & Security › Screen & System Audio Recording.";
 "Bardo could not listen to the Mac's audio (Core Audio error %d)." = "Bardo could not listen to the Mac's audio (Core Audio error %d).";
 "No microphone is available." = "No microphone is available.";
 "The microphone could not be connected." = "The microphone could not be connected.";
+"The microphone was disconnected." = "The microphone was disconnected.";
+"The microphone stopped unexpectedly." = "The microphone stopped unexpectedly.";
 "You" = "You";
 "Others" = "Others";
 "Separate tracks" = "Separate tracks";
 "Mac audio" = "Mac audio";
 "Exported" = "Exported";
+"Moment %@" = "Moment %@";
+"Section %lld" = "Section %lld";

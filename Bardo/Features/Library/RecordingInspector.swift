@@ -4,8 +4,12 @@ import SwiftUI
 struct RecordingInspector: View {
     let recording: Recording
     let transcript: Transcript?
+    var isCompressing = false
+    /// Compresses the audio at a lower quality; `nil` where it cannot be offered.
+    var compress: ((AudioQualityPreset) -> Void)?
 
     @State private var showsTechnicalDetails = false
+    @State private var isConfirmingCompression = false
 
     var body: some View {
         Form {
@@ -21,6 +25,29 @@ struct RecordingInspector: View {
                 LabeledContent("Duración", value: LibraryFormatting.duration(recording.duration))
                 LabeledContent("Origen", value: LibraryFormatting.source(recording.sources))
                 LabeledContent("Estado", value: LibraryFormatting.state(recording.processingState))
+            }
+
+            // How much space it takes, and compressing it, right after what it is.
+            if !recording.audioAssets.isEmpty {
+                Section("Archivo") {
+                    if recording.audioAssets.count == 1, let asset = recording.audioAssets.first {
+                        LabeledContent("Nombre", value: asset.originalFileName)
+                        if let size = formattedFileSize(for: asset) {
+                            LabeledContent("Tamaño", value: size)
+                        }
+                    } else {
+                        LabeledContent(
+                            "Pistas de audio",
+                            value: "\(recording.audioAssets.count)"
+                        )
+                        if let size = formattedTotalFileSize {
+                            LabeledContent("Tamaño total", value: size)
+                        }
+                    }
+                    if compress != nil {
+                        compressionRow
+                    }
+                }
             }
 
             if let transcript, transcript.recordingID == recording.id {
@@ -51,23 +78,6 @@ struct RecordingInspector: View {
             }
 
             if !recording.audioAssets.isEmpty {
-                Section("Archivo") {
-                    if recording.audioAssets.count == 1, let asset = recording.audioAssets.first {
-                        LabeledContent("Nombre", value: asset.originalFileName)
-                        if let size = formattedFileSize(for: asset) {
-                            LabeledContent("Tamaño", value: size)
-                        }
-                    } else {
-                        LabeledContent(
-                            "Pistas de audio",
-                            value: "\(recording.audioAssets.count)"
-                        )
-                        if let size = formattedTotalFileSize {
-                            LabeledContent("Tamaño total", value: size)
-                        }
-                    }
-                }
-
                 Section {
                     DisclosureGroup("Detalles técnicos", isExpanded: $showsTechnicalDetails) {
                         ForEach(Array(recording.audioAssets.enumerated()), id: \.element.id) { index, asset in
@@ -89,6 +99,61 @@ struct RecordingInspector: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    // MARK: Compression
+
+    private var compressionRow: some View {
+        let options = compressionOptions
+        return LabeledContent {
+            if isCompressing {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Button("Comprimir…") { isConfirmingCompression = true }
+                    .disabled(options.isEmpty)
+            }
+        } label: {
+            Text("Comprimir audio")
+            Text(isCompressing
+                ? "Comprimiendo…"
+                : (options.last.map { "Puede ocupar unos \(SettingsView.megabytes($0.bytes))." } ?? "Ya ocupa poco espacio."))
+        }
+        .confirmationDialog(
+            "¿Seguro que quieres comprimir el audio?",
+            isPresented: $isConfirmingCompression,
+            titleVisibility: .visible
+        ) {
+            ForEach(options, id: \.preset) { option in
+                Button("\(option.preset.title) · unos \(SettingsView.megabytes(option.bytes))") {
+                    compress?(option.preset)
+                }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("\(formattedTotalBytes.map { "Ahora ocupa \($0). " } ?? "")Se seguirá entendiendo y transcribiendo todo, pero la calidad original no se puede recuperar.")
+        }
+    }
+
+    /// The qualities that would save a real share of the space, with what each would take.
+    private var compressionOptions: [(preset: AudioQualityPreset, bytes: Double)] {
+        guard let current = totalByteCount else { return [] }
+        return [AudioQualityPreset.high, .balanced, .compact].compactMap { preset in
+            let encoding = AudioEncoding(preset: preset, format: .aac)
+            let bytes = recording.audioAssets.reduce(0.0) { total, asset in
+                total + encoding.bytesPerMinute(channels: Int(asset.metadata.channelCount)) * asset.metadata.duration / 60
+            }
+            return bytes < Double(current) * 0.8 ? (preset, bytes) : nil
+        }
+    }
+
+    private var totalByteCount: Int64? {
+        let sizes = recording.audioAssets.compactMap(byteCount(for:))
+        return sizes.count == recording.audioAssets.count ? sizes.reduce(0, +) : nil
+    }
+
+    private var formattedTotalBytes: String? {
+        totalByteCount.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
     }
 
     private static let dateFormat = Date.FormatStyle.dateTime.day().month(.abbreviated).year().hour().minute()

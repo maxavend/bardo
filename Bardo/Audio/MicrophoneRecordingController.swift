@@ -28,7 +28,14 @@ final class MicrophoneRecordingController: ObservableObject {
         case failed
     }
 
-    @Published private(set) var phase: Phase = .idle
+    @Published private(set) var phase: Phase = .idle {
+        didSet {
+            if phase != .recording && phase != .paused { isMuted = false }
+            if phase == .idle || phase == .preparing { notes = RecordingNotes() }
+        }
+    }
+    /// The microphone records silence; the recording keeps its timeline.
+    @Published private(set) var isMuted = false
     @Published private(set) var permissionState: MicrophonePermissionState
     @Published private(set) var elapsedTime: TimeInterval = 0
     @Published private(set) var inputDisplayName: String?
@@ -53,6 +60,110 @@ final class MicrophoneRecordingController: ObservableObject {
         }
     }
 
+    /// Moments and sections marked during the recording in progress.
+    @Published private(set) var notes = RecordingNotes()
+
+    /// Where the recording is on its own timeline, pauses left out: the time a moment
+    /// or section marked now will have in the saved recording.
+    var recordingPosition: TimeInterval { max(0, backend.currentTime) }
+
+    @discardableResult
+    func addMoment(at time: TimeInterval, title: String, note: String?) -> RecordingMoment? {
+        guard (phase == .recording || phase == .paused) else { return nil }
+        let moment = notes.addMoment(at: time, title: title, note: note)
+        saveCaptureDetails()
+        return moment
+    }
+
+    @discardableResult
+    func addSection(at time: TimeInterval, title: String) -> RecordingSection? {
+        guard (phase == .recording || phase == .paused) else { return nil }
+        let section = notes.addSection(at: time, title: title)
+        saveCaptureDetails()
+        return section
+    }
+
+    func editMoment(_ id: RecordingMoment.ID, title: String, note: String?) {
+        notes.editMoment(id, title: title, note: note)
+        saveCaptureDetails()
+    }
+
+    func removeMoment(_ id: RecordingMoment.ID) {
+        notes.removeMoment(id)
+        saveCaptureDetails()
+    }
+
+    func renameSection(_ id: RecordingSection.ID, to title: String) {
+        notes.renameSection(id, to: title)
+        saveCaptureDetails()
+    }
+
+    func removeSection(_ id: RecordingSection.ID) {
+        notes.removeSection(id)
+        saveCaptureDetails()
+    }
+
+    /// Names the recording in progress; a blank title falls back to the default one.
+    func renameActiveRecording(to title: String) {
+        guard (phase == .recording || phase == .paused), session != nil else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        session?.title = trimmed.isEmpty ? nil : trimmed
+        objectWillChange.send()
+        saveCaptureDetails()
+    }
+
+    /// Stops without saving: the audio recorded so far goes to the Trash.
+    func discard() async {
+        guard phase == .recording || phase == .paused, let session else { return }
+        phase = .finalizing
+        stopProgressUpdates()
+        backend.stop()
+        do {
+            try await resolveStagingStore().moveToTrash(recordingID: session.recordingID)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        self.session = nil
+        phase = .idle
+        elapsedTime = 0
+        inputDisplayName = nil
+        releaseGlobalCaptureLease()
+        await refreshRecoveryIssues()
+    }
+
+    private func saveCaptureDetails() {
+        guard let session, let stagingStore = try? resolveStagingStore() else { return }
+        let (id, title, notes) = (session.recordingID, session.title, notes)
+        Task { await stagingStore.recordDetails(recordingID: id, title: title, notes: notes) }
+    }
+
+    /// Live loudness of the microphone, for the recorder.
+    var meter: LiveAudioMeter? { backend.meter }
+    var inputDeviceUID: String? { backend.inputDeviceUID }
+
+    var canMute: Bool { (phase == .recording || phase == .paused) && backend.supportsMute }
+
+    func toggleMute() {
+        guard canMute else { return }
+        isMuted.toggle()
+        backend.setMuted(isMuted)
+    }
+
+    /// Records `device` from now on and remembers it for the next recordings.
+    func switchInput(to device: AudioDevice) {
+        guard phase == .recording || phase == .paused else { return }
+        do {
+            try backend.switchInput(toDeviceUID: device.uid)
+            inputDisplayName = backend.inputDisplayName
+            AudioDevicePreferences().setDevice(device, for: .input)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+    /// The title chosen for the recording in progress, if any.
+    var activeTitle: String? { session?.title }
+    var startedAt: Date? { session?.startedAt }
+
     var requiresTerminationFinalization: Bool {
         phase == .recording || phase == .paused || phase == .finalizing
     }
@@ -68,7 +179,7 @@ final class MicrophoneRecordingController: ObservableObject {
         let audioAssetID: UUID
         let startedAt: Date
         let stagingURL: URL
-        let title: String?
+        var title: String?
     }
 
     private static weak var globalCaptureOwner: MicrophoneRecordingController?
@@ -79,6 +190,8 @@ final class MicrophoneRecordingController: ObservableObject {
     private let backend: any AudioCapturing
     private let metadataReader: AudioMetadataReader
     private let transcoder: any AudioTranscoding
+    /// The quality and format chosen in Settings, read when a recording is saved.
+    private let encoding: @Sendable () -> AudioEncoding
     private let settingsOpener: MicrophoneSystemSettingsOpener
     private let captureLeaseID = UUID()
     private var session: Session?
@@ -88,9 +201,10 @@ final class MicrophoneRecordingController: ObservableObject {
         store: RecordingStore? = nil,
         stagingStore: MicrophoneCaptureStagingStore? = nil,
         permissionAuthorizer: any MicrophonePermissionAuthorizing = SystemMicrophonePermissionAuthorizer(),
-        backend: any AudioCapturing = AVAudioRecorderCaptureBackend(),
+        backend: any AudioCapturing = MicrophoneCaptureBackend(),
         metadataReader: AudioMetadataReader = AudioMetadataReader(),
-        transcoder: any AudioTranscoding = AACAudioTranscoder(),
+        transcoder: any AudioTranscoding = AudioFileTranscoder(),
+        encoding: @escaping @Sendable () -> AudioEncoding = { AudioEncodingPreferences.current() },
         settingsOpener: MicrophoneSystemSettingsOpener = MicrophoneSystemSettingsOpener()
     ) {
         self.store = store
@@ -99,6 +213,7 @@ final class MicrophoneRecordingController: ObservableObject {
         self.backend = backend
         self.metadataReader = metadataReader
         self.transcoder = transcoder
+        self.encoding = encoding
         self.settingsOpener = settingsOpener
         permissionState = permissionAuthorizer.currentStatus()
 
@@ -279,7 +394,8 @@ final class MicrophoneRecordingController: ObservableObject {
                 audioAssetID: audioAssetID,
                 stagingURL: audioURL,
                 title: contents.manifest?.title,
-                startedAt: contents.startedAt
+                startedAt: contents.startedAt,
+                notes: contents.manifest?.notes ?? RecordingNotes()
             )
             // When the staged PCM was compressed, the published file is the compressed
             // copy and the PCM source is no longer needed.
@@ -336,7 +452,7 @@ final class MicrophoneRecordingController: ObservableObject {
             )
 
             do {
-                try backend.start(to: stagingURL)
+                try await backend.start(to: stagingURL)
             } catch {
                 try? await stagingStore.discardPreparedCapture(recordingID: recordingID)
                 throw error
@@ -378,7 +494,8 @@ final class MicrophoneRecordingController: ObservableObject {
                 audioAssetID: session.audioAssetID,
                 stagingURL: session.stagingURL,
                 title: session.title,
-                startedAt: session.startedAt
+                startedAt: session.startedAt,
+                notes: notes
             )
 
             do {
@@ -428,7 +545,8 @@ final class MicrophoneRecordingController: ObservableObject {
         audioAssetID: UUID,
         stagingURL: URL,
         title: String?,
-        startedAt: Date
+        startedAt: Date,
+        notes: RecordingNotes
     ) async throws -> Recording {
         let store = try resolveStore()
 
@@ -444,10 +562,11 @@ final class MicrophoneRecordingController: ObservableObject {
 
         var publishURL = stagingURL
         var metadata = sourceMetadata
-        if stagingURL.pathExtension.lowercased() != "m4a" {
-            let compactURL = stagingURL.deletingPathExtension().appendingPathExtension("m4a")
+        let encoding = encoding()
+        if stagingURL.pathExtension.lowercased() != encoding.fileExtension {
+            let compactURL = stagingURL.deletingPathExtension().appendingPathExtension(encoding.fileExtension)
             do {
-                try await transcoder.transcodeToCompactM4A(from: stagingURL, to: compactURL)
+                try await transcoder.transcode(from: stagingURL, to: compactURL, encoding: encoding)
                 metadata = try metadataReader.read(from: compactURL)
                 publishURL = compactURL
             } catch {
@@ -473,7 +592,8 @@ final class MicrophoneRecordingController: ObservableObject {
             duration: metadata.duration,
             sources: [.microphone],
             processingState: .pending,
-            audioAssets: [asset]
+            audioAssets: [asset],
+            notes: notes
         )
 
         try await store.importRecording(

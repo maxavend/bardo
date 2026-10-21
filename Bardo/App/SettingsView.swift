@@ -33,10 +33,20 @@ struct SettingsView: View {
     @State private var isLibraryRemovalPresented = false
     @State private var storageUsage = BardoStorageUsage.empty
 
+    init(initialTab: String? = nil) {
+        _selectedTab = State(initialValue: initialTab.flatMap(SettingsTab.init(rawValue:)) ?? .general)
+    }
+
     @AppStorage("bardo.appearance") private var appearanceRaw = BardoAppearancePreference.system.rawValue
     @AppStorage("bardo.default-recording-mode") private var recordingModeRaw = BardoRecordingMode.conversation.rawValue
     @AppStorage(TranscriptionTrackMode.defaultsKey) private var trackModeRaw = TranscriptionTrackMode.perTrack.rawValue
     @AppStorage(LocalSpeakerName.defaultsKey) private var localSpeakerName = ""
+    @AppStorage(TranscriptionEngine.defaultsKey) private var engineRaw = TranscriptionEngine.default.rawValue
+    @AppStorage(AudioEncodingPreferences.presetKey) private var qualityRaw = AudioQualityPreset.default.rawValue
+    @AppStorage(AudioEncodingPreferences.formatKey) private var formatRaw = AudioStorageFormat.default.rawValue
+    @StateObject private var devices = AudioDeviceCatalog()
+    /// Bumped when a device is chosen, so the pickers read the saved choice again.
+    @State private var deviceChoiceRevision = 0
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -46,12 +56,12 @@ struct SettingsView: View {
                 .tag(SettingsTab.general)
 
             recordingTab
-                .frame(width: Self.width, height: 350)
+                .frame(width: Self.width, height: 600)
                 .tabItem { Label("Grabación", systemImage: "mic") }
                 .tag(SettingsTab.recording)
 
             transcriptionTab
-                .frame(width: Self.width, height: 600)
+                .frame(width: Self.width, height: 720)
                 .tabItem { Label("Transcripción", systemImage: "waveform") }
                 .tag(SettingsTab.transcription)
 
@@ -130,44 +140,156 @@ struct SettingsView: View {
 
     private var recordingTab: some View {
         Form {
-            Section("Fuente predeterminada") {
+            Section {
                 Picker("Al crear una grabación", selection: $recordingModeRaw) {
                     ForEach(BardoRecordingMode.allCases) { mode in
                         Label(mode.title, systemImage: mode.symbol)
                             .tag(mode.rawValue)
                     }
                 }
-
-                Text("Siempre podrás cambiar la fuente antes de comenzar.")
+                LabeledContent("Micrófono") {
+                    AudioDevicePicker(
+                        title: "Micrófono",
+                        selection: deviceBinding(.input),
+                        devices: devices.inputs,
+                        defaultDevice: devices.defaultInput,
+                        rememberedName: AudioDevicePreferences().inputDeviceName
+                    )
+                    .fixedSize()
+                }
+                LabeledContent("Salida") {
+                    AudioDevicePicker(
+                        title: "Salida",
+                        selection: deviceBinding(.output),
+                        devices: devices.outputs,
+                        defaultDevice: devices.defaultOutput,
+                        rememberedName: AudioDevicePreferences().outputDeviceName
+                    )
+                    .fixedSize()
+                }
+            } header: {
+                Text("Fuente")
+            } footer: {
+                Text("Siempre podrás cambiarlos antes de empezar a grabar.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            Section("Micrófono") {
-                LabeledContent("Entrada") {
-                    Text("Micrófono seleccionado en macOS")
-                        .foregroundStyle(.secondary)
-                }
-
-                Button("Abrir ajustes de sonido…") {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
             }
 
             Section {
-                Text("Bardo conserva el audio original de cada fuente para que puedas volver a escucharlo o transcribirlo más tarde.")
+                Picker("Calidad", selection: $qualityRaw) {
+                    ForEach(AudioQualityPreset.allCases) { preset in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(preset == .default ? "\(preset.title) (recomendada)" : preset.title)
+                            Text("\(preset.detail) Unos \(Self.megabytes(AudioEncoding(preset: preset, format: encoding.format).meetingBytesPerMinute)) por minuto.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .tag(preset.rawValue)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+
+                Picker("Formato", selection: $formatRaw) {
+                    ForEach(AudioStorageFormat.allCases) { format in
+                        Text("\(format.title) — \(format.detail)").tag(format.rawValue)
+                    }
+                }
+            } header: {
+                Text("Calidad del audio")
+            } footer: {
+                Text("Con cualquier calidad se entiende y se transcribe todo. Los pesos son por minuto de reunión, con tu micrófono y el audio del Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)
         .padding(.top, 8)
+        .onAppear { devices.startObserving() }
+    }
+
+    private var selectedEngine: TranscriptionEngine {
+        TranscriptionEngine(rawValue: engineRaw).flatMap { $0.isSupported ? $0 : nil } ?? .default
+    }
+
+    /// Uses an engine once it can transcribe: Apple's after macOS has its language,
+    /// Whisper's once downloaded.
+    private func select(_ engine: TranscriptionEngine) {
+        if engine == .apple, !model.isAppleReady {
+            model.prepareApple { engineRaw = engine.rawValue }
+        } else {
+            engineRaw = engine.rawValue
+        }
+    }
+
+    private var encoding: AudioEncoding {
+        AudioEncoding(
+            preset: AudioQualityPreset(rawValue: qualityRaw) ?? .default,
+            format: AudioStorageFormat(rawValue: formatRaw) ?? .default
+        )
+    }
+
+    static func megabytes(_ bytes: Double) -> String {
+        let megabytes = bytes / 1_000_000
+        return "\(megabytes.formatted(.number.precision(.fractionLength(megabytes < 10 ? 1 : 0)))) MB"
+    }
+
+    /// The device the next recording uses; `nil` follows macOS.
+    private func deviceBinding(_ direction: AudioDeviceDirection) -> Binding<String?> {
+        Binding(
+            get: {
+                _ = deviceChoiceRevision
+                let preferences = AudioDevicePreferences()
+                return direction == .input ? preferences.inputDeviceUID : preferences.outputDeviceUID
+            },
+            set: { uid in
+                let list = direction == .input ? devices.inputs : devices.outputs
+                if uid == nil {
+                    AudioDevicePreferences().setDevice(nil, for: direction)
+                } else if let device = list.first(where: { $0.uid == uid }) {
+                    AudioDevicePreferences().setDevice(device, for: direction)
+                }
+                deviceChoiceRevision += 1
+            }
+        )
     }
 
     private var transcriptionTab: some View {
         Form {
+            Section {
+                ForEach(TranscriptionEngine.allCases) { engine in
+                    TranscriptionEngineRow(
+                        engine: engine,
+                        isSelected: selectedEngine == engine,
+                        managedRow: engine.managedModel.flatMap { model.row(for: $0) },
+                        isAppleReady: model.isAppleReady,
+                        isPreparingApple: model.isPreparingApple,
+                        appleFailure: model.appleFailure,
+                        select: { select(engine) },
+                        action: { action in
+                            if let managed = engine.managedModel { handle(action, for: managed) }
+                        }
+                    )
+                }
+            } header: {
+                Text("Transcripción")
+            } footer: {
+                Text("Todos transcriben en este Mac, sin enviar tus conversaciones a internet. El que elijas se usa en las próximas transcripciones.")
+            }
+
+            Section {
+                if let row = model.row(for: .speakerKit) {
+                    ModelSettingsRow(row: row) { action in
+                        handle(action, for: .speakerKit)
+                    }
+                }
+            } header: {
+                Text("Participantes")
+            } footer: {
+                Text("Es el mismo con cualquier forma de transcribir.")
+            }
+
             Section("Idioma") {
                 LabeledContent("Idioma de la conversación", value: "Detectar automáticamente")
                 Text("Bardo reconoce el idioma a partir del audio y mantiene la transcripción en ese idioma.")
@@ -189,39 +311,6 @@ struct SettingsView: View {
                     : "Tu micrófono y el audio del Mac se transcriben por separado: las voces no se pisan y lo que dices tú queda con tu nombre. Si la llamada sonó por los parlantes, Bardo descarta el eco que captó el micrófono.")
             }
 
-            Section {
-                if model.rows.isEmpty {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Comprobando lo necesario…")
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    ForEach(model.rows) { row in
-                        ModelSettingsRow(row: row) { action in
-                            handle(action, for: row.id)
-                        }
-                    }
-                }
-
-                HStack {
-                    Spacer()
-                    Button("Comprobar recursos") {
-                        model.refresh()
-                    }
-                    .disabled(model.isRefreshing)
-
-                    if model.isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                }
-            } header: {
-                Text("Recursos locales")
-            } footer: {
-                Text("Estos recursos se guardan en este Mac y permiten transcribir y distinguir voces sin enviar tus conversaciones a servicios externos.")
-            }
         }
         .formStyle(.grouped)
         .padding(.top, 8)
@@ -262,6 +351,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .bardoSecondaryAction()
         .padding(.top, 8)
     }
 
@@ -327,6 +417,10 @@ struct SettingsView: View {
     }
 
     private func applyAppearance() {
+        #if DEBUG
+        // The design review sets the appearance it captures.
+        if DesignReview.forcesAppearance { return }
+        #endif
         let preference = BardoAppearancePreference(rawValue: appearanceRaw) ?? .system
         switch preference {
         case .system:
@@ -590,6 +684,9 @@ struct ModelSettingsRowState: Identifiable, Equatable, Sendable {
 private final class ModelSettingsViewModel: ObservableObject {
     @Published private(set) var rows: [ModelSettingsRowState] = []
     @Published private(set) var isRefreshing = false
+    /// Whether macOS has Apple's recognition ready for this Mac's language.
+    @Published private(set) var isAppleReady = false
+    @Published private(set) var isPreparingApple = false
     private var didRefresh = false
     private var refreshTask: Task<Void, Never>?
     private var operationTasks: [ManagedModel: Task<Void, Never>] = [:]
@@ -658,12 +755,34 @@ private final class ModelSettingsViewModel: ObservableObject {
 
     private func resetRuntimeModel(_ model: ManagedModel) async throws {
         switch model {
-        case .whisperTurbo:
-            try await WhisperTranscriptionService.live().reset()
+        case .whisperTurbo, .whisperLarge:
+            try await WhisperTranscriptionService.live().reset(model)
         case .speakerKit:
             try await SpeakerDiarizationService.live().reset()
         }
         try BardoModelStore.live().reset(model)
+    }
+
+    /// Asks macOS for Apple's recognition in this Mac's language, then selects it.
+    func prepareApple(then select: @escaping @MainActor () -> Void) {
+        guard #available(macOS 26.0, *), !isPreparingApple else { return }
+        isPreparingApple = true
+        Task { @MainActor [weak self] in
+            do {
+                try await AppleSpeechTranscriber.prepare { _ in }
+                self?.isAppleReady = true
+                select()
+            } catch {
+                self?.appleFailure = error.localizedDescription
+            }
+            self?.isPreparingApple = false
+        }
+    }
+
+    @Published var appleFailure: String?
+
+    func row(for model: ManagedModel) -> ModelSettingsRowState? {
+        rows.first { $0.id == model }
     }
 
     func revealModelsFolder() {
@@ -683,8 +802,8 @@ private final class ModelSettingsViewModel: ObservableObject {
         do {
             _ = try BardoModelStore.live()
             switch model {
-            case .whisperTurbo:
-                let manager = try TranscriptionModelManager.live()
+            case .whisperTurbo, .whisperLarge:
+                let manager = try TranscriptionModelManager.live(for: model)
                 _ = try await manager.ensureResourcesAvailable { [weak self] fraction in
                     let state = Self.runtimeDownloadState(for: fraction)
                     Task { @MainActor [weak self] in
@@ -731,14 +850,17 @@ private final class ModelSettingsViewModel: ObservableObject {
             return
         }
 
-        if operationTasks[.whisperTurbo] == nil {
+        for whisperModel in [ManagedModel.whisperTurbo, .whisperLarge] where operationTasks[whisperModel] == nil {
             do {
                 let whisper = try WhisperTranscriptionService.live()
-                let installed = await whisper.hasInstalledModel()
-                setState(installed ? .installed : .notInstalled, for: .whisperTurbo)
+                let installed = await whisper.hasInstalledModel(whisperModel)
+                setState(installed ? .installed : .notInstalled, for: whisperModel)
             } catch {
-                setState(.failed(error.localizedDescription), for: .whisperTurbo)
+                setState(.failed(error.localizedDescription), for: whisperModel)
             }
+        }
+        if #available(macOS 26.0, *) {
+            isAppleReady = await AppleSpeechTranscriber.isReady()
         }
 
         if operationTasks[.speakerKit] == nil {
@@ -760,9 +882,9 @@ private final class ModelSettingsViewModel: ObservableObject {
     private func refreshModel(_ model: ManagedModel) async {
         guard (try? BardoModelStore.live()) != nil else { return }
         switch model {
-        case .whisperTurbo:
+        case .whisperTurbo, .whisperLarge:
             let service = try? WhisperTranscriptionService.live()
-            setState(await service?.hasInstalledModel() == true ? .installed : .notInstalled, for: model)
+            setState(await service?.hasInstalledModel(model) == true ? .installed : .notInstalled, for: model)
         case .speakerKit:
             let service = try? SpeakerDiarizationService.live()
             setState(await service?.hasInstalledModels() == true ? .installed : .notInstalled, for: model)
@@ -779,11 +901,12 @@ private final class ModelSettingsViewModel: ObservableObject {
 
     private func makeRow(for model: ManagedModel, state: ManagedModelState) -> ModelSettingsRowState {
         switch model {
-        case .whisperTurbo:
+        case .whisperTurbo, .whisperLarge:
+            let engine: TranscriptionEngine = model == .whisperLarge ? .precise : .balanced
             return ModelSettingsRowState(
                 id: model,
-                title: "Transcripción",
-                detail: "Convierte el audio en texto y conserva los tiempos necesarios para la reproducción.",
+                title: engine.title,
+                detail: engine.detail,
                 supportsInstallation: true,
                 state: state
             )

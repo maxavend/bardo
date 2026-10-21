@@ -163,6 +163,51 @@ actor RecordingStore {
         }
     }
 
+    /// Swaps tracks of a saved recording for new encodings of the same audio, as when
+    /// compressing it. New files are copied in first; each one then takes its track's
+    /// place in one rename, the manifest follows, and files left under an old name are
+    /// removed last.
+    func replaceAudio(
+        of recordingID: Recording.ID,
+        with replacements: [(asset: AudioAsset, sourceURL: URL)]
+    ) throws -> Recording {
+        var recording = try read(id: recordingID)
+        let audioDirectory = audioDirectoryURL(for: recordingID)
+        var staged: [(asset: AudioAsset, url: URL)] = []
+        do {
+            for (asset, sourceURL) in replacements {
+                guard recording.audioAssets.contains(where: { $0.id == asset.id }) else {
+                    throw RecordingStoreError.audioAssetNotFound(recordingID: recordingID, audioAssetID: asset.id)
+                }
+                let temporaryURL = audioDirectory.appendingPathComponent(".audio-\(asset.id.uuidString).replacing.tmp")
+                try? FileManager.default.removeItem(at: temporaryURL)
+                try FileManager.default.copyItem(at: sourceURL, to: temporaryURL)
+                DurableFile.restrictToOwner(temporaryURL)
+                staged.append((asset, temporaryURL))
+            }
+        } catch {
+            staged.forEach { try? FileManager.default.removeItem(at: $0.url) }
+            throw RecordingStoreError.fileSystem(
+                operation: "copy replacement audio",
+                entry: recordingID.uuidString,
+                description: error.localizedDescription
+            )
+        }
+
+        var obsolete: [URL] = []
+        for (asset, temporaryURL) in staged {
+            guard let index = recording.audioAssets.firstIndex(where: { $0.id == asset.id }) else { continue }
+            let oldURL = managedAudioURL(recordingID: recordingID, asset: recording.audioAssets[index])
+            let newURL = managedAudioURL(recordingID: recordingID, asset: asset)
+            try atomicallyMove(from: temporaryURL, to: newURL, operation: "replace managed audio")
+            if oldURL != newURL { obsolete.append(oldURL) }
+            recording.audioAssets[index] = asset
+        }
+        try save(recording)
+        obsolete.forEach { try? FileManager.default.removeItem(at: $0) }
+        return recording
+    }
+
     /// Returns audio from a publication that never wrote its manifest (Bardo quit or
     /// crashed halfway) to the capture's staging directory, so recovery sees every source
     /// again. Returns true when an incomplete publication was reclaimed.

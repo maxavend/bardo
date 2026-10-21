@@ -11,6 +11,25 @@ final class BardoModelStoreTests: XCTestCase {
         }
     }
 
+    /// A Mac that has never run Bardo has Application Support but no Bardo folder yet.
+    /// The model root must still validate, or setup fails before downloading anything.
+    func testFirstLaunchAcceptsAModelRootThatDoesNotExistYet() throws {
+        let applicationSupport = FileManager.default.temporaryDirectory
+            .resolvingSymlinksInPath()
+            .appendingPathComponent("BardoFreshMac-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: applicationSupport, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: applicationSupport) }
+        // Built as `live()` builds it: directory URLs with a trailing slash.
+        let root = applicationSupport
+            .appendingPathComponent("Bardo", isDirectory: true)
+            .appendingPathComponent("Models", isDirectory: true)
+
+        let store = BardoModelStore(rootURL: root)
+
+        XCTAssertNoThrow(try store.reset(.whisperTurbo))
+        XCTAssertNoThrow(try store.removeLegacyVoiceModelDirectories())
+    }
+
     func testResetRemovesOnlySelectedCurrentModel() throws {
         let root = FileManager.default.temporaryDirectory
             .resolvingSymlinksInPath()

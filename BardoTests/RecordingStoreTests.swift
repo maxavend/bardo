@@ -106,6 +106,45 @@ final class RecordingStoreTests: XCTestCase {
         }
     }
 
+    func testCompressedAudioReplacesTheTrackAndItsFileUnderTheNewName() async throws {
+        let store = RecordingStore(rootURL: rootURL)
+        let wav = rootURL.appendingPathComponent("original.wav")
+        try AudioTestFixture.makeWAV(at: wav, sampleRate: 48_000, duration: 2)
+        let original = AudioAsset(
+            originalFileName: "Recording.wav",
+            fileExtension: "wav",
+            metadata: try AudioMetadataReader().read(from: wav),
+            role: .microphoneOriginal
+        )
+        let recording = Recording(title: "Compress", createdAt: Date(), duration: 2, sources: [.microphone], audioAssets: [original])
+        try await store.importRecording(recording, audioAsset: original, from: wav)
+        let oldURL = try await store.managedAudioURL(recordingID: recording.id, audioAssetID: original.id)
+
+        let compact = rootURL.appendingPathComponent("compact.m4a")
+        try await AudioFileTranscoder().transcode(
+            from: oldURL,
+            to: compact,
+            encoding: AudioEncoding(preset: .compact, format: .aac)
+        )
+        let replacement = AudioAsset(
+            id: original.id,
+            originalFileName: "Recording.m4a",
+            fileExtension: "m4a",
+            metadata: try AudioMetadataReader().read(from: compact),
+            role: .microphoneOriginal
+        )
+
+        let updated = try await store.replaceAudio(of: recording.id, with: [(replacement, compact)])
+
+        XCTAssertEqual(updated.audioAssets, [replacement])
+        let reread = try await store.read(id: recording.id)
+        XCTAssertEqual(reread.audioAssets, [replacement])
+        let newURL = try await store.managedAudioURL(recordingID: recording.id, audioAssetID: original.id)
+        XCTAssertEqual(newURL.pathExtension, "m4a")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldURL.path), "The old file goes once the manifest points at the new one")
+        XCTAssertEqual(try AudioMetadataReader().read(from: newURL).duration, 2, accuracy: 0.1)
+    }
+
     func testRecordingDirectoryURLIsInsideStoreRoot() async throws {
         let recording = makeRecording(id: UUID(), title: "Managed location")
         let store = RecordingStore(rootURL: rootURL)

@@ -137,6 +137,11 @@ struct RecordingManifestV3: Codable, Equatable, Sendable {
     let sources: [AudioSource]
     let processingState: ProcessingState
     let audioAssets: [AudioAssetRecord]
+    /// Moments and sections. Absent when there are none, so older manifests read the
+    /// same and older versions of Bardo ignore it.
+    let notes: RecordingNotes?
+    /// Present only when playback skips silences.
+    let skipsSilences: Bool?
 
     init(recording: Recording) {
         schemaVersion = Self.currentSchemaVersion
@@ -148,6 +153,8 @@ struct RecordingManifestV3: Codable, Equatable, Sendable {
         sources = recording.sources.sorted { $0.rawValue < $1.rawValue }
         processingState = recording.processingState
         audioAssets = recording.audioAssets.map(AudioAssetRecord.init(asset:))
+        notes = recording.notes.isEmpty ? nil : recording.notes
+        skipsSilences = recording.skipsSilences ? true : nil
     }
 
     var recording: Recording {
@@ -158,7 +165,9 @@ struct RecordingManifestV3: Codable, Equatable, Sendable {
             duration: duration,
             sources: Set(sources),
             processingState: processingState,
-            audioAssets: audioAssets.map(\.asset)
+            audioAssets: audioAssets.map(\.asset),
+            notes: notes ?? RecordingNotes(),
+            skipsSilences: skipsSilences ?? false
         )
     }
 }

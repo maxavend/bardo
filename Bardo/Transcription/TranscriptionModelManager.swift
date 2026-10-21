@@ -49,10 +49,16 @@ struct WhisperPerformanceProfile: Equatable, Sendable {
 }
 
 actor TranscriptionModelManager {
-    /// Whisper large-v3 Turbo is the only ASR model exposed by Bardo.
+    /// Whisper large-v3 Turbo: fast and very accurate, and what first-run setup installs.
     static let modelID = "large-v3-v20240930_turbo_632MB"
     static let defaultModelID = modelID
+    /// Whisper large-v3 in full: the most accurate, and slower.
+    static let largeModelID = "large-v3"
     static let minimumFreeBytesForDownload: Int64 = 1_500_000_000
+
+    /// The WhisperKit variant this manager installs; each lives in its own folder.
+    let variant: String
+    private let minimumFreeBytes: Int64
 
     typealias CapacityProvider = @Sendable (URL) throws -> Int64?
     typealias TokenizerPreparer = @Sendable (URL) async throws -> Void
@@ -78,9 +84,18 @@ actor TranscriptionModelManager {
     private static let sharedManagerResult: Result<TranscriptionModelManager, Error> = Result {
         TranscriptionModelManager(downloadRoot: try BardoModelStore.live().root(for: .whisperTurbo))
     }
+    private static let sharedLargeManagerResult: Result<TranscriptionModelManager, Error> = Result {
+        TranscriptionModelManager(
+            downloadRoot: try BardoModelStore.live().root(for: .whisperLarge),
+            variant: largeModelID,
+            minimumFreeBytes: 3_600_000_000
+        )
+    }
 
     init(
         downloadRoot: URL,
+        variant: String = TranscriptionModelManager.modelID,
+        minimumFreeBytes: Int64 = TranscriptionModelManager.minimumFreeBytesForDownload,
         fileManager: FileManager = .default,
         availableCapacity: @escaping CapacityProvider = { url in
             try TranscriptionModelManager.systemAvailableCapacity(at: url)
@@ -100,6 +115,8 @@ actor TranscriptionModelManager {
         }
     ) {
         self.downloadRoot = downloadRoot.standardizedFileURL
+        self.variant = variant
+        self.minimumFreeBytes = minimumFreeBytes
         self.fileManager = fileManager
         self.availableCapacity = availableCapacity
         self.prepareTokenizer = prepareTokenizer
@@ -110,6 +127,11 @@ actor TranscriptionModelManager {
     /// into one download instead of racing in the same folder.
     static func live() throws -> TranscriptionModelManager {
         try sharedManagerResult.get()
+    }
+
+    /// The app-wide manager of one Whisper model.
+    static func live(for model: ManagedModel) throws -> TranscriptionModelManager {
+        model == .whisperLarge ? try sharedLargeManagerResult.get() : try sharedManagerResult.get()
     }
 
     nonisolated static func systemAvailableCapacity(at url: URL) throws -> Int64? {
@@ -148,7 +170,7 @@ actor TranscriptionModelManager {
         guard inFlightPreparation == nil else { throw ModelOperationError.inUse }
         cachedResources = nil
         guard downloadRoot.resolvingSymlinksInPath().path == downloadRoot.path else {
-            throw TranscriptionModelError.downloadedModelInvalid(Self.modelID)
+            throw TranscriptionModelError.downloadedModelInvalid(variant)
         }
         if fileManager.fileExists(atPath: downloadRoot.path) {
             try fileManager.removeItem(at: downloadRoot)
@@ -232,11 +254,11 @@ actor TranscriptionModelManager {
                 try verifyFreeSpace()
                 modelState = .downloading(0)
                 progress(0)
-                let downloaded = try await downloadModel(Self.modelID, downloadRoot) { fraction in
+                let downloaded = try await downloadModel(variant, downloadRoot) { fraction in
                     progress(min(1, max(0, fraction.isFinite ? fraction : 0)) * 0.9)
                 }
                 guard verifyModelFolder(downloaded) else {
-                    throw TranscriptionModelError.downloadedModelInvalid(Self.modelID)
+                    throw TranscriptionModelError.downloadedModelInvalid(variant)
                 }
                 modelFolder = downloaded
                 modelState = .preparing(0.9)
@@ -246,7 +268,7 @@ actor TranscriptionModelManager {
             try Task.checkCancellation()
             try await prepareTokenizer(downloadRoot)
             guard verifyModelFolder(modelFolder), tokenizerIsAvailable else {
-                throw TranscriptionModelError.downloadedModelInvalid(Self.modelID)
+                throw TranscriptionModelError.downloadedModelInvalid(variant)
             }
             let resources = TranscriptionModelResources(
                 modelFolder: modelFolder,
@@ -262,14 +284,17 @@ actor TranscriptionModelManager {
         }
     }
 
-    func selectedModelID() -> String { Self.modelID }
+    func selectedModelID() -> String { variant }
 
     func selectedDefinition() -> TranscriptionModelDefinition {
-        TranscriptionModelDefinition(id: Self.modelID, displayName: "WhisperKit large-v3 Turbo")
+        TranscriptionModelDefinition(
+            id: variant,
+            displayName: variant == Self.largeModelID ? "WhisperKit large-v3" : "WhisperKit large-v3 Turbo"
+        )
     }
 
     func selectedSelection() -> TranscriptionSelection {
-        TranscriptionSelection(modelID: Self.modelID)
+        TranscriptionSelection(modelID: variant)
     }
 
     func state() -> ManagedModelState { modelState }
@@ -291,9 +316,9 @@ actor TranscriptionModelManager {
 
     private func verifyFreeSpace() throws {
         guard let availableBytes = try availableCapacity(downloadRoot) else { return }
-        guard availableBytes >= Self.minimumFreeBytesForDownload else {
+        guard availableBytes >= minimumFreeBytes else {
             throw TranscriptionModelError.insufficientDiskSpace(
-                requiredBytes: Self.minimumFreeBytesForDownload,
+                requiredBytes: minimumFreeBytes,
                 availableBytes: availableBytes
             )
         }
@@ -307,7 +332,7 @@ actor TranscriptionModelManager {
         ) else { return nil }
 
         for case let url as URL in enumerator {
-            guard url.lastPathComponent.contains(Self.modelID), verifyModelFolder(url) else { continue }
+            guard url.lastPathComponent.hasSuffix(variant), verifyModelFolder(url) else { continue }
             return url
         }
         return nil

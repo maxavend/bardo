@@ -3,7 +3,7 @@ import XCTest
 
 final class ManagedModelStateTests: XCTestCase {
     func testManagedModelListsOnlyTranscriptionResources() {
-        XCTAssertEqual(ManagedModel.allCases, [.whisperTurbo, .speakerKit])
+        XCTAssertEqual(ManagedModel.allCases, [.whisperTurbo, .whisperLarge, .speakerKit])
     }
 
     func testManagedModelStateIsEquatableAcrossAssociatedValues() {

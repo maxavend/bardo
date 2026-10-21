@@ -1,0 +1,186 @@
+{
+  "team": "Nido — agenda de enfermería a domicilio (equipo ficticio)",
+  "today": "2026-10-19",
+  "cast": {
+    "tu": { "name": null, "voice": "Paulina", "rate": 185, "role": "Product designer (quien graba)" },
+    "valentina": { "name": "Valentina Soto", "voice": "Mónica", "rate": 182, "role": "Product manager" },
+    "diego": { "name": "Diego Fuentes", "voice": "Eddy (Español (México))", "rate": 180, "role": "Desarrollador iOS" },
+    "tomas": { "name": "Tomás Herrera", "voice": "Reed (Español (México))", "rate": 178, "role": "Backend" },
+    "carolina": { "name": "Carolina Muñoz", "voice": "Flo (Español (México))", "rate": 176, "role": "Enfermera a domicilio" },
+    "sofia": { "name": "Sofía Ramírez", "voice": "Sandy (Español (México))", "rate": 180, "role": "Participante del test" },
+    "javiera": { "name": "Javiera Contreras", "voice": "Shelley (Español (México))", "rate": 182, "role": "UX researcher" },
+    "rodrigo": { "name": "Rodrigo Pérez", "voice": "Rocko (Español (México))", "rate": 176, "role": "Clínica Andes" }
+  },
+  "conversations": [
+    {
+      "id": "revision-onboarding",
+      "title": "Revisión de diseño: onboarding v2",
+      "createdAt": "2026-10-19T10:02:00-03:00",
+      "kind": "meeting",
+      "state": "completed",
+      "diarize": true,
+      "favorite": true,
+      "names": { "valentina": "Valentina", "diego": "Diego" },
+      "turns": [
+        ["tu", "Bueno, partamos. Hoy quiero mostrarles la segunda versión del onboarding, la que armé después de las entrevistas de la semana pasada."],
+        ["valentina", "Perfecto. Antes de empezar, recordemos que el objetivo del trimestre es que más personas agenden su primera visita durante el primer día."],
+        ["tu", "Exacto. En la versión actual pedimos siete datos antes de mostrar cualquier valor. En esta propuesta bajamos a tres: nombre, comuna y el tipo de cuidado que necesitas."],
+        ["diego", "¿Y el resto de los datos? El RUT y la previsión los necesitamos para confirmar la reserva."],
+        ["tu", "Los pedimos justo antes de confirmar la primera visita. Ahí la persona ya entiende para qué sirven."],
+        ["valentina", "Me gusta. Carolina dijo algo parecido en la entrevista: que no quería entregar su información sin saber si había profesionales cerca de su casa."],
+        ["tu", "Por eso la segunda pantalla muestra la disponibilidad real en su comuna, con la foto de cada enfermera y su próximo horario libre."],
+        ["diego", "Eso depende de la nueva API de disponibilidad. Tomás la mostró el viernes y responde en menos de trescientos milisegundos, así que debería andar bien."],
+        ["valentina", "¿Y qué pasa si no hay nadie disponible en esa comuna?"],
+        ["tu", "Mostramos un estado vacío honesto: te avisamos cuando haya cupo y te sugerimos comunas cercanas. Nada de pantallas en blanco."],
+        ["diego", "Ojo con la animación del mapa. En teléfonos antiguos se puede trabar. Prefiero una lista, con el mapa como opción."],
+        ["tu", "Me parece razonable. Dejo la lista como vista principal y el mapa detrás de un botón."],
+        ["valentina", "Entonces, para cerrar: validamos el flujo de tres pasos, la lista de disponibilidad y el estado vacío. ¿Cuándo podemos probarlo con usuarios?"],
+        ["tu", "Tengo el prototipo listo para el miércoles. Agendo cinco sesiones de test con Javiera para el jueves y el viernes."],
+        ["diego", "Yo reviso la API con Tomás y les confirmo los tiempos antes del miércoles."],
+        ["valentina", "Perfecto. Gracias a los dos, muy buen trabajo."]
+      ]
+    },
+    {
+      "id": "nota-reprogramacion",
+      "title": "Nota de voz: ideas para reprogramar visitas",
+      "createdAt": "2026-10-17T19:41:00-03:00",
+      "kind": "microphone",
+      "state": "completed",
+      "diarize": false,
+      "turns": [
+        ["tu", "Nota rápida para no olvidarlo. En el flujo de reprogramación, la familia no debería elegir un horario nuevo a ciegas."],
+        ["tu", "Primero le mostramos solo los horarios en que su misma enfermera está disponible, porque la continuidad es lo que más valoran."],
+        ["tu", "Si no hay ninguno, recién ahí ofrecemos otras profesionales, con su foto y sus años de experiencia."],
+        ["tu", "Y el cambio queda pendiente hasta que la enfermera lo acepte, con un aviso claro en ambos lados."],
+        ["tu", "Otra cosa: el botón de cancelar no puede estar al mismo nivel que el de reprogramar. Sofía casi cancela sin querer en el test. Revisarlo con Valentina el lunes."]
+      ]
+    },
+    {
+      "id": "retro-sprint-14",
+      "title": "Retro del sprint 14",
+      "createdAt": "2026-10-16T17:30:00-03:00",
+      "kind": "meeting",
+      "state": "pending",
+      "diarize": false,
+      "turns": [
+        ["valentina", "Ya, empecemos la retro del sprint catorce. Como siempre: qué funcionó, qué no funcionó y qué vamos a cambiar."],
+        ["diego", "Lo que funcionó: terminamos la agenda sin conexión y casi no hubo errores en la beta."],
+        ["tomas", "Para mí lo mejor fue la API de disponibilidad. Bajamos los tiempos de respuesta a la mitad."],
+        ["tu", "Yo destaco las entrevistas. Hablar con Carolina y con las otras enfermeras nos cambió por completo el onboarding."],
+        ["valentina", "Muy bien. ¿Y qué no funcionó?"],
+        ["diego", "Los cambios de diseño llegaron tarde a desarrollo. Tuvimos que rehacer dos pantallas."],
+        ["tu", "Es justo. Propongo que revisemos los diseños juntos todos los lunes, antes de estimar las tareas."],
+        ["tomas", "Y que la documentación de la API quede enlazada en cada historia de usuario."],
+        ["valentina", "Perfecto. Acciones: revisión de diseño los lunes, documentación enlazada y una demo de quince minutos al cierre de cada sprint."]
+      ]
+    },
+    {
+      "id": "sintesis-javiera",
+      "title": "Llamada con Javiera: síntesis de entrevistas",
+      "createdAt": "2026-10-16T12:05:00-03:00",
+      "kind": "meeting",
+      "state": "completed",
+      "diarize": true,
+      "names": { "javiera": "Javiera" },
+      "turns": [
+        ["javiera", "Hola. Terminé de agrupar las notas de las ocho entrevistas. Te cuento los tres hallazgos principales."],
+        ["tu", "Dale, te escucho."],
+        ["javiera", "Primero, la confianza. Las familias quieren saber quién va a ir antes de dejar sus datos. Lo dijeron seis de las ocho personas."],
+        ["tu", "Coincide con lo que contó Carolina. ¿Y el segundo?"],
+        ["javiera", "Los cambios de horario. Hoy se coordinan por WhatsApp y se pierden. Es la principal causa de visitas fallidas."],
+        ["tu", "¿Y el tercero?"],
+        ["javiera", "El precio de la primera visita. Varias familias abandonan cuando ven el valor sin entender qué incluye."],
+        ["tu", "Ok. Con eso propongo tres principios para el rediseño: mostrar primero a las personas, confirmar cada cambio en un solo lugar y explicar el precio antes de pedir el pago."],
+        ["javiera", "Me encanta. Lo armo en un documento y lo compartimos con Valentina el lunes."]
+      ]
+    },
+    {
+      "id": "demo-api",
+      "title": "Demo: nueva API de disponibilidad",
+      "createdAt": "2026-10-16T09:32:00-03:00",
+      "kind": "system",
+      "state": "completed",
+      "diarize": true,
+      "turns": [
+        ["tomas", "Hola a todos. Les muestro rápido la nueva API de disponibilidad, que reemplaza la consulta que hacíamos por cada profesional."],
+        ["diego", "Dale. ¿Esto ya está en el ambiente de pruebas?"],
+        ["tomas", "Sí, desde ayer. Le pasas la comuna, el tipo de cuidado y un rango de fechas, y te devuelve los próximos horarios libres, ordenados por cercanía."],
+        ["diego", "¿Y cuánto se demora en responder?"],
+        ["tomas", "En promedio, doscientos ochenta milisegundos, incluso en las comunas con más profesionales."],
+        ["valentina", "¿Considera las reprogramaciones? Es lo que más nos pidieron en las entrevistas."],
+        ["tomas", "Todavía no. Hoy, si una familia mueve una visita, el horario se libera recién cuando la enfermera confirma."],
+        ["valentina", "Entonces necesitamos que ese cambio quede pendiente hasta que ella acepte. Es justo lo que contó Carolina."],
+        ["tomas", "Lo agrego al backlog. Podemos devolver un estado pendiente de confirmación en la misma respuesta."],
+        ["diego", "Perfecto. Con eso puedo mostrar un aviso en la agenda sin hacer otra llamada."],
+        ["tomas", "Les dejo la documentación en el canal del equipo. Cualquier duda, me escriben."]
+      ]
+    },
+    {
+      "id": "entrevista-carolina",
+      "title": "Entrevista a usuaria: Carolina, enfermera a domicilio",
+      "createdAt": "2026-10-15T16:04:00-03:00",
+      "kind": "imported",
+      "fileName": "Entrevista Carolina M. 15-10.m4a",
+      "state": "completed",
+      "diarize": true,
+      "favorite": true,
+      "names": { "tu": "Tú", "carolina": "Carolina" },
+      "turns": [
+        ["tu", "Carolina, gracias por darte el tiempo. Para partir, ¿me cuentas cómo es un día normal en tu trabajo?"],
+        ["carolina", "Claro. Trabajo como enfermera a domicilio hace seis años. En un día normal visito entre cuatro y cinco pacientes, casi todos adultos mayores."],
+        ["tu", "¿Y cómo te organizas para saber a quién visitas y a qué hora?"],
+        ["carolina", "Ese es el problema. Tengo la agenda en una planilla, los mensajes en WhatsApp y las indicaciones médicas en papel. Siempre se me pierde algo."],
+        ["tu", "¿Me puedes contar de la última vez que se te perdió algo importante?"],
+        ["carolina", "La semana pasada una familia cambió la hora de la visita por mensaje y no lo vi. Llegué a la casa y no había nadie. Perdí casi una hora."],
+        ["tu", "Uf. ¿Qué tendría que haber pasado para que eso no ocurriera?"],
+        ["carolina", "Que el cambio me llegara en un solo lugar, y que yo tuviera que aceptarlo. Si la familia puede reprogramar sola, por lo menos que me pregunte."],
+        ["tu", "Muy interesante. ¿Y qué pasa del lado de las familias? ¿Qué te dicen ellas?"],
+        ["carolina", "Que les cuesta encontrar a alguien de confianza. Antes de dar sus datos quieren saber quién va a ir, si tiene experiencia y si vive cerca."],
+        ["tu", "Cuando dices de confianza, ¿qué cosas concretas les dan confianza?"],
+        ["carolina", "Ver una foto, saber los años de experiencia y leer comentarios de otras familias. Y que la primera visita no sea tan cara."],
+        ["tu", "Perfecto. Última pregunta: si pudieras cambiar una sola cosa de cómo trabajas hoy, ¿cuál sería?"],
+        ["carolina", "Tener toda mi agenda en el teléfono, con los cambios confirmados y la dirección lista para abrir en el mapa."],
+        ["tu", "Muchas gracias, Carolina. Esto nos ayuda muchísimo."]
+      ]
+    },
+    {
+      "id": "test-usabilidad-3",
+      "title": "Test de usabilidad #3: agendar y reprogramar",
+      "createdAt": "2026-10-14T11:00:00-03:00",
+      "kind": "microphone",
+      "state": "completed",
+      "diarize": true,
+      "names": { "tu": "Tú", "sofia": "Sofía" },
+      "turns": [
+        ["tu", "Hola Sofía, gracias por venir. Hoy vamos a probar un prototipo, no a ti, así que no hay respuestas incorrectas. ¿Te parece pensar en voz alta mientras lo usas?"],
+        ["sofia", "Sí, perfecto."],
+        ["tu", "Imagina que tu mamá necesita una visita de enfermería esta semana. Usando la aplicación, agenda esa visita."],
+        ["sofia", "Ya. Me pide nombre, RUT, previsión, dirección, teléfono... Son hartos datos y todavía no sé si hay enfermeras cerca de la casa de mi mamá."],
+        ["tu", "¿Qué harías en este punto?"],
+        ["sofia", "Honestamente, si estuviera apurada, lo dejaría para después. Pero sigamos. Listo, ahora sí me muestra enfermeras en Ñuñoa."],
+        ["tu", "¿Qué estás mirando ahora?"],
+        ["sofia", "Las fotos y los años de experiencia. Elegiría a Marcela, porque tiene hora mañana a las diez. Confirmo."],
+        ["tu", "Muy bien. Ahora imagina que tu mamá no puede a esa hora. Cambia la visita para otro día."],
+        ["sofia", "Mmm, entro a la visita. Veo el botón cancelar, pero no quiero cancelar. Ah, aquí está reprogramar, más abajo y más chico."],
+        ["tu", "¿Qué esperabas encontrar?"],
+        ["sofia", "Que reprogramar estuviera arriba, más visible que cancelar. Casi cancelo sin querer."],
+        ["tu", "Gracias, eso es muy útil. ¿Algo más que quieras comentar?"],
+        ["sofia", "Me gustó ver quién va a ir a la casa. Pero eso debería aparecer antes de pedirme todos los datos."]
+      ]
+    },
+    {
+      "id": "kickoff-andes",
+      "title": "Kickoff con Clínica Andes",
+      "createdAt": "2026-10-12T15:00:00-03:00",
+      "kind": "system",
+      "state": "failed",
+      "diarize": false,
+      "turns": [
+        ["rodrigo", "Buenas tardes. Desde la Clínica Andes queremos derivar a domicilio a los pacientes que damos de alta los viernes."],
+        ["valentina", "Excelente. Para dimensionar, ¿cuántos pacientes estiman por semana?"],
+        ["rodrigo", "Entre veinte y treinta, sobre todo curaciones y control de signos vitales."],
+        ["valentina", "Perfecto. La próxima semana les mostramos cómo se vería la derivación desde su sistema."]
+      ]
+    }
+  ]
+}

@@ -133,7 +133,7 @@ final class IncrementalTestCaptureBackend: AudioCapturing {
 }
 
 struct FailingAudioTranscoder: AudioTranscoding {
-    func transcodeToCompactM4A(from sourceURL: URL, to destinationURL: URL) async throws {
+    func transcode(from sourceURL: URL, to destinationURL: URL, encoding: AudioEncoding) async throws {
         try Data("not audio".utf8).write(to: destinationURL)
         throw AudioTranscodingError.couldNotAllocateBuffer
     }

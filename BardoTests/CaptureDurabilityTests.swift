@@ -34,6 +34,26 @@ final class CaptureDurabilityTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(readableDuration, 1, "Fragments must make interrupted captures readable")
     }
 
+    func testLiveTracksRecordAtTheChosenQuality() async throws {
+        for format in AudioStorageFormat.allCases {
+            let url = baseURL.appendingPathComponent("live-\(format).m4a")
+            let writer = CMSampleBufferAudioWriter(
+                outputURL: url,
+                channelCount: 2,
+                encoding: AudioEncoding(preset: .compact, format: format)
+            )
+            for buffer in SyntheticAudio.buffers(seconds: 2, channels: 2) {
+                XCTAssertEqual(writer.append(buffer), .accepted, "\(format)")
+            }
+            _ = try await writer.finish(sourceName: "system")
+
+            let metadata = try AudioMetadataReader().read(from: url)
+            XCTAssertEqual(metadata.duration, 2, accuracy: 0.1, "\(format)")
+            XCTAssertEqual(metadata.sampleRate, AudioQualityPreset.compact.sampleRate, "\(format)")
+            XCTAssertEqual(metadata.codec == "AAC", format == .aac, "\(format) is \(metadata.codec)")
+        }
+    }
+
     func testFinishedTrackHasFullDurationAndTiming() async throws {
         let url = baseURL.appendingPathComponent("finished.m4a")
         let writer = CMSampleBufferAudioWriter(outputURL: url, channelCount: 1, bitRate: 96_000)
@@ -145,7 +165,7 @@ final class CaptureDurabilityTests: XCTestCase {
         let url = baseURL.appendingPathComponent("microphone.caf")
         let file = try AVAudioFile(
             forWriting: url,
-            settings: AVAudioRecorderCaptureBackend.recordingSettings,
+            settings: MicrophoneCaptureBackend.recordingSettings,
             commonFormat: .pcmFormatFloat32,
             interleaved: false
         )
@@ -164,7 +184,7 @@ final class CaptureDurabilityTests: XCTestCase {
         let destination = baseURL.appendingPathComponent("compact.m4a")
         try AudioTestFixture.makeWAV(at: source, sampleRate: 48_000, duration: 2)
 
-        try await AACAudioTranscoder().transcodeToCompactM4A(from: source, to: destination)
+        try await AudioFileTranscoder().transcode(from: source, to: destination, encoding: .default)
 
         let metadata = try AudioMetadataReader().read(from: destination)
         XCTAssertEqual(metadata.codec, "AAC")
@@ -172,6 +192,34 @@ final class CaptureDurabilityTests: XCTestCase {
         let sourceSize = try XCTUnwrap(source.resourceValues(forKeys: [.fileSizeKey]).fileSize)
         let compactSize = try XCTUnwrap(destination.resourceValues(forKeys: [.fileSizeKey]).fileSize)
         XCTAssertLessThan(compactSize, sourceSize / 4)
+    }
+
+    func testEveryQualityAndFormatKeepsTheWholeRecording() async throws {
+        for channels: AVAudioChannelCount in [1, 2] {
+            let source = baseURL.appendingPathComponent("source-\(channels).caf")
+            try AudioTestFixture.makeWAV(at: source, sampleRate: 48_000, channelCount: channels, duration: 2)
+            for preset in AudioQualityPreset.allCases {
+                for format in AudioStorageFormat.allCases {
+                    let encoding = AudioEncoding(preset: preset, format: format)
+                    let destination = baseURL.appendingPathComponent("\(preset)-\(format)-\(channels).\(encoding.fileExtension)")
+
+                    try await AudioFileTranscoder().transcode(from: source, to: destination, encoding: encoding)
+
+                    let metadata = try AudioMetadataReader().read(from: destination)
+                    XCTAssertEqual(metadata.duration, 2, accuracy: 0.1, "\(preset) \(format) \(channels)ch")
+                    XCTAssertEqual(metadata.sampleRate, preset.sampleRate, "\(preset) \(format) \(channels)ch")
+                    XCTAssertEqual(metadata.channelCount, UInt32(channels))
+                }
+            }
+        }
+    }
+
+    func testLowerQualitiesWeighLess() {
+        let sizes = AudioQualityPreset.allCases.map {
+            AudioEncoding(preset: $0, format: .aac).meetingBytesPerMinute
+        }
+        XCTAssertEqual(sizes, sizes.sorted(by: >))
+        XCTAssertLessThan(AudioEncoding(preset: .compact, format: .aac).bytesPerMinute(channels: 1), 400_000)
     }
 
     // MARK: - Publication

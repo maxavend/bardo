@@ -26,6 +26,29 @@ extension View {
         }
     }
 
+    /// A screen's one main action: prominent Liquid Glass on macOS 26 and later,
+    /// the bordered prominent button before.
+    @ViewBuilder
+    func bardoPrimaryAction() -> some View {
+        if #available(macOS 26.0, *) {
+            buttonStyle(.glassProminent)
+                .buttonBorderShape(.capsule)
+        } else {
+            buttonStyle(.borderedProminent)
+        }
+    }
+
+    /// A screen's other actions, in clear Liquid Glass beside the main one.
+    @ViewBuilder
+    func bardoSecondaryAction() -> some View {
+        if #available(macOS 26.0, *) {
+            buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+        } else {
+            buttonStyle(.bordered)
+        }
+    }
+
     /// A full-radius glass surface for floating status, such as an active recording.
     @ViewBuilder
     func bardoGlassCapsule() -> some View {
@@ -72,6 +95,17 @@ extension View {
 
     /// A bar pinned above a scrolling document, with the same scroll-edge treatment as
     /// `bardoBottomBar` on macOS 26 and a plain material before that.
+    /// Content scrolling under the top bars blurs away progressively, with the system's
+    /// soft scroll edge, rather than being cut at a line. Applied to the scroll view itself.
+    @ViewBuilder
+    func bardoSoftTopEdge() -> some View {
+        if #available(macOS 26.0, *) {
+            scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            self
+        }
+    }
+
     @ViewBuilder
     func bardoTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
         if #available(macOS 26.0, *) {

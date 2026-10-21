@@ -10,11 +10,15 @@ struct LibraryView: View {
 
     private let captureMenu: AnyView?
     private let activeCaptureBanner: AnyView?
+    private let liveRecorder: AnyView?
+    private let isFocusMode: Bool
     private let onNewRecording: () -> Void
 
     @ObservedObject private var favorites = BardoFavoritesStore.shared
     @SceneStorage("bardo.library.section") private var selectedSection: BardoLibrarySection = .all
     @State private var isInfoPresented = false
+    /// The selected conversation in the full player, which takes the whole window.
+    @State private var isFullPlayerPresented = false
     @AppStorage("bardo.library.sort") private var sort: BardoLibrarySort = .newest
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isFileImporterPresented = false
@@ -30,6 +34,8 @@ struct LibraryView: View {
         topAccessory: AnyView? = nil,
         captureMenu: AnyView? = nil,
         activeCaptureBanner: AnyView? = nil,
+        liveRecorder: AnyView? = nil,
+        isFocusMode: Bool = false,
         onNewRecording: @escaping () -> Void = {
             NotificationCenter.default.post(name: BardoCommandNotification.newRecording, object: nil)
         }
@@ -37,6 +43,8 @@ struct LibraryView: View {
         self.model = model
         self.captureMenu = captureMenu
         self.activeCaptureBanner = activeCaptureBanner ?? topAccessory
+        self.liveRecorder = liveRecorder
+        self.isFocusMode = isFocusMode
         self.onNewRecording = onNewRecording
     }
 
@@ -45,62 +53,36 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebar(
-                model: model,
-                favorites: favorites,
-                selection: $selectedSection,
-                onReviewIssues: { isIssuesReviewPresented = true }
-            )
-        } content: {
-            RecordingListView(
-                section: selectedSection,
-                searchQuery: searchQuery,
-                sort: $sort,
-                model: model,
-                favorites: favorites,
-                onNewRecording: onNewRecording,
-                onImport: { isFileImporterPresented = true },
-                onMoveToTrash: moveToTrash
-            )
-            .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    newRecordingButton
-
-                    Button {
-                        isFileImporterPresented = true
-                    } label: {
-                        Label("Importar audio", systemImage: "square.and.arrow.down")
-                    }
-                    .help("Importar audio (⇧⌘O)")
-                    .disabled(model.isImporting)
-                }
+        Group {
+            if isFullPlayerPresented, let recording = model.selectedRecording {
+                FullPlayerView(
+                    recording: recording,
+                    model: model,
+                    playback: model.playback,
+                    searchQuery: searchQuery,
+                    onClose: { isFullPlayerPresented = false }
+                )
+            } else {
+                libraryColumns
             }
-        } detail: {
-            detailColumn
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .navigationSplitViewColumnWidth(min: BardoLayout.detailColumnMinWidth, ideal: 640)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    if let activeCaptureBanner {
-                        activeCaptureBanner
-                            .padding(.horizontal, 8)
-                            .padding(.top, 4)
-                            .padding(.bottom, 8)
-                    }
-                }
         }
-        // One toolbar search field for the window; it searches the whole Library.
+        // One toolbar search field for the window; it searches the whole Library, or
+        // the conversation open in the full player.
         // Keep the prompt short so it never truncates in a narrow toolbar.
         .searchable(text: $searchText, placement: .toolbar, prompt: Text("Buscar"))
         .searchFocused($isSearchFocused)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .onChange(of: model.selection) { _, selection in
+            if selection == nil { isFullPlayerPresented = false }
+        }
         // Details open as a sheet: nothing slides in beside the transcript, so the
         // columns and the search field never move.
         .sheet(isPresented: $isInfoPresented) {
             if let recording = model.selectedRecording {
                 RecordingInfoSheet(
                     recording: recording,
-                    transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil
+                    transcript: model.transcript?.recordingID == recording.id ? model.transcript : nil,
+                    model: model
                 )
             }
         }
@@ -108,6 +90,11 @@ struct LibraryView: View {
         .task {
             await model.reload()
             selectFirstRecordingIfNeeded()
+        }
+        // Focus mode leaves the recorder alone in the window, as the native split view
+        // does when its columns are collapsed.
+        .onChange(of: isFocusMode) { _, focused in
+            withAnimation { columnVisibility = focused ? .detailOnly : .all }
         }
         .task(id: model.selection) {
             await model.prepareSelection()
@@ -184,6 +171,8 @@ struct LibraryView: View {
                 searchText = step.value
             case "inspector":
                 isInfoPresented = true
+            case "player":
+                isFullPlayerPresented = true
             case "sidebar":
                 columnVisibility = step.value == "hidden" ? .doubleColumn : .all
             case "settings":
@@ -191,7 +180,7 @@ struct LibraryView: View {
             case "issues":
                 isIssuesReviewPresented = true
             case "mute":
-                model.playback.setVolume(0)
+                model.playback.setVolume(Float(step.value) ?? 0)
             case "transcribe":
                 model.beginTranscription()
             case "identify":
@@ -208,6 +197,56 @@ struct LibraryView: View {
         .enableInjection()
     }
 
+    /// The Library's three columns: filters, conversations and the selected one.
+    private var libraryColumns: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            LibrarySidebar(
+                model: model,
+                favorites: favorites,
+                selection: $selectedSection,
+                onReviewIssues: { isIssuesReviewPresented = true }
+            )
+        } content: {
+            RecordingListView(
+                section: selectedSection,
+                searchQuery: searchQuery,
+                sort: $sort,
+                model: model,
+                favorites: favorites,
+                onNewRecording: onNewRecording,
+                onImport: { isFileImporterPresented = true },
+                onMoveToTrash: moveToTrash
+            )
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    newRecordingButton
+
+                    Button {
+                        isFileImporterPresented = true
+                    } label: {
+                        Label("Importar audio", systemImage: "square.and.arrow.down")
+                    }
+                    .help("Importar audio (⇧⌘O)")
+                    .disabled(model.isImporting)
+                }
+            }
+        } detail: {
+            detailColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .navigationSplitViewColumnWidth(min: BardoLayout.detailColumnMinWidth, ideal: 640)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    // The recorder has its own controls; the banner returns while
+                    // another conversation is open during the recording.
+                    if let activeCaptureBanner, !showsLiveRecorder {
+                        activeCaptureBanner
+                            .padding(.horizontal, 8)
+                            .padding(.top, 4)
+                            .padding(.bottom, 8)
+                    }
+                }
+        }
+    }
+
     @ViewBuilder
     private var newRecordingButton: some View {
         if let captureMenu {
@@ -220,15 +259,24 @@ struct LibraryView: View {
         }
     }
 
+    /// Like Voice Memos, the recording in progress takes the detail column until another
+    /// conversation is chosen.
+    private var showsLiveRecorder: Bool {
+        liveRecorder != nil && model.selection == nil
+    }
+
     @ViewBuilder
     private var detailColumn: some View {
-        if let recording = model.selectedRecording {
+        if let liveRecorder, showsLiveRecorder {
+            liveRecorder
+        } else if let recording = model.selectedRecording {
             RecordingDetailView(
                 recording: recording,
                 model: model,
                 playback: model.playback,
                 searchQuery: searchQuery,
                 isInfoPresented: $isInfoPresented,
+                isFullPlayerPresented: $isFullPlayerPresented,
                 onMoveToTrash: moveToTrash
             )
         } else if model.recordings.isEmpty {
@@ -252,7 +300,8 @@ struct LibraryView: View {
     /// Like Mail and Notes, keep something readable in the detail column: when the
     /// selection is not part of the current filter, select its first conversation.
     private func selectFirstRecordingIfNeeded() {
-        guard searchQuery.isEmpty else { return }
+        // While recording, an empty selection shows the recorder.
+        guard searchQuery.isEmpty, liveRecorder == nil else { return }
         let visible = sectionRecordings
         if let selection = model.selection, visible.contains(where: { $0.id == selection }) {
             return

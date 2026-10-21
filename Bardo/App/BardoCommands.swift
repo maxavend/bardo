@@ -8,6 +8,9 @@ enum BardoCommandNotification {
     static let pauseRecording = Notification.Name("Bardo.Command.PauseRecording")
     static let resumeRecording = Notification.Name("Bardo.Command.ResumeRecording")
     static let stopRecording = Notification.Name("Bardo.Command.StopRecording")
+    static let toggleMicrophoneMute = Notification.Name("Bardo.Command.ToggleMicrophoneMute")
+    static let markMoment = Notification.Name("Bardo.Command.MarkMoment")
+    static let startSection = Notification.Name("Bardo.Command.StartSection")
     static let libraryChanged = Notification.Name("Bardo.Library.Changed")
 }
 
@@ -18,6 +21,9 @@ struct BardoCaptureCommandState: Equatable {
     var canPause: Bool
     var canResume: Bool
     var canStop: Bool
+    var canMute = false
+    var isMuted = false
+    var canMark = false
 }
 
 extension FocusedValues {
@@ -61,17 +67,42 @@ struct BardoCommands: Commands {
         CommandGroup(replacing: .help) {}
 
         CommandMenu("Grabación") {
-            Button("Pausar grabación") {
-                post(BardoCommandNotification.pauseRecording)
+            // One item that alternates, like Play and Pause. ⌥⌘Space belongs to Finder's
+            // search window, so Bardo's own shortcuts use ⌥⌘ with a letter.
+            if capture?.canResume == true {
+                Button("Reanudar grabación") {
+                    post(BardoCommandNotification.resumeRecording)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .option])
+            } else {
+                Button("Pausar grabación") {
+                    post(BardoCommandNotification.pauseRecording)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .option])
+                .disabled(capture?.canPause != true)
             }
-            .keyboardShortcut(.space, modifiers: [.command, .option])
-            .disabled(capture?.canPause != true)
 
-            Button("Reanudar grabación") {
-                post(BardoCommandNotification.resumeRecording)
+            Button(capture?.isMuted == true ? "Activar micrófono" : "Silenciar micrófono") {
+                post(BardoCommandNotification.toggleMicrophoneMute)
             }
-            .keyboardShortcut(.space, modifiers: [.command, .option, .shift])
-            .disabled(capture?.canResume != true)
+            .keyboardShortcut("s", modifiers: [.command, .option])
+            .disabled(capture?.canMute != true)
+
+            Divider()
+
+            // Bardo's own: ⌘N starts a recording, ⌥⌘N marks a moment in it and ⇧⌥⌘N
+            // starts a section.
+            Button("Marcar momento") {
+                post(BardoCommandNotification.markMoment)
+            }
+            .keyboardShortcut("n", modifiers: [.command, .option])
+            .disabled(capture?.canMark != true)
+
+            Button("Nueva sección") {
+                post(BardoCommandNotification.startSection)
+            }
+            .keyboardShortcut("n", modifiers: [.command, .option, .shift])
+            .disabled(capture?.canMark != true)
 
             Divider()
 

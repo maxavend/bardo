@@ -22,36 +22,72 @@ final class TranscriptUXTests: XCTestCase {
     }
 
     func testSetupCopyUsesPlainSpanishForTheFirstRun() {
-        XCTAssertEqual(TranscriptionSetupCopy.title(for: .listening), "Preparando Bardo")
+        XCTAssertEqual(TranscriptionSetupCopy.title(for: .listening), "Preparando la transcripción")
         XCTAssertEqual(
             TranscriptionSetupCopy.detail(for: .listening),
-            "Estamos preparando todo para que puedas empezar."
+            "Solo ocurre una vez. Después, Bardo transcribe sin conexión."
         )
-        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .listening), "Preparando el reconocimiento de voz…")
         XCTAssertEqual(TranscriptionSetupCopy.cancelButton, "Pausar")
-        XCTAssertEqual(TranscriptionSetupCopy.footer, "Esto solo ocurre una vez. Después, Bardo estará listo para ti.")
     }
 
-    func testEachSetupStageHasRotatingMessages() {
-        for stage in TranscriptionSetupCopy.Stage.allCases {
-            XCTAssertGreaterThanOrEqual(
-                TranscriptionSetupCopy.messages(for: stage).count,
-                3,
-                "Stage \(stage) should have enough messages to feel alive"
-            )
+    func testSetupKeepsOneHeadlineAndNamesEachStepUnderTheBar() {
+        let activeStages: [TranscriptionSetupCopy.Stage] = [
+            .checking, .listening, .settling, .meetingVoices, .welcomingVoices, .namingVoices
+        ]
+        XCTAssertEqual(Set(activeStages.map(TranscriptionSetupCopy.title(for:))).count, 1)
+        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .listening), "Reconocimiento de voz")
+        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .welcomingVoices), "Identificación de participantes")
+    }
+
+    func testSetupCopyNeverSpeaksAsWe() {
+        for copy in TranscriptionSetupCopy.allVisibleCopy {
+            let words = copy.lowercased().split { !$0.isLetter }
+            for we in ["estamos", "pudimos", "nosotros", "volveremos", "aseguramos", "terminamos"] {
+                XCTAssertFalse(words.contains(Substring(we)), "“\(copy)” speaks as “we”")
+            }
         }
     }
 
-    func testFirstRunProgressCopyCoversTranscriptionAndSpeakerPreparation() {
-        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .listening), "Preparando el reconocimiento de voz…")
-        XCTAssertEqual(TranscriptionSetupCopy.stageLabel(for: .welcomingVoices), "Organizando las voces…")
+    func testMergingGivesEverythingToOnePersonAndKeepsYouAsYou() {
+        let you = Speaker(role: .localUser)
+        let eloin = Speaker(name: "Eloín")
+        let alsoEloin = Speaker()
+        var said = [
+            TranscriptSegment(startTime: 0, endTime: 1, text: "Hola"),
+            TranscriptSegment(startTime: 1, endTime: 2, text: "Sí"),
+            TranscriptSegment(startTime: 2, endTime: 3, text: "Yo")
+        ]
+        said[0].speakerID = eloin.id
+        said[1].speakerID = alsoEloin.id
+        said[2].speakerID = you.id
+        let transcript = Transcript(
+            recordingID: UUID(),
+            speakers: [you, eloin, alsoEloin],
+            segments: said,
+            metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: "test")
+        )
 
-        for stage in [
-            TranscriptionSetupCopy.Stage.listening,
-            .welcomingVoices
-        ] {
-            XCTAssertGreaterThanOrEqual(TranscriptionSetupCopy.messages(for: stage).count, 3)
-        }
+        let merged = transcript.mergingSpeaker(eloin.id, into: alsoEloin.id)
+        XCTAssertEqual(merged.speakers.map(\.id), [you.id, alsoEloin.id])
+        XCTAssertEqual(merged.speakers[1].name, "Eloín", "The typed name is kept when the other has none")
+        XCTAssertEqual(merged.segments.map(\.speakerID), [alsoEloin.id, alsoEloin.id, you.id])
+
+        let intoOther = transcript.mergingSpeaker(you.id, into: eloin.id)
+        XCTAssertEqual(intoOther.speakers.map(\.id), [you.id, alsoEloin.id], "You on the microphone always stay you")
+        XCTAssertEqual(intoOther.segments[0].speakerID, you.id)
+    }
+
+    func testParticipantsGivenTheSameNameAreOfferedAsOne() {
+        let first = Speaker(name: "Eloín")
+        let second = Speaker()
+        let third = Speaker(name: "Dani")
+        let transcript = Transcript(
+            recordingID: UUID(),
+            speakers: [first, second, third],
+            metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: "test")
+        )
+        XCTAssertEqual(transcript.speakersSharingAName([second.id: " eloin "]), [[first.id, second.id]])
+        XCTAssertEqual(transcript.speakersSharingAName([:]), [])
     }
 
     func testManualChangeFlagsDistinguishTextAndSpeakerNames() {
@@ -373,5 +409,41 @@ final class TranscriptUXTests: XCTestCase {
     private func makeTemporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("BardoTranscriptUXTests-\(UUID().uuidString)", isDirectory: true)
+    }
+}
+
+final class TranscriptParagraphingTests: XCTestCase {
+    private func segment(_ text: String, at start: TimeInterval, length: TimeInterval = 2, speaker: Speaker.ID? = nil) -> TranscriptSegment {
+        TranscriptSegment(startTime: start, endTime: start + length, speakerID: speaker, text: text)
+    }
+
+    func testShortBreathsDoNotLeaveLinesOfFiveWords() {
+        // Five-word phrases with a three-second breath between each.
+        let segments = (0..<8).map { segment("Una frase corta de cinco.", at: Double($0) * 5) }
+        let paragraphs = TranscriptParagraphing.paragraphs(of: segments)
+        XCTAssertLessThan(paragraphs.count, 4, "Breaths are joined until a paragraph has its minimum")
+        XCTAssertTrue(paragraphs.dropLast().allSatisfy { group in
+            group.reduce(0) { $0 + TranscriptParagraphing.wordCount($1.displayText) } >= TranscriptParagraphing.minimumWords
+        })
+    }
+
+    func testAMonologueBecomesParagraphsAtSentenceEnds() {
+        // Forty ten-word sentences with no pause at all.
+        let segments = (0..<40).map { segment("Esta es una oración de diez palabras para leer bien.", at: Double($0) * 2) }
+        let paragraphs = TranscriptParagraphing.paragraphs(of: segments)
+        XCTAssertGreaterThan(paragraphs.count, 4, "No wall of text")
+        for group in paragraphs {
+            XCTAssertLessThanOrEqual(group.reduce(0) { $0 + TranscriptParagraphing.wordCount($1.displayText) }, TranscriptParagraphing.comfortableWords + 10)
+        }
+    }
+
+    func testEveryTurnAndLongSilenceStartsAParagraph() {
+        let you = UUID(), them = UUID()
+        let segments = [
+            segment("Hola.", at: 0, speaker: you),
+            segment("Ya, ok.", at: 2.2, speaker: them),
+            segment("Después de un rato.", at: 12, speaker: them)
+        ]
+        XCTAssertEqual(TranscriptParagraphing.paragraphs(of: segments).map(\.count), [1, 1, 1])
     }
 }

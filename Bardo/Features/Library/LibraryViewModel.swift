@@ -28,6 +28,8 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var isImporting = false
     @Published private(set) var isTranscribing = false
     @Published private(set) var isDiarizing = false
+    /// The recording whose audio is being compressed, one at a time.
+    @Published private(set) var compressingRecordingID: Recording.ID?
     /// A manual edit is being written; model work must not start from a stale copy.
     @Published private(set) var isSavingTranscriptEdit = false
     @Published var selection: Recording.ID?
@@ -170,6 +172,79 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    /// Changes a saved recording's moments and sections.
+    func updateNotes(_ recordingID: Recording.ID, _ change: (inout RecordingNotes) -> Void) async {
+        do {
+            try await updateRecording(recordingID) { change(&$0.notes) }
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+        }
+    }
+
+    func setSkipsSilences(_ recordingID: Recording.ID, _ skips: Bool) async {
+        do {
+            try await updateRecording(recordingID) { $0.skipsSilences = skips }
+            await applySilenceSkipping()
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+        }
+    }
+
+    /// Re-encodes a recording's audio at a lower quality to take less space. A track is
+    /// replaced only when its new file is smaller; the rest stay as they are.
+    func compressAudio(_ recordingID: Recording.ID, to preset: AudioQualityPreset) async {
+        guard compressingRecordingID == nil, !isProcessing(recordingID),
+              let recording = recordings.first(where: { $0.id == recordingID }) else { return }
+        compressingRecordingID = recordingID
+        defer { compressingRecordingID = nil }
+
+        let encoding = AudioEncoding(preset: preset, format: .aac)
+        let workDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bardo-compress-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workDirectory) }
+
+        do {
+            let store = try resolveStore()
+            try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+            var replacements: [(asset: AudioAsset, sourceURL: URL)] = []
+            for asset in recording.audioAssets {
+                let source = try await store.managedAudioURL(recordingID: recordingID, audioAssetID: asset.id)
+                let destination = workDirectory.appendingPathComponent("\(asset.id.uuidString).m4a")
+                try await AudioFileTranscoder().transcode(from: source, to: destination, encoding: encoding)
+                guard Self.fileSize(destination) < Self.fileSize(source) else { continue }
+                let name = (asset.originalFileName as NSString).deletingPathExtension
+                replacements.append((
+                    AudioAsset(
+                        id: asset.id,
+                        originalFileName: "\(name).m4a",
+                        fileExtension: "m4a",
+                        metadata: try AudioMetadataReader().read(from: destination),
+                        role: asset.role,
+                        timelineOffset: asset.timelineOffset,
+                        derivedFromAssetIDs: asset.derivedFromAssetIDs
+                    ),
+                    destination
+                ))
+            }
+            guard !replacements.isEmpty else { return }
+
+            // The player lets go of the old files while they are swapped.
+            let isSelected = selection == recordingID
+            if isSelected { playback.unload() }
+            let updated = try await store.replaceAudio(of: recordingID, with: replacements)
+            if let index = recordings.firstIndex(where: { $0.id == recordingID }) {
+                recordings[index].audioAssets = updated.audioAssets
+            }
+            if isSelected { await preparePlaybackForSelection() }
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+        }
+    }
+
+    private static func fileSize(_ url: URL) -> Int {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? .max
+    }
+
     func deleteRecording(_ recordingID: Recording.ID) async {
         guard recordings.contains(where: { $0.id == recordingID }) else {
             recordingActionErrorMessage = String(localized: "That recording is no longer available.")
@@ -294,6 +369,34 @@ final class LibraryViewModel: ObservableObject {
         // Loading the audio that is already playing is a no-op, so reloads (an import,
         // a finished recording) never interrupt playback.
         _ = await preparePlayback(playback, for: recording)
+        await applySilenceSkipping()
+    }
+
+    /// Long silences of each recording, found once and kept for the session.
+    private var silentRanges: [Recording.ID: [ClosedRange<TimeInterval>]] = [:]
+
+    /// Has the player jump over long silences when the selected recording asks for it.
+    func applySilenceSkipping() async {
+        guard let recording = selectedRecording, recording.skipsSilences else {
+            playback.skippedRanges = []
+            return
+        }
+        let ranges = await longSilences(of: recording.id)
+        guard selection == recording.id, selectedRecording?.skipsSilences == true else { return }
+        playback.skippedRanges = ranges
+    }
+
+    /// The long silences of the selected recording, found once its audio is loaded and
+    /// kept for the session; empty while there is no audio to read.
+    func longSilences(of recordingID: Recording.ID) async -> [ClosedRange<TimeInterval>] {
+        if let ranges = silentRanges[recordingID] { return ranges }
+        let tracks = playback.loadedTracks
+        guard selection == recordingID, !tracks.isEmpty else { return [] }
+        let ranges = await Task.detached(priority: .utility) {
+            (try? AudioWaveformOverview.silentRanges(of: tracks)) ?? []
+        }.value
+        silentRanges[recordingID] = ranges
+        return ranges
     }
 
     @discardableResult
@@ -652,26 +755,25 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func mergeSpeaker(_ sourceID: Speaker.ID, into targetID: Speaker.ID) async {
-        guard sourceID != targetID,
-              var updated = transcript,
+        await saveSpeakerReview(names: [:], merges: [(sourceID, targetID)])
+    }
+
+    /// Saves the speaker review at once: participants merged into one, in the order they
+    /// were merged, then the names typed.
+    func saveSpeakerReview(names: [Speaker.ID: String], merges: [(source: Speaker.ID, target: Speaker.ID)]) async {
+        guard var updated = transcript,
               updated.recordingID == selection,
-              canEditTranscript(of: updated.recordingID),
-              let sourceIndex = updated.speakers.firstIndex(where: { $0.id == sourceID }),
-              let targetIndex = updated.speakers.firstIndex(where: { $0.id == targetID })
-        else {
+              canEditTranscript(of: updated.recordingID) else {
             return
         }
-
-        if (updated.speakers[targetIndex].name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let sourceName = updated.speakers[sourceIndex].name,
-           !sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            updated.speakers[targetIndex].name = sourceName
+        for merge in merges {
+            updated = updated.mergingSpeaker(merge.source, into: merge.target)
         }
-
-        for index in updated.segments.indices where updated.segments[index].speakerID == sourceID {
-            updated.segments[index].speakerID = targetID
+        for index in updated.speakers.indices {
+            guard let proposed = names[updated.speakers[index].id] else { continue }
+            updated.speakers[index].name = proposed.nonEmptyTrimmed
         }
-        updated.speakers.removeAll { $0.id == sourceID }
+        guard updated != transcript else { return }
         await persistEditedTranscript(updated)
     }
 

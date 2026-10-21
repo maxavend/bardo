@@ -22,14 +22,54 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
     private let microphoneQueue = DispatchQueue(label: "com.maxavend.bardo.system-audio.microphone", qos: .userInitiated)
     private let processor = SystemAudioSampleProcessor()
     private let silence = SilenceMonitor()
+    private let systemLevels = LiveAudioMeter()
+    private let microphoneLevels = LiveAudioMeter()
+    private let pauseClock = CapturePauseClock()
+    private let microphoneMute = MicrophoneMute()
 
     @MainActor private var tap: SystemAudioTap?
     @MainActor private var microphone: MicrophoneSession?
     @MainActor private var isStopping = false
+    private let devices: AudioDevicePreferences
+
+    init(devices: AudioDevicePreferences = AudioDevicePreferences()) {
+        self.devices = devices
+    }
 
     @MainActor
     var currentTime: TimeInterval {
         processor.elapsedTime
+    }
+
+    @MainActor var systemMeter: LiveAudioMeter? { systemLevels }
+    @MainActor var microphoneMeter: LiveAudioMeter? { microphoneLevels }
+    @MainActor var microphoneName: String? { microphone?.deviceName }
+    @MainActor var supportsPause: Bool { true }
+    @MainActor var supportsMicrophoneMute: Bool { microphone != nil }
+
+    @MainActor
+    func setMicrophoneMuted(_ muted: Bool) {
+        microphoneMute.isMuted = muted
+    }
+    @MainActor var microphoneDeviceUID: String? { microphone?.deviceUID }
+
+    @MainActor
+    func switchMicrophone(toDeviceUID uid: String) throws {
+        guard let microphone else { throw SystemAudioCaptureError.notCapturing }
+        guard let device = AVCaptureDevice(uniqueID: uid), device.hasMediaType(.audio) else {
+            throw SystemAudioCaptureError.systemAudio(String(localized: "No microphone is available."))
+        }
+        try microphone.switchDevice(to: device)
+    }
+
+    @MainActor
+    func pause() {
+        pauseClock.pause()
+    }
+
+    @MainActor
+    func resume() {
+        pauseClock.resume()
     }
 
     @MainActor
@@ -46,22 +86,31 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
 
         processor.configure(systemURL: systemURL, microphoneURL: includeMicrophone ? microphoneURL : nil)
         silence.reset()
+        systemLevels.reset()
+        microphoneLevels.reset()
+        pauseClock.reset()
+        microphoneMute.isMuted = false
 
         do {
-            let tap = try SystemAudioTap(queue: systemQueue) { [weak self] sampleBuffer, heardSound in
+            let tap = try SystemAudioTap(outputDevice: devices.outputDeviceID(), queue: systemQueue) { [weak self] sampleBuffer, heardSound in
                 self?.handle(sampleBuffer, track: .system, heardSound: heardSound)
             }
             self.tap = tap
 
             if includeMicrophone {
-                let microphone = try MicrophoneSession(queue: microphoneQueue) { [weak self] sampleBuffer in
+                guard let device = devices.microphoneCaptureDevice() else {
+                    throw SystemAudioCaptureError.systemAudio(String(localized: "No microphone is available."))
+                }
+                let microphone = try MicrophoneSession(device: device, queue: microphoneQueue) { [weak self] sampleBuffer in
                     self?.handle(sampleBuffer, track: .microphone, heardSound: true)
                 }
                 await microphone.start()
                 self.microphone = microphone
             }
+            // The tap reads its device's rate only now: opening a Bluetooth microphone
+            // switches that device, and so the system audio, to its hands-free rate.
             try tap.start()
-            Self.logger.notice("System audio capture started (microphone: \(includeMicrophone, privacy: .public))")
+            Self.logger.notice("System audio capture started (microphone: \(self.microphone?.deviceName ?? "none", privacy: .public))")
         } catch {
             await tearDown()
             processor.reset()
@@ -114,7 +163,13 @@ final class CoreAudioTapCaptureBackend: SystemAudioCapturing, @unchecked Sendabl
     }
 
     nonisolated private func handle(_ sampleBuffer: CMSampleBuffer, track: SystemAudioSampleProcessor.Track, heardSound: Bool) {
+        guard var sampleBuffer = pauseClock.retime(sampleBuffer) else { return }
+        if track == .microphone {
+            guard let audible = microphoneMute.apply(to: sampleBuffer) else { return }
+            sampleBuffer = audible
+        }
         if track == .system, heardSound { silence.markHeard() }
+        (track == .system ? systemLevels : microphoneLevels).append(sampleBuffer)
 
         let event: SystemAudioCaptureBackendEvent
         switch processor.append(sampleBuffer, track: track) {
@@ -151,20 +206,26 @@ private final class SilenceMonitor: @unchecked Sendable {
 }
 
 /// A private global process tap, read through a private aggregate device clocked by the
-/// default output device.
+/// chosen output device, or the default output when none is chosen or it is gone.
 private final class SystemAudioTap: @unchecked Sendable {
     typealias Handler = @Sendable (CMSampleBuffer, _ heardSound: Bool) -> Void
 
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
-    private var format = AudioStreamBasicDescription()
-    private var formatDescription: CMAudioFormatDescription?
+    private var rateListener: AudioObjectPropertyListenerBlock?
+    private var tapFormat = AudioStreamBasicDescription()
+    private var converter: SystemAudioFrameConverter?
     private let queue: DispatchQueue
     private let handler: Handler
     private static let logger = Logger(subsystem: "com.maxavend.bardo", category: "capture.system-audio")
+    private static let nominalRateAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyNominalSampleRate,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
 
-    init(queue: DispatchQueue, handler: @escaping Handler) throws {
+    init(outputDevice: AudioObjectID?, queue: DispatchQueue, handler: @escaping Handler) throws {
         self.queue = queue
         self.handler = handler
 
@@ -175,46 +236,32 @@ private final class SystemAudioTap: @unchecked Sendable {
         description.muteBehavior = .unmuted
         try Self.check(AudioHardwareCreateProcessTap(description, &tapID), "create the system audio tap")
 
-        format = try Self.property(kAudioTapPropertyFormat, of: tapID, default: AudioStreamBasicDescription())
-        Self.logger.notice("Tap format: \(self.format.mSampleRate, privacy: .public) Hz, \(self.format.mChannelsPerFrame, privacy: .public) ch, \(self.format.mBytesPerFrame, privacy: .public) bytes/frame, flags \(self.format.mFormatFlags, privacy: .public)")
-        try Self.check(
-            CMAudioFormatDescriptionCreate(
-                allocator: kCFAllocatorDefault,
-                asbd: &format,
-                layoutSize: 0,
-                layout: nil,
-                magicCookieSize: 0,
-                magicCookie: nil,
-                extensions: nil,
-                formatDescriptionOut: &formatDescription
-            ),
-            "describe the system audio format"
-        )
+        tapFormat = try Self.property(kAudioTapPropertyFormat, of: tapID, default: AudioStreamBasicDescription())
+        Self.logger.notice("Tap format: \(self.tapFormat.mSampleRate, privacy: .public) Hz, \(self.tapFormat.mChannelsPerFrame, privacy: .public) ch, \(self.tapFormat.mBytesPerFrame, privacy: .public) bytes/frame, flags \(self.tapFormat.mFormatFlags, privacy: .public)")
 
-        let outputDevice: AudioObjectID = try Self.property(
-            kAudioHardwarePropertyDefaultOutputDevice,
-            of: AudioObjectID(kAudioObjectSystemObject),
-            default: AudioObjectID(kAudioObjectUnknown)
-        )
-        let outputUID = try Self.deviceUID(of: outputDevice)
-        let aggregate: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "Bardo System Audio",
-            kAudioAggregateDeviceUIDKey: UUID().uuidString,
-            kAudioAggregateDeviceMainSubDeviceKey: outputUID as String,
-            kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: false,
-            kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: outputUID as String]],
-            kAudioAggregateDeviceTapListKey: [[
-                kAudioSubTapDriftCompensationKey: true,
-                kAudioSubTapUIDKey: description.uuid.uuidString
-            ]]
-        ]
         do {
+            guard let outputDevice else {
+                throw SystemAudioTapError(action: "find an output device", status: kAudioHardwareBadDeviceError)
+            }
+            let outputUID = try Self.deviceUID(of: outputDevice)
+            let aggregate: [String: Any] = [
+                kAudioAggregateDeviceNameKey: "Bardo System Audio",
+                kAudioAggregateDeviceUIDKey: UUID().uuidString,
+                kAudioAggregateDeviceMainSubDeviceKey: outputUID as String,
+                kAudioAggregateDeviceIsPrivateKey: true,
+                kAudioAggregateDeviceIsStackedKey: false,
+                kAudioAggregateDeviceTapAutoStartKey: true,
+                kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: outputUID as String]],
+                kAudioAggregateDeviceTapListKey: [[
+                    kAudioSubTapDriftCompensationKey: true,
+                    kAudioSubTapUIDKey: description.uuid.uuidString
+                ]]
+            ]
             try Self.check(
                 AudioHardwareCreateAggregateDevice(aggregate as CFDictionary, &aggregateID),
                 "create the system audio device"
             )
+            Self.logger.notice("System audio is clocked by \(outputUID as String, privacy: .public)")
         } catch {
             stop()
             throw error
@@ -225,16 +272,32 @@ private final class SystemAudioTap: @unchecked Sendable {
         stop()
     }
 
+    /// Starts listening. Call it once every other device of the recording is open: a
+    /// Bluetooth output changes its rate when its own microphone opens.
     func start() throws {
-        let format = format
-        let formatDescription = formatDescription
+        // The aggregate runs at its output device's rate, not necessarily the tap's.
+        let rate = deviceSampleRate() ?? tapFormat.mSampleRate
+        guard let converter = SystemAudioFrameConverter(tapFormat: tapFormat, sampleRate: rate) else {
+            throw SystemAudioTapError(action: "describe the system audio format", status: kAudioHardwareUnsupportedOperationError)
+        }
+        self.converter = converter
+        Self.logger.notice("System audio device runs at \(rate, privacy: .public) Hz")
+
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            guard let self, let rate = self.deviceSampleRate() else { return }
+            Self.logger.notice("System audio device rate changed to \(rate, privacy: .public) Hz")
+            converter.setSampleRate(rate)
+        }
+        var address = Self.nominalRateAddress
+        if AudioObjectAddPropertyListenerBlock(aggregateID, &address, queue, listener) == noErr {
+            rateListener = listener
+        }
+
         let handler = handler
         try Self.check(
             AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, queue) { _, input, inputTime, _, _ in
-                guard let formatDescription,
-                      let sampleBuffer = Self.sampleBuffer(from: input, at: inputTime.pointee, format: format, description: formatDescription)
-                else { return }
-                handler(sampleBuffer, Self.containsSound(input))
+                guard let sampleBuffer = converter.sampleBuffer(from: input, at: inputTime.pointee) else { return }
+                handler(sampleBuffer, converter.containsSound(input))
             },
             "listen to the system audio device"
         )
@@ -243,6 +306,11 @@ private final class SystemAudioTap: @unchecked Sendable {
 
     func stop() {
         if aggregateID != kAudioObjectUnknown {
+            if let rateListener {
+                var address = Self.nominalRateAddress
+                AudioObjectRemovePropertyListenerBlock(aggregateID, &address, queue, rateListener)
+                self.rateListener = nil
+            }
             if let ioProcID {
                 AudioDeviceStop(aggregateID, ioProcID)
                 AudioDeviceDestroyIOProcID(aggregateID, ioProcID)
@@ -257,61 +325,9 @@ private final class SystemAudioTap: @unchecked Sendable {
         }
     }
 
-    /// Copies one IO cycle into a sample buffer stamped with its host time.
-    private static func sampleBuffer(
-        from input: UnsafePointer<AudioBufferList>,
-        at time: AudioTimeStamp,
-        format: AudioStreamBasicDescription,
-        description: CMAudioFormatDescription
-    ) -> CMSampleBuffer? {
-        let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
-        guard let first = buffers.first, format.mBytesPerFrame > 0, format.mSampleRate > 0 else { return nil }
-        let frames = Int(first.mDataByteSize / format.mBytesPerFrame)
-        guard frames > 0, time.mFlags.contains(.hostTimeValid) else { return nil }
-
-        var timing = CMSampleTimingInfo(
-            duration: CMTime(value: 1, timescale: CMTimeScale(format.mSampleRate)),
-            presentationTimeStamp: CMClockMakeHostTimeFromSystemUnits(time.mHostTime),
-            decodeTimeStamp: .invalid
-        )
-        var sampleBuffer: CMSampleBuffer?
-        guard CMSampleBufferCreate(
-            allocator: kCFAllocatorDefault,
-            dataBuffer: nil,
-            dataReady: false,
-            makeDataReadyCallback: nil,
-            refcon: nil,
-            formatDescription: description,
-            sampleCount: frames,
-            sampleTimingEntryCount: 1,
-            sampleTimingArray: &timing,
-            sampleSizeEntryCount: 0,
-            sampleSizeArray: nil,
-            sampleBufferOut: &sampleBuffer
-        ) == noErr, let sampleBuffer else { return nil }
-
-        guard CMSampleBufferSetDataBufferFromAudioBufferList(
-            sampleBuffer,
-            blockBufferAllocator: kCFAllocatorDefault,
-            blockBufferMemoryAllocator: kCFAllocatorDefault,
-            flags: 0,
-            bufferList: input
-        ) == noErr else { return nil }
-        CMSampleBufferSetDataReady(sampleBuffer)
-        return sampleBuffer
-    }
-
-    /// Whether any sample in the cycle is not digital silence. The tap delivers Float32.
-    private static func containsSound(_ input: UnsafePointer<AudioBufferList>) -> Bool {
-        for buffer in UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input)) {
-            guard let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
-            let count = vDSP_Length(Int(buffer.mDataByteSize) / MemoryLayout<Float>.size)
-            guard count > 0 else { continue }
-            var peak: Float = 0
-            vDSP_maxmgv(data, 1, &peak, count)
-            if peak > 0 { return true }
-        }
-        return false
+    private func deviceSampleRate() -> Double? {
+        let rate: Float64? = AudioHardware.value(kAudioDevicePropertyNominalSampleRate, of: aggregateID)
+        return rate.flatMap { $0 > 0 ? $0 : nil }
     }
 
     /// Bardo's own audio objects, so playing back a recording never ends up in a new one.
@@ -379,95 +395,5 @@ private struct SystemAudioTapError: LocalizedError {
 
     var errorDescription: String? {
         String(localized: "Bardo could not listen to the Mac's audio (Core Audio error \(status)).")
-    }
-}
-
-/// The default microphone through AVCaptureSession, delivered as 48 kHz mono Float32
-/// and restamped on the host clock the system tap uses, so the two tracks line up.
-private final class MicrophoneSession: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
-    typealias Handler = @Sendable (CMSampleBuffer) -> Void
-
-    private let session = AVCaptureSession()
-    private let handler: Handler
-
-    init(queue: DispatchQueue, handler: @escaping Handler) throws {
-        self.handler = handler
-        super.init()
-
-        guard let device = AVCaptureDevice.default(for: .audio) else {
-            throw SystemAudioCaptureError.systemAudio(String(localized: "No microphone is available."))
-        }
-        let input = try AVCaptureDeviceInput(device: device)
-        let output = AVCaptureAudioDataOutput()
-        output.audioSettings = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 48_000,
-            AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 32,
-            AVLinearPCMIsFloatKey: true,
-            AVLinearPCMIsNonInterleaved: false,
-            AVLinearPCMIsBigEndianKey: false
-        ]
-        output.setSampleBufferDelegate(self, queue: queue)
-
-        session.beginConfiguration()
-        guard session.canAddInput(input), session.canAddOutput(output) else {
-            session.commitConfiguration()
-            throw SystemAudioCaptureError.systemAudio(String(localized: "The microphone could not be connected."))
-        }
-        session.addInput(input)
-        session.addOutput(output)
-        session.commitConfiguration()
-    }
-
-    /// `startRunning` blocks while the device spins up, so it runs off the main thread.
-    func start() async {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                self.session.startRunning()
-                continuation.resume()
-            }
-        }
-    }
-
-    func stop() async {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                self.session.stopRunning()
-                continuation.resume()
-            }
-        }
-    }
-
-    func captureOutput(
-        _ output: AVCaptureOutput,
-        didOutput sampleBuffer: CMSampleBuffer,
-        from connection: AVCaptureConnection
-    ) {
-        guard let retimed = hostTimed(sampleBuffer) else { return }
-        handler(retimed)
-    }
-
-    private func hostTimed(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
-        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        guard pts.isValid else { return nil }
-        let hostClock = CMClockGetHostTimeClock()
-        guard let sourceClock = session.synchronizationClock, !CFEqual(sourceClock, hostClock) else {
-            return sampleBuffer
-        }
-        var timing = CMSampleTimingInfo(
-            duration: CMSampleBufferGetDuration(sampleBuffer),
-            presentationTimeStamp: CMSyncConvertTime(pts, from: sourceClock, to: hostClock),
-            decodeTimeStamp: .invalid
-        )
-        var retimed: CMSampleBuffer?
-        CMSampleBufferCreateCopyWithNewTiming(
-            allocator: kCFAllocatorDefault,
-            sampleBuffer: sampleBuffer,
-            sampleTimingEntryCount: 1,
-            sampleTimingArray: &timing,
-            sampleBufferOut: &retimed
-        )
-        return retimed
     }
 }

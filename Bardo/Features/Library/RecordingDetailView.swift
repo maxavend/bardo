@@ -14,6 +14,7 @@ struct RecordingDetailView: View {
     /// The window's search: matches are highlighted in the transcript.
     let searchQuery: String
     @Binding var isInfoPresented: Bool
+    @Binding var isFullPlayerPresented: Bool
     let onMoveToTrash: (Recording) -> Void
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
@@ -21,29 +22,35 @@ struct RecordingDetailView: View {
     @State private var isSpeakerNamingPresented = false
     @State private var isRenamePresented = false
     @State private var isDeleteConfirmationPresented = false
+    /// The conversation's audio file, resolved once so Share can offer it at once.
+    @State private var shareAudioURL: URL?
 
     var body: some View {
-        VStack(spacing: 0) {
+        TranscriptContentView(
+            recording: recording,
+            model: model,
+            playback: playback,
+            searchQuery: searchQuery,
+            editor: $editor,
+            isSpeakerNamingPresented: $isSpeakerNamingPresented,
+            bottomContentInset: playbackContentInset
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The title is a bar the transcript scrolls under, softly blurring away.
+        .bardoTopBar {
             RecordingDocumentHeader(recording: recording)
                 .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
                 .padding(.horizontal, BardoSpacing.detailHorizontal)
                 .padding(.top, BardoSpacing.section)
                 .padding(.bottom, 12)
                 .frame(maxWidth: .infinity, alignment: .top)
-
-            TranscriptContentView(
-                recording: recording,
-                model: model,
-                playback: playback,
-                searchQuery: searchQuery,
-                editor: $editor,
-                isSpeakerNamingPresented: $isSpeakerNamingPresented,
-                bottomContentInset: playbackContentInset
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .bardoSoftTopEdge()
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
+            // One item per control, so a menu or the share picker opens under its own
+            // button instead of the middle of the group. Adjacent items still share one
+            // glass background; the overflow menu goes last, as everywhere on macOS.
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     favorites.toggle(recording.id)
                 } label: {
@@ -53,19 +60,21 @@ struct RecordingDetailView: View {
                     )
                 }
                 .help(isFavorite ? "Quitar de Favoritas" : "Agregar a Favoritas")
+            }
 
-                if let transcript = currentTranscript, !transcript.text.isEmpty {
-                    ShareLink(
-                        item: transcriptExport(transcript),
-                        subject: Text(recordingDisplayTitle),
-                        preview: SharePreview(recordingDisplayTitle)
-                    ) {
-                        Label("Compartir transcripción", systemImage: "square.and.arrow.up")
+            ToolbarItem(placement: .primaryAction) {
+                shareControl
+            }
+
+            if let transcript = currentTranscript, !transcript.text.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        copyTranscript(transcript)
+                    } label: {
+                        Label("Copiar transcripción", systemImage: "doc.on.doc")
                     }
-                    .help("Compartir transcripción")
+                    .help("Copiar la transcripción, por hablante y con sus tiempos")
                 }
-
-                recordingActionsMenu
             }
 
             ToolbarItem(placement: .primaryAction) {
@@ -75,6 +84,32 @@ struct RecordingDetailView: View {
                     Label("Información", systemImage: "info.circle")
                 }
                 .help("Mostrar información (⌥⌘I)")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                recordingActionsMenu
+            }
+
+            // The whole recording in the whole window, in its own glass beside the
+            // recording's actions. macOS keeps the toolbar search field in its own
+            // trailing slot, so nothing can sit flush against it.
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isFullPlayerPresented = true
+                } label: {
+                    Label("Reproductor completo", systemImage: "waveform")
+                }
+                .help("Abrir el reproductor completo")
+                .disabled(recording.audioAssets.isEmpty)
+            }
+        }
+        .task(id: recording.id) {
+            shareAudioURL = nil
+            if let audio = conversationAudio {
+                shareAudioURL = try? await model.managedAudioURL(for: audio, in: recording.id)
             }
         }
         .bardoBottomBar {
@@ -166,9 +201,13 @@ struct RecordingDetailView: View {
             case "delete":
                 isDeleteConfirmationPresented = true
             case "edit":
-                if let segment = model.transcript?.segments.first { editor = .segment(segment) }
+                if let segments = model.transcript?.segments, !segments.isEmpty {
+                    editor = .segment(segments[min(Int(step.value) ?? 0, segments.count - 1)])
+                }
             case "seek":
                 playback.seek(to: TimeInterval(step.value) ?? 10)
+            case "play":
+                _ = playback.play()
             default:
                 break
             }
@@ -199,13 +238,6 @@ struct RecordingDetailView: View {
 
             if let transcript = currentTranscript {
                 Divider()
-
-                Button {
-                    copyTranscript(transcript)
-                } label: {
-                    Label("Copiar transcripción", systemImage: "doc.on.doc")
-                }
-                .disabled(transcript.text.isEmpty)
 
                 Button {
                     if transcript.diarizationMetadata != nil, transcript.hasNamedSpeakers {
@@ -349,25 +381,59 @@ struct RecordingDetailView: View {
         return transcript
     }
 
-    /// Plain text with speaker names and timestamps, ready for Mail, Notes or Messages.
+    /// Plain text by speaker with their times, ready for Mail, Notes or Messages.
     private func transcriptExport(_ transcript: Transcript) -> String {
-        let names = Dictionary(
-            transcript.speakers.map { ($0.id, transcript.displayName(for: $0)) },
-            uniquingKeysWith: { first, _ in first }
+        TranscriptTextFormatter(
+            title: recordingDisplayTitle,
+            date: recording.createdAt,
+            duration: recording.duration,
+            notes: recording.notes
         )
-        var lines = [recordingDisplayTitle, ""]
-        var previousSpeaker: Speaker.ID?
-        for segment in transcript.segments {
-            let text = segment.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { continue }
-            if let speakerID = segment.speakerID, speakerID != previousSpeaker, let name = names[speakerID] {
-                lines.append("")
-                lines.append("\(name) · \(LibraryFormatting.duration(segment.startTime))")
+        .text(for: transcript)
+    }
+
+    /// Share the transcript, the audio, or either when both exist.
+    @ViewBuilder
+    private var shareControl: some View {
+        let transcript = currentTranscript.flatMap { $0.text.isEmpty ? nil : $0 }
+        switch (transcript, shareAudioURL) {
+        case let (transcript?, audio?):
+            Menu {
+                ShareLink(
+                    item: transcriptExport(transcript),
+                    subject: Text(recordingDisplayTitle),
+                    preview: SharePreview(recordingDisplayTitle)
+                ) {
+                    Label("Transcripción", systemImage: "text.alignleft")
+                }
+                ShareLink(item: audio, preview: SharePreview(recordingDisplayTitle)) {
+                    Label("Audio", systemImage: "waveform")
+                }
+            } label: {
+                Label("Compartir", systemImage: "square.and.arrow.up")
             }
-            previousSpeaker = segment.speakerID
-            lines.append(text)
+            .menuIndicator(.hidden)
+            .help("Compartir")
+        case let (transcript?, nil):
+            ShareLink(
+                item: transcriptExport(transcript),
+                subject: Text(recordingDisplayTitle),
+                preview: SharePreview(recordingDisplayTitle)
+            ) {
+                Label("Compartir", systemImage: "square.and.arrow.up")
+            }
+            .help("Compartir la transcripción")
+        case let (nil, audio?):
+            ShareLink(item: audio, preview: SharePreview(recordingDisplayTitle)) {
+                Label("Compartir", systemImage: "square.and.arrow.up")
+            }
+            .help("Compartir el audio")
+        case (nil, nil):
+            Button {} label: {
+                Label("Compartir", systemImage: "square.and.arrow.up")
+            }
+            .disabled(true)
         }
-        return lines.joined(separator: "\n")
     }
 
     private var recordingDisplayTitle: String {
@@ -387,7 +453,7 @@ struct RecordingDetailView: View {
 
     private func copyTranscript(_ transcript: Transcript) {
         NSPasteboard.general.clearContents()
-        if NSPasteboard.general.setString(transcript.text, forType: .string) {
+        if NSPasteboard.general.setString(transcriptExport(transcript), forType: .string) {
             model.reportRecordingActionFeedback(String(localized: "Transcript copied"))
         }
     }
