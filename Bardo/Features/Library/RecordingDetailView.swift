@@ -26,24 +26,25 @@ struct RecordingDetailView: View {
     @State private var shareAudioURL: URL?
 
     var body: some View {
-        TranscriptContentView(
-            recording: recording,
-            model: model,
-            playback: playback,
-            searchQuery: searchQuery,
-            editor: $editor,
-            isSpeakerNamingPresented: $isSpeakerNamingPresented,
-            bottomContentInset: playbackContentInset,
-            header: AnyView(
-                RecordingDocumentHeader(recording: recording)
-                    .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
-                    .padding(.horizontal, BardoSpacing.detailHorizontal)
-                    .padding(.top, BardoSpacing.section)
-                    .padding(.bottom, 12)
-                    .frame(maxWidth: .infinity, alignment: .top)
+        VStack(spacing: 0) {
+            RecordingDocumentHeader(recording: recording)
+                .frame(maxWidth: BardoLayout.detailContentMaxWidth, alignment: .leading)
+                .padding(.horizontal, BardoSpacing.detailHorizontal)
+                .padding(.top, BardoSpacing.section)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity, alignment: .top)
+
+            TranscriptContentView(
+                recording: recording,
+                model: model,
+                playback: playback,
+                searchQuery: searchQuery,
+                editor: $editor,
+                isSpeakerNamingPresented: $isSpeakerNamingPresented,
+                bottomContentInset: playbackContentInset
             )
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
         .toolbar {
             // One item per control, so a menu or the share picker opens under its own
             // button instead of the middle of the group. Adjacent items still share one
