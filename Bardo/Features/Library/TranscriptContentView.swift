@@ -68,6 +68,7 @@ struct TranscriptContentView: View {
                 .padding(.bottom, BardoSpacing.section)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
+            .bardoSoftTopEdge()
             .onScrollPhaseChange { _, phase in
                 if phase == .tracking || phase == .interacting {
                     followsLiveTranscription = false

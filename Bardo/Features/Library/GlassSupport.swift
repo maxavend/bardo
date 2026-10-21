@@ -95,6 +95,17 @@ extension View {
 
     /// A bar pinned above a scrolling document, with the same scroll-edge treatment as
     /// `bardoBottomBar` on macOS 26 and a plain material before that.
+    /// Content scrolling under the top bars blurs away progressively, with the system's
+    /// soft scroll edge, rather than being cut at a line. Applied to the scroll view itself.
+    @ViewBuilder
+    func bardoSoftTopEdge() -> some View {
+        if #available(macOS 26.0, *) {
+            scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            self
+        }
+    }
+
     @ViewBuilder
     func bardoTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
         if #available(macOS 26.0, *) {
