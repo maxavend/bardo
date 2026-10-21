@@ -318,9 +318,12 @@ private struct KaraokeSubtitle: View {
                     Text(segment.displayText)
                 }
             }
-            .font(isCurrent ? .title2.weight(.semibold) : .title3.weight(.medium))
+            // One size for every passage, as Music's lyrics: the current one is told by
+            // its brightness alone, so changing passage never reflows the text (a size
+            // change made old and new lines show through each other).
+            .font(.title2.weight(.semibold))
             .foregroundStyle(isCurrent ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-            .opacity(isCurrent ? 1 : max(0.35, 0.8 - Double(distance) * 0.15))
+            .opacity(isCurrent ? 1 : max(0.3, 0.7 - Double(distance) * 0.15))
             .multilineTextAlignment(.center)
             .lineSpacing(4)
             .fixedSize(horizontal: false, vertical: true)
@@ -332,7 +335,7 @@ private struct KaraokeSubtitle: View {
             playback.seek(to: segment.startTime)
         }
         .pointerStyle(.link)
-        .animation(.easeOut(duration: 0.25), value: isCurrent)
+        .animation(.easeOut(duration: 0.35), value: isCurrent)
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Reproducir desde aquí")
     }
