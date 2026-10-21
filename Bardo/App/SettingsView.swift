@@ -336,6 +336,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .bardoSecondaryAction()
         .padding(.top, 8)
     }
 

@@ -32,6 +32,7 @@ extension View {
     func bardoPrimaryAction() -> some View {
         if #available(macOS 26.0, *) {
             buttonStyle(.glassProminent)
+                .buttonBorderShape(.capsule)
         } else {
             buttonStyle(.borderedProminent)
         }
@@ -42,6 +43,7 @@ extension View {
     func bardoSecondaryAction() -> some View {
         if #available(macOS 26.0, *) {
             buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
         } else {
             buttonStyle(.bordered)
         }

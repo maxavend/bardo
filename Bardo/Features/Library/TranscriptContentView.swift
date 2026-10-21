@@ -187,6 +187,7 @@ struct TranscriptContentView: View {
             } label: {
                 Label(String(localized: "Identify Speakers"), systemImage: "person.2.wave.2")
             }
+            .bardoSecondaryAction()
             .disabled(recording.audioAssets.isEmpty || model.isTranscribing || model.isDiarizing)
 
         case .singleSpeaker:
@@ -197,11 +198,13 @@ struct TranscriptContentView: View {
             Button {
                 isSpeakerNamingPresented = true
             } label: {
-                Label(
-                    String.localizedStringWithFormat(String(localized: "%lld Participants"), count),
-                    systemImage: "person.2"
-                )
+                HStack(spacing: 8) {
+                    ParticipantAvatars(transcript: transcript)
+                    Text(String.localizedStringWithFormat(String(localized: "%lld Participants"), count))
+                }
             }
+            .bardoSecondaryAction()
+            .help("Escuchar, nombrar y fusionar a los participantes")
             .disabled(model.isTranscribing || model.isDiarizing)
         }
     }
@@ -618,6 +621,35 @@ struct TranscriptContentView: View {
 
 /// Distinct, system-adaptive colours that make speaker turns easy to scan. The name
 /// always accompanies the colour, so it never carries meaning on its own.
+/// The first participants as overlapping circles in their colours, with an initial
+/// once they have a name, as Messages shows a group.
+private struct ParticipantAvatars: View {
+    let transcript: Transcript
+
+    var body: some View {
+        HStack(spacing: -5) {
+            ForEach(transcript.speakers.prefix(4)) { speaker in
+                Circle()
+                    .fill(SpeakerPalette.color(for: speaker.id, in: transcript).gradient)
+                    .frame(width: 18, height: 18)
+                    .overlay {
+                        if let initial = speaker.name?.nonEmptyTrimmed?.first {
+                            Text(String(initial).uppercased())
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                        } else {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
+                    }
+                    .overlay(Circle().stroke(.background, lineWidth: 1.5))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 enum SpeakerPalette {
     private static let colors: [Color] = [.blue, .orange, .green, .purple, .pink, .teal, .indigo, .brown]
 
