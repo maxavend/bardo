@@ -27,6 +27,29 @@ struct RecordingInspector: View {
                 LabeledContent("Estado", value: LibraryFormatting.state(recording.processingState))
             }
 
+            // How much space it takes, and compressing it, right after what it is.
+            if !recording.audioAssets.isEmpty {
+                Section("Archivo") {
+                    if recording.audioAssets.count == 1, let asset = recording.audioAssets.first {
+                        LabeledContent("Nombre", value: asset.originalFileName)
+                        if let size = formattedFileSize(for: asset) {
+                            LabeledContent("Tamaño", value: size)
+                        }
+                    } else {
+                        LabeledContent(
+                            "Pistas de audio",
+                            value: "\(recording.audioAssets.count)"
+                        )
+                        if let size = formattedTotalFileSize {
+                            LabeledContent("Tamaño total", value: size)
+                        }
+                    }
+                    if compress != nil {
+                        compressionRow
+                    }
+                }
+            }
+
             if let transcript, transcript.recordingID == recording.id {
                 Section("Contenido") {
                     LabeledContent("Idioma", value: LibraryFormatting.language(transcript.languageCode))
@@ -55,26 +78,6 @@ struct RecordingInspector: View {
             }
 
             if !recording.audioAssets.isEmpty {
-                Section("Archivo") {
-                    if recording.audioAssets.count == 1, let asset = recording.audioAssets.first {
-                        LabeledContent("Nombre", value: asset.originalFileName)
-                        if let size = formattedFileSize(for: asset) {
-                            LabeledContent("Tamaño", value: size)
-                        }
-                    } else {
-                        LabeledContent(
-                            "Pistas de audio",
-                            value: "\(recording.audioAssets.count)"
-                        )
-                        if let size = formattedTotalFileSize {
-                            LabeledContent("Tamaño total", value: size)
-                        }
-                    }
-                    if compress != nil {
-                        compressionRow
-                    }
-                }
-
                 Section {
                     DisclosureGroup("Detalles técnicos", isExpanded: $showsTechnicalDetails) {
                         ForEach(Array(recording.audioAssets.enumerated()), id: \.element.id) { index, asset in

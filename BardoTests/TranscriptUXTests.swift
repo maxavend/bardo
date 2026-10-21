@@ -48,6 +48,48 @@ final class TranscriptUXTests: XCTestCase {
         }
     }
 
+    func testMergingGivesEverythingToOnePersonAndKeepsYouAsYou() {
+        let you = Speaker(role: .localUser)
+        let eloin = Speaker(name: "Eloín")
+        let alsoEloin = Speaker()
+        var said = [
+            TranscriptSegment(startTime: 0, endTime: 1, text: "Hola"),
+            TranscriptSegment(startTime: 1, endTime: 2, text: "Sí"),
+            TranscriptSegment(startTime: 2, endTime: 3, text: "Yo")
+        ]
+        said[0].speakerID = eloin.id
+        said[1].speakerID = alsoEloin.id
+        said[2].speakerID = you.id
+        let transcript = Transcript(
+            recordingID: UUID(),
+            speakers: [you, eloin, alsoEloin],
+            segments: said,
+            metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: "test")
+        )
+
+        let merged = transcript.mergingSpeaker(eloin.id, into: alsoEloin.id)
+        XCTAssertEqual(merged.speakers.map(\.id), [you.id, alsoEloin.id])
+        XCTAssertEqual(merged.speakers[1].name, "Eloín", "The typed name is kept when the other has none")
+        XCTAssertEqual(merged.segments.map(\.speakerID), [alsoEloin.id, alsoEloin.id, you.id])
+
+        let intoOther = transcript.mergingSpeaker(you.id, into: eloin.id)
+        XCTAssertEqual(intoOther.speakers.map(\.id), [you.id, alsoEloin.id], "You on the microphone always stay you")
+        XCTAssertEqual(intoOther.segments[0].speakerID, you.id)
+    }
+
+    func testParticipantsGivenTheSameNameAreOfferedAsOne() {
+        let first = Speaker(name: "Eloín")
+        let second = Speaker()
+        let third = Speaker(name: "Dani")
+        let transcript = Transcript(
+            recordingID: UUID(),
+            speakers: [first, second, third],
+            metadata: TranscriptMetadata(engine: "WhisperKit", engineVersion: "1", modelID: "test")
+        )
+        XCTAssertEqual(transcript.speakersSharingAName([second.id: " eloin "]), [[first.id, second.id]])
+        XCTAssertEqual(transcript.speakersSharingAName([:]), [])
+    }
+
     func testManualChangeFlagsDistinguishTextAndSpeakerNames() {
         let recordingID = UUID(uuidString: "00000000-0000-0000-0000-000000000700")!
         let speakerID = UUID(uuidString: "00000000-0000-0000-0000-000000000799")!

@@ -750,26 +750,25 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func mergeSpeaker(_ sourceID: Speaker.ID, into targetID: Speaker.ID) async {
-        guard sourceID != targetID,
-              var updated = transcript,
+        await saveSpeakerReview(names: [:], merges: [(sourceID, targetID)])
+    }
+
+    /// Saves the speaker review at once: participants merged into one, in the order they
+    /// were merged, then the names typed.
+    func saveSpeakerReview(names: [Speaker.ID: String], merges: [(source: Speaker.ID, target: Speaker.ID)]) async {
+        guard var updated = transcript,
               updated.recordingID == selection,
-              canEditTranscript(of: updated.recordingID),
-              let sourceIndex = updated.speakers.firstIndex(where: { $0.id == sourceID }),
-              let targetIndex = updated.speakers.firstIndex(where: { $0.id == targetID })
-        else {
+              canEditTranscript(of: updated.recordingID) else {
             return
         }
-
-        if (updated.speakers[targetIndex].name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let sourceName = updated.speakers[sourceIndex].name,
-           !sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            updated.speakers[targetIndex].name = sourceName
+        for merge in merges {
+            updated = updated.mergingSpeaker(merge.source, into: merge.target)
         }
-
-        for index in updated.segments.indices where updated.segments[index].speakerID == sourceID {
-            updated.segments[index].speakerID = targetID
+        for index in updated.speakers.indices {
+            guard let proposed = names[updated.speakers[index].id] else { continue }
+            updated.speakers[index].name = proposed.nonEmptyTrimmed
         }
-        updated.speakers.removeAll { $0.id == sourceID }
+        guard updated != transcript else { return }
         await persistEditedTranscript(updated)
     }
 
