@@ -93,11 +93,7 @@ struct TranscriptionSetupView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 32)
 
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .interpolation(.high)
-                .frame(width: 72, height: 72)
-                .accessibilityHidden(true)
+            BardoAppIcon(size: 60)
 
             VStack(spacing: 6) {
                 Text(title)

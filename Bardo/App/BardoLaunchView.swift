@@ -61,11 +61,7 @@ private struct BardoWelcomeView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 96, height: 96)
-                    .accessibilityHidden(true)
+                BardoAppIcon(size: 80)
                     .entrance(step: 0, isVisible: isVisible)
 
                 VStack(spacing: 8) {
@@ -137,6 +133,22 @@ private struct BardoWelcomeView: View {
     }
 
     private var isVisible: Bool { reduceMotion || hasAppeared }
+}
+
+/// The app icon on its own, without the drop shadow macOS draws around it: the icon
+/// image carries its squircle in the middle 824 of 1024 points, shadow around it.
+struct BardoAppIcon: View {
+    let size: CGFloat
+
+    var body: some View {
+        Image(nsImage: NSApp.applicationIconImage)
+            .resizable()
+            .interpolation(.high)
+            .frame(width: size * 1024 / 824, height: size * 1024 / 824)
+            .frame(width: size, height: size)
+            .clipShape(.rect(cornerRadius: size * 0.2237, style: .continuous))
+            .accessibilityHidden(true)
+    }
 }
 
 private struct WelcomeFeatureRow: View {
