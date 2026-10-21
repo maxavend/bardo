@@ -25,24 +25,13 @@ struct FullPlayerView: View {
                 updateNotes: { change in Task { await model.updateNotes(recording.id, change) } }
             )
 
-            HStack(spacing: 10) {
-                Button {
-                    Task { await model.updateNotes(recording.id) { $0.addMoment(at: playback.position, title: "", note: nil) } }
-                } label: {
-                    Label("Marcar momento aquí", systemImage: "flag")
-                }
-                Button {
-                    Task { await model.updateNotes(recording.id) { $0.addSection(at: playback.position, title: "") } }
-                } label: {
-                    Label("Nueva sección aquí", systemImage: "text.line.first.and.arrowtriangle.forward")
-                }
-                Spacer(minLength: 12)
-                if !searchQuery.isEmpty {
+            if !searchQuery.isEmpty {
+                HStack {
+                    Spacer()
                     searchNavigator
                 }
+                .padding(.top, 12)
             }
-            .controlSize(.regular)
-            .padding(.top, 14)
 
             Spacer(minLength: 24)
 
@@ -66,7 +55,20 @@ struct FullPlayerView: View {
                 .keyboardShortcut(.cancelAction)
                 .help("Volver a la biblioteca (Esc)")
             }
-            ToolbarItem(placement: .primaryAction) {
+            // The recording's own actions, where a conversation keeps its actions.
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    Task { await model.updateNotes(recording.id) { $0.addMoment(at: playback.position, title: "", note: nil) } }
+                } label: {
+                    Label("Marcar momento", systemImage: "flag")
+                }
+                .help("Marcar un momento donde va la reproducción")
+                Button {
+                    Task { await model.updateNotes(recording.id) { $0.addSection(at: playback.position, title: "") } }
+                } label: {
+                    Label("Nueva sección", systemImage: "text.line.first.and.arrowtriangle.forward")
+                }
+                .help("Empezar una sección donde va la reproducción")
                 Button {
                     isOptionsPresented = true
                 } label: {
@@ -180,36 +182,38 @@ private struct PlayerOptions: View {
     }
 }
 
-/// What is being said now, as a subtitle: who speaks, and their words lighting up as
-/// they are heard. Karaoke belongs to playback of finished transcripts only.
+/// What is being said now, as lyrics are in Music: the current passage with its words
+/// lighting up as they are heard, the one before and the one after dimmed around it.
+/// Karaoke belongs to playback of finished transcripts only.
 private struct KaraokeSubtitle: View {
     let transcript: Transcript
     @ObservedObject var playback: AudioPlaybackController
 
-    /// After this long past its end, a passage gives way to silence.
-    private static let linger: TimeInterval = 2
+    private var segments: [TranscriptSegment] {
+        transcript.segments
+            .filter { !$0.displayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .sorted { $0.startTime < $1.startTime }
+    }
 
     var body: some View {
-        let segment = currentSegment
-        VStack(spacing: 12) {
-            if let segment {
-                if let speakerID = segment.speakerID, let speaker = transcript.speakers.first(where: { $0.id == speakerID }) {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(SpeakerPalette.color(for: speakerID, in: transcript))
-                            .frame(width: 8, height: 8)
-                        Text(transcript.displayName(for: speaker))
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                    }
+        let segments = segments
+        let index = currentIndex(in: segments)
+        VStack(spacing: 18) {
+            if let index {
+                if index > 0 {
+                    line(segments[index - 1], emphasis: .before)
                 }
-                Text(attributedText(for: segment))
-                    .font(.title2.weight(.medium))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .id(segment.id)
-                    .transition(.opacity)
+                VStack(spacing: 8) {
+                    speaker(of: segments[index])
+                    Text(attributedText(for: segments[index]))
+                        .font(.title2.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if index + 1 < segments.count {
+                    line(segments[index + 1], emphasis: .after)
+                }
             } else {
                 Text(playback.isPlaying ? " " : "Reproduce para ver los subtítulos")
                     .font(.title3)
@@ -217,15 +221,40 @@ private struct KaraokeSubtitle: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .animation(.easeOut(duration: 0.2), value: segment?.id)
+        .animation(.easeOut(duration: 0.25), value: index)
         .accessibilityElement(children: .combine)
     }
 
-    private var currentSegment: TranscriptSegment? {
+    private enum Emphasis { case before, after }
+
+    private func line(_ segment: TranscriptSegment, emphasis: Emphasis) -> some View {
+        Text(segment.displayText)
+            .font(.title3.weight(.medium))
+            .foregroundStyle(emphasis == .before ? .tertiary : .secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .transition(.opacity)
+    }
+
+    @ViewBuilder
+    private func speaker(of segment: TranscriptSegment) -> some View {
+        if let speakerID = segment.speakerID, let speaker = transcript.speakers.first(where: { $0.id == speakerID }) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(SpeakerPalette.color(for: speakerID, in: transcript))
+                    .frame(width: 8, height: 8)
+                Text(transcript.displayName(for: speaker))
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// The passage being heard; between passages, the last one heard stays.
+    private func currentIndex(in segments: [TranscriptSegment]) -> Int? {
         let position = playback.position
-        return transcript.segments
-            .filter { $0.startTime <= position + 0.05 && position <= $0.endTime + Self.linger }
-            .max { $0.startTime < $1.startTime }
+        guard position > 0 || playback.isPlaying else { return nil }
+        return segments.lastIndex { $0.startTime <= position + 0.05 }
     }
 
     /// Heard words in full colour, the current one highlighted, the rest still dim.
@@ -239,7 +268,6 @@ private struct KaraokeSubtitle: View {
             var piece = AttributedString((index == 0 ? "" : " ") + word.text.trimmingCharacters(in: .whitespaces))
             if position >= word.startTime && position <= word.endTime {
                 piece.foregroundColor = .accentColor
-                piece.font = .title2.weight(.bold)
             } else if position > word.endTime {
                 piece.foregroundColor = .primary
             } else {

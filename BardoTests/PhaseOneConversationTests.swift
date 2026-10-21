@@ -123,4 +123,33 @@ final class AudioWaveformOverviewTests: XCTestCase {
         XCTAssertTrue(levels[0..<5].allSatisfy { $0 > 0.5 }, "\(levels)")
         XCTAssertTrue(levels[5..<10].allSatisfy { $0 == 0 }, "\(levels)")
     }
+
+    func testSeparateTracksBecomeTheTwoSidesOfTheLine() throws {
+        func tone(_ name: String, loud: Bool) throws -> URL {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("BardoLane-\(name)-\(UUID().uuidString).caf")
+            let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000))
+            buffer.frameLength = 16_000
+            for frame in 0..<16_000 { buffer.floatChannelData![0][frame] = Float(sin(Double(frame) * 0.2) * (loud ? 0.3 : 0.003)) }
+            try file.write(from: buffer)
+            return url
+        }
+        let microphone = try tone("mic", loud: true)
+        let system = try tone("mac", loud: false)
+        defer { [microphone, system].forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        let lanes = try WaveformLanes.of([
+            PlaybackTrack(url: microphone, source: .microphone),
+            PlaybackTrack(url: system, source: .system)
+        ], resolution: 4)
+
+        XCTAssertEqual(lanes.upper.count, 4)
+        XCTAssertEqual(try XCTUnwrap(lanes.lower).count, 4)
+        XCTAssertTrue(lanes.upper.allSatisfy { $0 > (lanes.lower?.max() ?? 1) }, "Your voice above, the quieter Mac below")
+        XCTAssertEqual(lanes.normalized.upper.max() ?? 0, 1, accuracy: 0.001, "The loudest moment reaches full height")
+
+        let single = try WaveformLanes.of([PlaybackTrack(url: microphone)], resolution: 4)
+        XCTAssertNil(single.lower, "One track fills both sides")
+    }
 }

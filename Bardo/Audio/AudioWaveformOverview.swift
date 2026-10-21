@@ -10,9 +10,10 @@ enum AudioWaveformOverview {
     static let resolution = 600
 
     /// Reads every track and keeps, for each slice of the timeline, its loudest track.
-    static func levels(of tracks: [PlaybackTrack], resolution: Int = resolution) throws -> [Float] {
+    /// `timeline` spreads the levels over a longer span, so tracks of one recording line up.
+    static func levels(of tracks: [PlaybackTrack], resolution: Int = resolution, timeline: TimeInterval? = nil) throws -> [Float] {
         let files = try tracks.map { (track: $0, file: try AVAudioFile(forReading: $0.url)) }
-        let duration = files.map { $0.track.offset + Double($0.file.length) / $0.file.processingFormat.sampleRate }.max() ?? 0
+        let duration = timeline ?? files.map { $0.track.offset + Double($0.file.length) / $0.file.processingFormat.sampleRate }.max() ?? 0
         guard duration > 0, resolution > 0 else { return [] }
 
         var squares = [Double](repeating: 0, count: resolution)
@@ -103,12 +104,50 @@ extension AudioWaveformOverview {
     }
 }
 
-/// Loads a recording's overview off the main thread and remembers it for the session.
+/// A recording's waveform the way Bardo draws every conversation: the microphone above
+/// the line and the Mac's audio below it, or one track on both sides.
+struct WaveformLanes: Equatable, Sendable {
+    /// Above the line: the microphone, or the only track.
+    var upper: [Float]
+    /// Below the line: the Mac's audio. Nil mirrors `upper`.
+    var lower: [Float]?
+
+    /// Scaled so the loudest moment of the recording reaches full height, as Voice Memos
+    /// draws a saved recording; quiet recordings are lifted only so far, so silence
+    /// stays silence.
+    var normalized: WaveformLanes {
+        let peak = max(upper.max() ?? 0, lower?.max() ?? 0)
+        let scale = 1 / max(peak, 0.5)
+        return WaveformLanes(
+            upper: upper.map { min(1, $0 * scale) },
+            lower: lower.map { $0.map { min(1, $0 * scale) } }
+        )
+    }
+
+    static func of(_ tracks: [PlaybackTrack], resolution: Int = AudioWaveformOverview.resolution) throws -> WaveformLanes {
+        let microphone = tracks.filter { $0.source == .microphone }
+        let system = tracks.filter { $0.source == .system }
+        guard !microphone.isEmpty, !system.isEmpty else {
+            return WaveformLanes(upper: try AudioWaveformOverview.levels(of: tracks, resolution: resolution))
+        }
+        // Both lanes share the recording's timeline so their bars line up.
+        let timeline = try tracks.map { track -> TimeInterval in
+            let file = try AVAudioFile(forReading: track.url)
+            return track.offset + Double(file.length) / file.processingFormat.sampleRate
+        }.max() ?? 0
+        return WaveformLanes(
+            upper: try AudioWaveformOverview.levels(of: microphone, resolution: resolution, timeline: timeline),
+            lower: try AudioWaveformOverview.levels(of: system, resolution: resolution, timeline: timeline)
+        )
+    }
+}
+
+/// Loads a recording's waveform off the main thread and remembers it for the session.
 @MainActor
 final class AudioWaveformOverviewModel: ObservableObject {
-    @Published private(set) var levels: [Float]?
+    @Published private(set) var lanes: WaveformLanes?
 
-    private static var cache: [[PlaybackTrack]: [Float]] = [:]
+    private static var cache: [[PlaybackTrack]: WaveformLanes] = [:]
     private var loadedTracks: [PlaybackTrack] = []
     private var task: Task<Void, Never>?
 
@@ -117,21 +156,21 @@ final class AudioWaveformOverviewModel: ObservableObject {
         loadedTracks = tracks
         task?.cancel()
         guard !tracks.isEmpty else {
-            levels = nil
+            lanes = nil
             return
         }
         if let cached = Self.cache[tracks] {
-            levels = cached
+            lanes = cached
             return
         }
-        levels = nil
+        lanes = nil
         task = Task { [weak self] in
-            let levels = await Task.detached(priority: .utility) {
-                try? AudioWaveformOverview.levels(of: tracks)
+            let lanes = await Task.detached(priority: .utility) {
+                try? WaveformLanes.of(tracks)
             }.value
-            guard !Task.isCancelled, let self, self.loadedTracks == tracks, let levels else { return }
-            Self.cache[tracks] = levels
-            self.levels = levels
+            guard !Task.isCancelled, let self, self.loadedTracks == tracks, let lanes else { return }
+            Self.cache[tracks] = lanes
+            self.lanes = lanes
         }
     }
 }

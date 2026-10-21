@@ -347,7 +347,17 @@ struct TranscriptContentView: View {
             transcriptErrors
 
             if !recording.audioAssets.isEmpty {
-                RecordingWaveformOverview(playback: playback)
+                VStack(spacing: 8) {
+                    RecordingWaveform(recording: recording, playback: playback)
+                        .frame(height: 120)
+                    HStack {
+                        Text(LibraryFormatting.duration(0))
+                        Spacer()
+                        Text(LibraryFormatting.duration(recording.duration ?? playback.duration))
+                    }
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
             }
 
             VStack(spacing: 8) {
@@ -541,8 +551,11 @@ struct TranscriptContentView: View {
                 playback.seek(to: moment.time)
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Image(systemName: "flag.fill")
-                        .foregroundStyle(.orange)
+                    // The moment's mark, as on the waveform.
+                    Circle()
+                        .fill(ConversationWaveformStyle.momentTint)
+                        .frame(width: 7, height: 7)
+                        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -562,7 +575,7 @@ struct TranscriptContentView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .background(Color.orange.opacity(0.1), in: .rect(cornerRadius: 10))
+                .background(Color.orange.opacity(0.08), in: .rect(cornerRadius: 10))
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)

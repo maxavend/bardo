@@ -370,8 +370,7 @@ struct LiveConversationWave: View {
         }
     }
 
-    /// Sections as a thin line with their name at the top, and moments as a flag on the
-    /// line where they were marked, both drifting left with the audio.
+    /// Sections and moments drawn as on a saved recording, drifting left with the audio.
     private func drawNotes(in canvas: inout GraphicsContext, size: CGSize) {
         guard !notes.isEmpty else { return }
         let snapshots = tracks.map(\.meter.snapshot)
@@ -384,32 +383,23 @@ struct LiveConversationWave: View {
         for section in notes.sections {
             let position = x(for: section.start)
             guard position > 0, position < size.width else { continue }
-            canvas.fill(Path(CGRect(x: position, y: 0, width: 1, height: size.height)), with: .color(.secondary.opacity(0.5)))
-            canvas.draw(
-                Text(section.title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary),
-                at: CGPoint(x: position + 4, y: 0),
-                anchor: .topLeading
-            )
+            ConversationWaveformStyle.drawSection(in: &canvas, x: position, size: size, title: section.title)
         }
         for moment in notes.moments {
             let position = x(for: moment.time)
             guard position > 0, position < size.width else { continue }
-            let middle = size.height / 2
-            canvas.fill(Path(CGRect(x: position - 0.5, y: middle - 14, width: 1.5, height: 14)), with: .color(.orange))
-            var flag = canvas.resolve(Image(systemName: "flag.fill"))
-            flag.shading = .color(.orange)
-            canvas.draw(flag, at: CGPoint(x: position - 1, y: middle - 14), anchor: .bottomLeading)
+            ConversationWaveformStyle.drawMoment(in: &canvas, x: position, size: size)
         }
     }
 
-    /// Where audio enters: a red line with a dot at each end, grey while paused.
+    /// Where audio enters: red while recording, grey while paused.
     private func drawPlayhead(in canvas: inout GraphicsContext, size: CGSize) {
-        let x = size.width - playheadInset / 2
-        let color: Color = isPaused ? .secondary : .red
-        let dot: CGFloat = 6
-        canvas.fill(Path(CGRect(x: x - 0.75, y: dot / 2, width: 1.5, height: size.height - dot)), with: .color(color))
-        canvas.fill(Path(ellipseIn: CGRect(x: x - dot / 2, y: 0, width: dot, height: dot)), with: .color(color))
-        canvas.fill(Path(ellipseIn: CGRect(x: x - dot / 2, y: size.height - dot, width: dot, height: dot)), with: .color(color))
+        ConversationWaveformStyle.drawPlayhead(
+            in: &canvas,
+            x: size.width - playheadInset / 2,
+            size: size,
+            color: isPaused ? .secondary : .red
+        )
     }
 }
 

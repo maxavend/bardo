@@ -59,9 +59,6 @@ private struct LiveMomentButton: View {
     let actions: LiveRecorderActions
 
     @State private var moment: RecordingMoment?
-    @State private var title = ""
-    @State private var note = ""
-    @FocusState private var isTitleFocused: Bool
 
     var body: some View {
         Button(action: mark) {
@@ -69,33 +66,11 @@ private struct LiveMomentButton: View {
         }
         .help("Marcar este momento y anotar algo (⌥⌘N)")
         .popover(item: $moment, arrowEdge: .bottom) { moment in
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Momento · \(LibraryFormatting.duration(moment.time))", systemImage: "flag.fill")
-                    .font(.headline)
-                    .foregroundStyle(.orange)
-                TextField("Título", text: $title, prompt: Text(RecordingMoment.defaultTitle(at: moment.time)))
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isTitleFocused)
-                    .onSubmit { self.moment = nil }
-                TextField("Nota", text: $note, prompt: Text("Nota (opcional)"), axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(3...6)
-                HStack {
-                    Button("Quitar", role: .destructive) {
-                        actions.removeMoment(moment.id)
-                        title = ""
-                        note = ""
-                        self.moment = nil
-                    }
-                    Spacer()
-                    Button("Guardar") { self.moment = nil }
-                        .keyboardShortcut(.defaultAction)
-                }
-            }
-            .padding(16)
-            .frame(width: 300)
-            .onAppear { isTitleFocused = true }
-            .onDisappear { commit(moment) }
+            MomentEditor(
+                moment: moment,
+                onCommit: { title, note in actions.editMoment(moment.id, title, note) },
+                onRemove: { actions.removeMoment(moment.id) }
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: LiveRecorderCommand.newMoment)) { _ in
             if moment == nil { mark() }
@@ -103,16 +78,7 @@ private struct LiveMomentButton: View {
     }
 
     private func mark() {
-        title = ""
-        note = ""
         moment = actions.addMoment(actions.position())
-    }
-
-    private func commit(_ moment: RecordingMoment) {
-        guard !title.isEmpty || !note.isEmpty else { return }
-        actions.editMoment(moment.id, title, note)
-        title = ""
-        note = ""
     }
 }
 
@@ -121,8 +87,6 @@ private struct LiveSectionButton: View {
     let actions: LiveRecorderActions
 
     @State private var section: RecordingSection?
-    @State private var title = ""
-    @FocusState private var isTitleFocused: Bool
 
     var body: some View {
         Button(action: start) {
@@ -130,31 +94,11 @@ private struct LiveSectionButton: View {
         }
         .help("Empezar una sección con nombre desde aquí (⇧⌥⌘N)")
         .popover(item: $section, arrowEdge: .bottom) { section in
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Sección desde \(LibraryFormatting.duration(section.start))", systemImage: "text.line.first.and.arrowtriangle.forward")
-                    .font(.headline)
-                TextField("Nombre", text: $title, prompt: Text(section.title))
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isTitleFocused)
-                    .onSubmit { self.section = nil }
-                HStack {
-                    Button("Quitar", role: .destructive) {
-                        actions.removeSection(section.id)
-                        title = ""
-                        self.section = nil
-                    }
-                    Spacer()
-                    Button("Guardar") { self.section = nil }
-                        .keyboardShortcut(.defaultAction)
-                }
-            }
-            .padding(16)
-            .frame(width: 280)
-            .onAppear { isTitleFocused = true }
-            .onDisappear {
-                if !title.isEmpty { actions.renameSection(section.id, title) }
-                title = ""
-            }
+            SectionEditor(
+                section: section,
+                onCommit: { title in actions.renameSection(section.id, title) },
+                onRemove: { actions.removeSection(section.id) }
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: LiveRecorderCommand.newSection)) { _ in
             if section == nil { start() }
@@ -162,7 +106,6 @@ private struct LiveSectionButton: View {
     }
 
     private func start() {
-        title = ""
         section = actions.addSection(actions.position())
     }
 }
