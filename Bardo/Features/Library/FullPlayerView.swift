@@ -265,7 +265,8 @@ private struct KaraokeSubtitle: View {
                 // Room for the first and last passages to reach the middle.
                 .padding(.vertical, viewportHeight * 0.4)
             }
-            .scrollIndicators(.hidden)
+            // Never, not hidden: "Always show scroll bars" overrides hidden on macOS.
+            .scrollIndicators(.never)
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting || phase == .decelerating { scrolledAt = .now }
             }
