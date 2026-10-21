@@ -151,40 +151,63 @@ struct LiveRecorderView: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            HStack(spacing: 12) {
-                LiveRecorderClock(meters: tracks.map(\.meter), isPaused: isPaused)
-                    .padding(.trailing, 4)
-                if let pauseAction, !isPaused {
-                    Button(action: pauseAction) {
-                        Label(String(localized: "Pause"), systemImage: "pause.fill")
-                    }
-                    .labelStyle(.iconOnly)
-                    .help(String(localized: "Pause recording"))
-                }
-                if let resumeAction, isPaused {
-                    Button(action: resumeAction) {
-                        Label(String(localized: "Resume"), systemImage: "record.circle")
-                    }
-                    .labelStyle(.iconOnly)
-                    .help(String(localized: "Resume recording"))
-                }
-                // A deep red keeps the white label above 4.5:1; the system red does not.
+            HStack(spacing: 10) {
+                pauseButton
                 Button(action: stopAction) {
                     Label("Finalizar", systemImage: "stop.fill")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(BardoColor.stopRecording)
+                .buttonStyle(.bordered)
                 .help(String(localized: "Stop recording (⌘.)"))
             }
             .buttonBorderShape(.capsule)
             .controlSize(.large)
-            .padding(.leading, 20)
-            .padding(.trailing, 10)
+            .padding(.horizontal, 10)
             .frame(height: BardoLayout.playbackSurfaceHeight)
             .bardoPlaybackSurface()
         }
         .padding(.horizontal, BardoLayout.playbackHorizontalPadding)
         .padding(.bottom, BardoLayout.playbackBottomPadding)
+    }
+
+    /// The main control, as in Voice Memos: red with a white pause symbol and the running
+    /// time while recording; "Reanudar" in red on a soft red capsule while paused.
+    @ViewBuilder
+    private var pauseButton: some View {
+        let clock = LiveRecorderClock(meters: tracks.map(\.meter), isPaused: isPaused)
+        if isPaused {
+            Button {
+                resumeAction?()
+            } label: {
+                HStack(spacing: 8) {
+                    Text("Reanudar")
+                        .fontWeight(.semibold)
+                    clock.opacity(0.75)
+                }
+                .padding(.horizontal, 6)
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .foregroundStyle(.red)
+            .disabled(resumeAction == nil)
+            .help(String(localized: "Resume recording"))
+            .accessibilityLabel(String(localized: "Resume recording"))
+        } else {
+            // A deep red keeps the white label above 4.5:1; the system red does not.
+            Button {
+                pauseAction?()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "pause.fill")
+                    clock
+                }
+                .padding(.horizontal, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(BardoColor.stopRecording)
+            .disabled(pauseAction == nil)
+            .help(String(localized: "Pause recording"))
+            .accessibilityLabel(String(localized: "Pause recording"))
+        }
     }
 }
 
@@ -212,6 +235,8 @@ struct LiveConversationWave: View {
     private let step: CGFloat = 4
     /// Room on the right for the playhead and its dots.
     private let playheadInset: CGFloat = 10
+    /// Space kept clear on each side of the line, so the halves never touch.
+    private let gap: CGFloat = 3
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: isPaused)) { _ in
@@ -248,11 +273,19 @@ struct LiveConversationWave: View {
     }
 
     /// `direction` -1 draws above the line, 1 below it and 0 on both sides.
-    private func draw(_ track: LiveRecorderTrack, in canvas: inout GraphicsContext, size: CGSize, direction: CGFloat) {
+    private func draw(_ track: LiveRecorderTrack, in context: inout GraphicsContext, size: CGSize, direction: CGFloat) {
         let snapshot = track.meter.snapshot
         let glide = snapshot.glide(isPaused: isPaused, reduceMotion: reduceMotion)
         let middle = size.height / 2
-        let reach = (direction == 0 ? size.height / 2 : size.height / 2 - 2) - 6
+        // Each half draws only in its own band: your voice can never cross below the
+        // line, nor the Mac's audio above it.
+        var canvas = context
+        switch direction {
+        case ..<0: canvas.clip(to: Path(CGRect(x: 0, y: 0, width: size.width, height: middle - gap)))
+        case 0: break
+        default: canvas.clip(to: Path(CGRect(x: 0, y: middle + gap, width: size.width, height: middle - gap)))
+        }
+        let reach = (direction == 0 ? middle : middle - gap) - 6
         let levels = snapshot.levels
         let newest = size.width - playheadInset - barWidth - 3
         let count = Int(newest / step) + 2
@@ -262,12 +295,13 @@ struct LiveConversationWave: View {
             let index = levels.count - 1 - slot
             guard index >= 0 else { break }
             let height = pow(CGFloat(levels[index]), 2) * reach
-            guard height > 0.75 else { continue }
+            // Room noise leaves the line clean instead of dotting it.
+            guard height > 2 else { continue }
             let rect: CGRect
             switch direction {
-            case ..<0: rect = CGRect(x: x, y: middle - 1.5 - height, width: barWidth, height: height)
+            case ..<0: rect = CGRect(x: x, y: middle - gap - height, width: barWidth, height: height)
             case 0: rect = CGRect(x: x, y: middle - height, width: barWidth, height: height * 2)
-            default: rect = CGRect(x: x, y: middle + 1.5, width: barWidth, height: height)
+            default: rect = CGRect(x: x, y: middle + gap, width: barWidth, height: height)
             }
             canvas.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(track.tint))
         }
@@ -285,6 +319,7 @@ struct LiveConversationWave: View {
 }
 
 /// The running time, with hundredths like Voice Memos, from the audio actually heard.
+/// It takes the font and colour of the button it sits in.
 struct LiveRecorderClock: View {
     let meters: [LiveAudioMeter]
     let isPaused: Bool
@@ -292,19 +327,10 @@ struct LiveRecorderClock: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: isPaused)) { _ in
             let duration = meters.map(\.snapshot.duration).max() ?? 0
-            HStack(spacing: 8) {
-                Image(systemName: isPaused ? "pause.circle.fill" : "record.circle.fill")
-                    .foregroundStyle(isPaused ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
-                    .symbolEffect(.pulse, isActive: !isPaused)
-                    .accessibilityHidden(true)
-                Text(LiveRecorderClock.format(duration))
-                    .font(.system(size: 20, weight: .regular).monospacedDigit())
-                    .foregroundStyle(isPaused ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                    .contentTransition(.identity)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(isPaused ? Text("Grabación en pausa") : Text("Grabando"))
-            .accessibilityValue(Text(LibraryFormatting.duration(duration)))
+            Text(LiveRecorderClock.format(duration))
+                .monospacedDigit()
+                .contentTransition(.identity)
+                .accessibilityLabel(Text(LibraryFormatting.duration(duration)))
         }
     }
 

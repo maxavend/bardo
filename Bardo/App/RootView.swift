@@ -15,6 +15,7 @@ struct RootView: View {
     #if DEBUG
     @State private var previewsRecordingBanner = false
     @State private var previewMeters: LiveAudioMeter.DesignPreview?
+    @State private var previewsPausedRecorder = false
     #endif
 
     init(
@@ -143,6 +144,7 @@ struct RootView: View {
                 if step.action == "liveRecorder" {
                     library.selection = nil
                     previewMeters = LiveAudioMeter.DesignPreview()
+                    previewsPausedRecorder = step.value == "paused"
                 }
                 if step.action == "record" {
                     Task { await startSystemRecording(includeMicrophone: step.value == "conversation", title: "Prueba de audio") }
@@ -201,8 +203,9 @@ struct RootView: View {
                     ),
                     .system(previewMeters.system)
                 ],
-                isPaused: false,
+                isPaused: previewsPausedRecorder,
                 pauseAction: {},
+                resumeAction: {},
                 stopAction: {}
             ))
         }
