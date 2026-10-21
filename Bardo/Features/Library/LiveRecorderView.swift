@@ -62,6 +62,16 @@ struct LiveRecorderView: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
+        .toolbar {
+            // Finalizar takes the search field's place at the trailing edge, as Done
+            // does in Voice Memos.
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                LiveRecorderFinishButton(action: stopAction)
+            }
+        }
     }
 
     private var header: some View {
@@ -142,8 +152,7 @@ struct LiveRecorderView: View {
         }
     }
 
-    /// One large red pause button that carries the running time, and Finalizar on its
-    /// own beside it.
+    /// One large red pause button that carries the running time.
     private var controlBar: some View {
         VStack(spacing: 10) {
             if let warning {
@@ -152,16 +161,7 @@ struct LiveRecorderView: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            LiveRecorderGlassGroup {
-                HStack(spacing: 12) {
-                    pauseButton
-                    Button(action: stopAction) {
-                        Label("Finalizar", systemImage: "stop.fill")
-                    }
-                    .buttonStyle(LiveRecorderButtonStyle(kind: .finish))
-                    .help(String(localized: "Stop recording (⌘.)"))
-                }
-            }
+            pauseButton
         }
         .padding(.horizontal, BardoLayout.playbackHorizontalPadding)
         .padding(.bottom, BardoLayout.playbackBottomPadding + 4)
@@ -197,8 +197,6 @@ struct LiveRecorderButtonStyle: ButtonStyle {
         case pause
         /// Red content on a soft red capsule.
         case resume
-        /// A quiet glass capsule.
-        case finish
     }
 
     let kind: Kind
@@ -208,7 +206,7 @@ struct LiveRecorderButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let label = configuration.label
             .font(.title3.weight(.semibold))
-            .padding(.horizontal, kind == .finish ? 22 : 28)
+            .padding(.horizontal, 28)
             .frame(height: 52)
             .contentShape(.capsule)
 
@@ -223,9 +221,6 @@ struct LiveRecorderButtonStyle: ButtonStyle {
                 label
                     .foregroundStyle(.red)
                     .liveRecorderGlass(tint: .red.opacity(0.22), fallback: Color.red.opacity(0.16))
-            case .finish:
-                label
-                    .liveRecorderGlass(tint: nil, fallback: .regularMaterial)
             }
         }
         .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1) : 0.5)
@@ -247,15 +242,23 @@ private extension View {
     }
 }
 
-/// Lets the recorder's glass buttons render and blend as one group on macOS 26.
-private struct LiveRecorderGlassGroup<Content: View>: View {
-    @ViewBuilder let content: Content
+/// Finalizar in the toolbar: a blue checkmark, prominent Liquid Glass on macOS 26.
+private struct LiveRecorderFinishButton: View {
+    let action: () -> Void
 
     var body: some View {
+        let button = Button(action: action) {
+            Label("Finalizar", systemImage: "checkmark")
+        }
+        .labelStyle(.iconOnly)
+        .buttonBorderShape(.circle)
+        .tint(.blue)
+        .help(String(localized: "Stop recording (⌘.)"))
+
         if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: 12) { content }
+            button.buttonStyle(.glassProminent)
         } else {
-            content
+            button.buttonStyle(.borderedProminent)
         }
     }
 }
