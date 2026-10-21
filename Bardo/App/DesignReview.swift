@@ -31,6 +31,8 @@ enum DesignReview {
 
     /// `-BardoDesignWelcome YES` shows the first-run welcome without resetting setup.
     static var showsWelcome: Bool { isActive && arguments.bool(forKey: "BardoDesignWelcome") }
+    /// `-BardoDesignWelcome engine` opens the welcome on its choice of transcription.
+    static var welcomeStartsOnChoice: Bool { isActive && arguments.string(forKey: "BardoDesignWelcome") == "engine" }
     /// `-BardoDesignSettings <tab>` shows that Settings tab in the main window, where
     /// captures see it.
     static var settingsTab: String? { isActive ? arguments.string(forKey: "BardoDesignSettings") : nil }

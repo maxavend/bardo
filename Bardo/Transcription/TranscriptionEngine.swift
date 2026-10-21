@@ -11,7 +11,13 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable, Sendable {
     /// Whisper large-v3 in full.
     case precise
 
+    /// What a Mac with no choice saved uses: what Bardo always installed before it
+    /// offered a choice, so nothing changes for anyone who set it up then.
     static let `default` = TranscriptionEngine.balanced
+    /// What the welcome suggests: Apple's, which needs no download, where macOS has it.
+    static var recommended: TranscriptionEngine {
+        TranscriptionEngine.apple.isSupported ? .apple : .balanced
+    }
     static let defaultsKey = "bardo.transcription.engine"
 
     var id: String { rawValue }
@@ -27,9 +33,15 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable, Sendable {
     var detail: String {
         switch self {
         case .apple: "Incluido en macOS. Transcribe en segundos en el idioma de este Mac, con algo menos de precisión."
-        case .balanced: "Muy preciso y rápido. El recomendado para el día a día."
+        case .balanced: "Muy preciso y rápido, también con nombres y siglas."
         case .precise: "El más exacto con nombres, acentos y voces que se cruzan. Tarda varias veces más."
         }
+    }
+
+    /// What choosing it costs, said plainly.
+    var downloadSummary: String {
+        guard let bytes = approximateBytes else { return "Sin descargas" }
+        return "Descarga \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"
     }
 
     /// Who makes it, said once, for the curious.

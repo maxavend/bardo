@@ -487,7 +487,6 @@
 "Read along as it plays and go back to any sentence." = "Read along as it plays and go back to any sentence.";
 "Private, on your Mac" = "Private, on your Mac";
 "Audio and text never leave this Mac." = "Audio and text never leave this Mac.";
-"Bardo downloads about 650 MB once to transcribe offline." = "Bardo downloads about 650 MB once to transcribe offline.";
 "That item is no longer in the Library." = "That item is no longer in the Library.";
 "Bardo did not hear any Mac audio. If something was playing, allow Bardo in System Settings › Privacy & Security › Screen & System Audio Recording." = "Bardo did not hear any Mac audio. If something was playing, allow Bardo in System Settings › Privacy & Security › Screen & System Audio Recording.";
 "Bardo could not listen to the Mac's audio (Core Audio error %d)." = "Bardo could not listen to the Mac's audio (Core Audio error %d).";

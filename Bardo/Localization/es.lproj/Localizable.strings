@@ -487,7 +487,6 @@
 "Read along as it plays and go back to any sentence." = "Lee mientras escuchas y vuelve a cualquier frase.";
 "Private, on your Mac" = "Privado, en tu Mac";
 "Audio and text never leave this Mac." = "El audio y el texto nunca salen de este Mac.";
-"Bardo downloads about 650 MB once to transcribe offline." = "Bardo descarga unos 650 MB, una sola vez, para transcribir sin conexión.";
 "That item is no longer in the Library." = "Ese elemento ya no está en la biblioteca.";
 "Bardo did not hear any Mac audio. If something was playing, allow Bardo in System Settings › Privacy & Security › Screen & System Audio Recording." = "Bardo no escuchó audio del Mac. Si algo estaba sonando, permite a Bardo en Ajustes del Sistema › Privacidad y seguridad › Grabación de pantalla y audio del sistema.";
 "Bardo could not listen to the Mac's audio (Core Audio error %d)." = "Bardo no pudo escuchar el audio del Mac (error de Core Audio %d).";

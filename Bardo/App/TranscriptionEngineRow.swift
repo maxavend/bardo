@@ -25,13 +25,8 @@ struct TranscriptionEngineRow: View {
                 HStack(spacing: 6) {
                     Text(engine.title)
                         .fontWeight(.semibold)
-                    if engine == .default {
-                        Text("Recomendado")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(.quaternary, in: .capsule)
+                    if engine == .recommended {
+                        RecommendedBadge()
                     }
                 }
                 Text(engine.detail)
@@ -146,5 +141,17 @@ struct TranscriptionEngineRow: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help(isSelected ? "Para eliminarlo, usa primero otro" : "Más opciones")
+    }
+}
+
+/// Marks the suggested choice in the accent colour, so it stands out from the rest.
+struct RecommendedBadge: View {
+    var body: some View {
+        Text("Recomendado")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Color.accentColor, in: .capsule)
     }
 }
