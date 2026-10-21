@@ -29,11 +29,15 @@ enum ConversationWaveformStyle {
         /// Nil when one track fills both sides.
         var lower: CGFloat?
         var emphasis: Double = 1
+        /// Who is speaking on each side here, once speakers are known.
+        var upperTint: Color?
+        var lowerTint: Color?
     }
 
-    /// The line between the halves takes the colour of whoever is heard at each
-    /// moment: orange where the Mac sounds, blue where you speak, the two blended where
-    /// both do, and barely there in silence, glowing softly where it is loud.
+    /// The line between the halves, as a thin tube of Liquid Glass tinted by whoever is
+    /// heard: orange where the Mac sounds, blue where you speak, flowing from one colour
+    /// into the other through the pauses. What has been heard fills with colour and
+    /// glows with the audio; what is ahead stays clear glass.
     static func drawVoiceLine(
         in canvas: inout GraphicsContext,
         size: CGSize,
@@ -46,36 +50,95 @@ enum ConversationWaveformStyle {
             drawCenterLine(in: &canvas, size: size)
             return
         }
-        let stops = samples
-            .sorted { $0.x < $1.x }
-            .map { sample -> Gradient.Stop in
-                let loudness = max(sample.upper, sample.lower ?? 0)
-                let color: Color
-                if let lower = sample.lower {
-                    let total = sample.upper + lower
-                    color = total > 0.01 ? upperTint.mix(with: lowerTint, by: Double(lower / total)) : upperTint
-                } else {
-                    color = singleTint
-                }
-                let alpha = (0.08 + 0.92 * min(1, Double(loudness) * 1.3)) * sample.emphasis
-                return .init(color: color.opacity(alpha), location: min(1, max(0, sample.x / size.width)))
+        let samples = samples.sorted { $0.x < $1.x }
+        let colors = blendedColors(of: samples, upperTint: upperTint, lowerTint: lowerTint, singleTint: singleTint)
+
+        func shading(_ stop: (Int, VoiceSample) -> Color) -> GraphicsContext.Shading {
+            var stops = samples.enumerated().map { index, sample in
+                Gradient.Stop(color: stop(index, sample), location: min(1, max(0, sample.x / size.width)))
             }
-        // Where there is no audio, before it starts or after it ends, the line fades out.
-        let first = stops.first!, last = stops.last!
-        let edges = [Gradient.Stop(color: first.color.opacity(0), location: max(0, first.location - 0.01))]
-            + stops
-            + [Gradient.Stop(color: last.color.opacity(0), location: min(1, last.location + 0.01))]
-        let shading = GraphicsContext.Shading.linearGradient(
-            Gradient(stops: edges),
-            startPoint: CGPoint(x: 0, y: 0),
-            endPoint: CGPoint(x: size.width, y: 0)
-        )
+            // Where there is no audio, before it starts or after it ends, the line fades out.
+            let first = stops[0], last = stops[stops.count - 1]
+            stops.insert(.init(color: first.color.opacity(0), location: max(0, first.location - 0.01)), at: 0)
+            stops.append(.init(color: last.color.opacity(0), location: min(1, last.location + 0.01)))
+            return .linearGradient(Gradient(stops: stops), startPoint: .zero, endPoint: CGPoint(x: size.width, y: 0))
+        }
+        let isHeard = { (sample: VoiceSample) in sample.emphasis >= 1 }
+
         let middle = size.height / 2
+        let thickness: CGFloat = 3
+        let tube = Path(roundedRect: CGRect(x: 0, y: middle - thickness / 2, width: size.width, height: thickness), cornerRadius: thickness / 2)
+
+        // The glow rises with the audio, only where it has been heard.
         var glow = canvas
-        glow.addFilter(.blur(radius: 4))
-        glow.opacity = 0.7
-        glow.fill(Path(CGRect(x: 0, y: middle - 2.5, width: size.width, height: 5)), with: shading)
-        canvas.fill(Path(roundedRect: CGRect(x: 0, y: middle - 0.75, width: size.width, height: 1.5), cornerRadius: 0.75), with: shading)
+        glow.addFilter(.blur(radius: 3))
+        glow.fill(
+            Path(CGRect(x: 0, y: middle - 2.5, width: size.width, height: 5)),
+            with: shading { index, sample in
+                isHeard(sample)
+                    ? colors[index].opacity(0.06 + 0.3 * min(1, Double(max(sample.upper, sample.lower ?? 0)) * 1.3))
+                    : .clear
+            }
+        )
+        // The glass: coloured where heard, a clear tint ahead.
+        canvas.fill(tube, with: shading { index, sample in colors[index].opacity(isHeard(sample) ? 0.95 : 0.3) })
+        // Its reflections: a bright edge along the top and a soft shade underneath.
+        canvas.fill(
+            Path(roundedRect: CGRect(x: 0, y: middle - thickness / 2 + 0.25, width: size.width, height: 0.9), cornerRadius: 0.45),
+            with: shading { _, sample in .white.opacity(isHeard(sample) ? 0.6 : 0.22) }
+        )
+        canvas.fill(
+            Path(CGRect(x: 0, y: middle + thickness / 2 - 0.8, width: size.width, height: 0.8)),
+            with: shading { _, sample in .black.opacity(isHeard(sample) ? 0.25 : 0.1) }
+        )
+    }
+
+    /// Each point's colour: the blend of the two sides by how loud each is there. A pause
+    /// takes its colour from the voices around it, and the blend is smoothed, so one
+    /// colour flows into the other instead of breaking.
+    private static func blendedColors(
+        of samples: [VoiceSample],
+        upperTint: Color,
+        lowerTint: Color,
+        singleTint: Color
+    ) -> [Color] {
+        guard samples.contains(where: { $0.lower != nil }) else {
+            return samples.map { $0.upperTint ?? singleTint }
+        }
+        var mix: [Double?] = samples.map { sample in
+            let lower = sample.lower ?? 0
+            let total = sample.upper + lower
+            return total > 0.06 ? Double(lower / total) : nil
+        }
+        // Fill the pauses from the nearest voices on each side.
+        var previous: (index: Int, value: Double)?
+        var nextKnown = [(index: Int, value: Double)?](repeating: nil, count: mix.count)
+        var upcoming: (index: Int, value: Double)?
+        for index in mix.indices.reversed() {
+            if let value = mix[index] { upcoming = (index, value) }
+            nextKnown[index] = upcoming
+        }
+        for index in mix.indices {
+            if let value = mix[index] {
+                previous = (index, value)
+                continue
+            }
+            switch (previous, nextKnown[index]) {
+            case let (before?, after?):
+                let progress = Double(index - before.index) / Double(after.index - before.index)
+                mix[index] = before.value + (after.value - before.value) * progress
+            case let (before?, nil): mix[index] = before.value
+            case let (nil, after?): mix[index] = after.value
+            case (nil, nil): mix[index] = 0.5
+            }
+        }
+        let filled = mix.map { $0 ?? 0.5 }
+        let radius = 3
+        return filled.indices.map { index in
+            let window = filled[max(0, index - radius)...min(filled.count - 1, index + radius)]
+            return (samples[index].upperTint ?? upperTint)
+                .mix(with: samples[index].lowerTint ?? lowerTint, by: window.reduce(0, +) / Double(window.count))
+        }
     }
 
     /// One bar: `direction` -1 above the line, 1 below it, 0 on both sides.
@@ -118,19 +181,6 @@ enum ConversationWaveformStyle {
         }
     }
 
-    /// Where a saved recording is playing: a small dot on the line, with a soft halo so
-    /// it reads over the bars.
-    static func drawPosition(in canvas: inout GraphicsContext, x: CGFloat, size: CGSize) {
-        let middle = size.height / 2
-        let halo = dotSize + 6
-        canvas.fill(
-            Path(ellipseIn: CGRect(x: x - halo / 2, y: middle - halo / 2, width: halo, height: halo)),
-            with: .color(.black.opacity(0.25))
-        )
-        let dot = dotSize + 2
-        canvas.fill(Path(ellipseIn: CGRect(x: x - dot / 2, y: middle - dot / 2, width: dot, height: dot)), with: .color(.white))
-    }
-
     static func drawPlayhead(in canvas: inout GraphicsContext, x: CGFloat, size: CGSize, color: Color) {
         let dot = dotSize
         canvas.fill(Path(CGRect(x: x - 0.75, y: dot / 2, width: 1.5, height: size.height - dot)), with: .color(color))
@@ -159,6 +209,8 @@ struct RecordingWaveform: View {
     var matches: [TimeInterval] = []
     /// Draws section names along the top; the full player has its own lane for them.
     var labelsSections = true
+    /// Once speakers are identified, each stretch takes the colour of who is speaking.
+    var transcript: Transcript?
 
     @StateObject private var overview = AudioWaveformOverviewModel()
     @State private var scrubOrigin: TimeInterval?
@@ -191,6 +243,13 @@ struct RecordingWaveform: View {
             }
             .contentShape(.rect)
             .gesture(scrubGesture(width: proxy.size.width))
+            .overlay {
+                if duration > 0 {
+                    PlayheadKnob(isGrabbed: scrubOrigin != nil)
+                        .position(x: proxy.size.width * Self.anchor, y: proxy.size.height / 2)
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .onAppear { overview.load(playback.loadedTracks, resolution: resolution) }
         .onChange(of: playback.duration) { _, _ in overview.load(playback.loadedTracks, resolution: resolution) }
@@ -253,26 +312,33 @@ struct RecordingWaveform: View {
         }
         var voices: [Style.VoiceSample] = []
         if let lanes = overview.lanes?.normalized, duration > 0, !lanes.upper.isEmpty {
+            let speakers = transcript.map { SpeakerLanes(transcript: $0, splitsSides: lanes.lower != nil) }
             let count = lanes.upper.count
             let barDuration = duration / Double(count)
             let first = max(0, Int((position - Double(center) / Self.pointsPerSecond) / barDuration) - 1)
             let last = min(count - 1, Int((position + Double(size.width - center) / Self.pointsPerSecond) / barDuration) + 1)
             if first <= last {
                 for index in first...last {
-                    let barX = x(Double(index) * barDuration)
+                    let time = Double(index) * barDuration
+                    let barX = x(time)
                     // What has been heard reads in full colour; what is ahead, dimmed.
                     let opacity = barX + Style.barWidth <= center ? 1 : 0.32
+                    let upperTint = speakers?.color(at: time, side: .upper)
+                        ?? (lanes.lower == nil ? recording.waveformTint : Style.systemTint)
+                    let lowerTint = speakers?.color(at: time, side: .lower) ?? Style.microphoneTint
                     voices.append(Style.VoiceSample(
                         x: barX + Style.barWidth / 2,
                         upper: CGFloat(lanes.upper[index]),
                         lower: lanes.lower.map { CGFloat($0[index]) },
-                        emphasis: opacity
+                        emphasis: opacity,
+                        upperTint: upperTint,
+                        lowerTint: lowerTint
                     ))
                     if let lower = lanes.lower {
-                        Style.drawBar(in: &bars, x: barX, level: CGFloat(lanes.upper[index]), direction: -1, size: size, color: Style.systemTint.opacity(opacity))
-                        Style.drawBar(in: &bars, x: barX, level: CGFloat(lower[index]), direction: 1, size: size, color: Style.microphoneTint.opacity(opacity))
+                        Style.drawBar(in: &bars, x: barX, level: CGFloat(lanes.upper[index]), direction: -1, size: size, color: upperTint.opacity(opacity))
+                        Style.drawBar(in: &bars, x: barX, level: CGFloat(lower[index]), direction: 1, size: size, color: lowerTint.opacity(opacity))
                     } else {
-                        Style.drawBar(in: &bars, x: barX, level: CGFloat(lanes.upper[index]), direction: 0, size: size, color: recording.waveformTint.opacity(opacity))
+                        Style.drawBar(in: &bars, x: barX, level: CGFloat(lanes.upper[index]), direction: 0, size: size, color: upperTint.opacity(opacity))
                     }
                 }
             }
@@ -292,9 +358,73 @@ struct RecordingWaveform: View {
                 with: .color(.yellow)
             )
         }
-        // Where the recording is: one quiet dot on the line.
-        if duration > 0 {
-            Style.drawPosition(in: &canvas, x: center, size: size)
+    }
+}
+
+/// Where a saved recording is, as the player bar's slider shows it: a white pill that
+/// turns into a lens of Liquid Glass while it is held to scrub.
+private struct PlayheadKnob: View {
+    let isGrabbed: Bool
+
+    var body: some View {
+        Group {
+            if #available(macOS 26.0, *), isGrabbed {
+                Capsule()
+                    .fill(.clear)
+                    .frame(width: 34, height: 20)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+            } else {
+                Capsule()
+                    .fill(.white)
+                    .frame(width: 22, height: 13)
+                    .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+            }
         }
+        .animation(.spring(duration: 0.3, bounce: 0.3), value: isGrabbed)
+    }
+}
+
+/// Who is speaking along a recording, in their transcript colours, on each side of the
+/// line: you below it when the microphone has its own track, everyone else above.
+struct SpeakerLanes {
+    enum Side { case upper, lower }
+
+    private struct Span {
+        let start: TimeInterval
+        let end: TimeInterval
+        let color: Color
+    }
+
+    private var upper: [Span] = []
+    private var lower: [Span] = []
+
+    init(transcript: Transcript, splitsSides: Bool) {
+        for segment in transcript.segments.sorted(by: { $0.startTime < $1.startTime }) {
+            guard let speakerID = segment.speakerID else { continue }
+            let span = Span(start: segment.startTime, end: segment.endTime, color: SpeakerPalette.color(for: speakerID, in: transcript))
+            let isYou = segment.source == .microphone || transcript.speaker(withID: speakerID)?.role == .localUser
+            if splitsSides, isYou {
+                lower.append(span)
+            } else {
+                upper.append(span)
+            }
+        }
+    }
+
+    /// The colour of whoever is speaking on that side; in a pause, of whoever is
+    /// closer, since a passage's first sound often comes a moment before its timing.
+    func color(at time: TimeInterval, side: Side) -> Color? {
+        let spans = side == .upper ? upper : lower
+        var low = 0, high = spans.count
+        while low < high {
+            let middle = (low + high) / 2
+            if spans[middle].start <= time { low = middle + 1 } else { high = middle }
+        }
+        guard low > 0 else { return spans.first?.color }
+        let current = spans[low - 1]
+        if time > current.end, low < spans.count, spans[low].start - time < time - current.end {
+            return spans[low].color
+        }
+        return current.color
     }
 }

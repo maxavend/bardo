@@ -22,6 +22,7 @@ struct FullPlayerView: View {
                 recording: recording,
                 playback: playback,
                 matches: matches.map(\.startTime),
+                transcript: transcript,
                 updateNotes: { change in Task { await model.updateNotes(recording.id, change) } }
             )
 

@@ -9,6 +9,8 @@ struct PlayerTimeline: View {
     let recording: Recording
     @ObservedObject var playback: AudioPlaybackController
     let matches: [TimeInterval]
+    /// Colours each stretch by who speaks in it, once speakers are known.
+    var transcript: Transcript?
     let updateNotes: (@escaping (inout RecordingNotes) -> Void) -> Void
 
     @State private var editingMoment: RecordingMoment.ID?
@@ -26,7 +28,7 @@ struct PlayerTimeline: View {
             GeometryReader { proxy in
                 let width = proxy.size.width
                 ZStack(alignment: .topLeading) {
-                    RecordingWaveform(recording: recording, playback: playback, matches: matches, labelsSections: false)
+                    RecordingWaveform(recording: recording, playback: playback, matches: matches, labelsSections: false, transcript: transcript)
                         .frame(width: width, height: Self.waveHeight)
                         .offset(y: Self.laneHeight + 8)
 
