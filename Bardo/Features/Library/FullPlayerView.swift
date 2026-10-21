@@ -61,14 +61,18 @@ struct FullPlayerView: View {
                 Button {
                     Task { await model.updateNotes(recording.id) { $0.addMoment(at: playback.position, title: "", note: nil) } }
                 } label: {
-                    Label("Marcar momento", systemImage: "flag")
+                    Label("Momento", systemImage: "flag")
+                        .labelStyle(.titleAndIcon)
                 }
+                .accessibilityLabel("Marcar momento")
                 .help("Marcar un momento donde va la reproducción")
                 Button {
                     Task { await model.updateNotes(recording.id) { $0.addSection(at: playback.position, title: "") } }
                 } label: {
-                    Label("Nueva sección", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    Label("Sección", systemImage: "rectangle.split.2x1")
+                        .labelStyle(.titleAndIcon)
                 }
+                .accessibilityLabel("Nueva sección")
                 .help("Empezar una sección donde va la reproducción")
                 Button {
                     isOptionsPresented = true

@@ -407,10 +407,18 @@ struct LiveConversationWave: View {
         func x(for time: TimeInterval) -> CGFloat {
             newest - (CGFloat((latest.duration - time) / LiveAudioMeter.bucketDuration) + glide) * step
         }
-        for section in notes.sections {
+        let sections = notes.sections.sorted { $0.start < $1.start }
+        for (index, section) in sections.enumerated() {
             let position = x(for: section.start)
             guard position > 0, position < size.width else { continue }
-            ConversationWaveformStyle.drawSection(in: &canvas, x: position, size: size, title: section.title)
+            let next = index + 1 < sections.count ? x(for: sections[index + 1].start) : size.width - playheadInset
+            ConversationWaveformStyle.drawSection(
+                in: &canvas,
+                x: position,
+                size: size,
+                title: section.title,
+                maxWidth: next - position - 14
+            )
         }
         for moment in notes.moments {
             let position = x(for: moment.time)

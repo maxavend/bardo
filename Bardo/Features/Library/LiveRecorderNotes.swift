@@ -62,8 +62,10 @@ private struct LiveMomentButton: View {
 
     var body: some View {
         Button(action: mark) {
-            Label("Marcar momento", systemImage: "flag")
+            Label("Momento", systemImage: "flag")
+                .labelStyle(.titleAndIcon)
         }
+        .accessibilityLabel("Marcar momento")
         .help("Marcar este momento y anotar algo (⌥⌘N)")
         .popover(item: $moment, arrowEdge: .bottom) { moment in
             MomentEditor(
@@ -90,8 +92,10 @@ private struct LiveSectionButton: View {
 
     var body: some View {
         Button(action: start) {
-            Label("Nueva sección", systemImage: "text.line.first.and.arrowtriangle.forward")
+            Label("Sección", systemImage: "rectangle.split.2x1")
+                .labelStyle(.titleAndIcon)
         }
+        .accessibilityLabel("Nueva sección")
         .help("Empezar una sección con nombre desde aquí (⇧⌥⌘N)")
         .popover(item: $section, arrowEdge: .bottom) { section in
             SectionEditor(

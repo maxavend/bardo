@@ -181,20 +181,33 @@ enum ConversationWaveformStyle {
 
     /// A moment: a hairline through the waveform with a dot where it starts.
     static func drawMoment(in canvas: inout GraphicsContext, x: CGFloat, size: CGSize) {
-        canvas.fill(Path(CGRect(x: x - 0.5, y: dotSize, width: 1, height: size.height - dotSize)), with: .color(momentTint.opacity(0.6)))
+        // A flag on its pole: from the top down to the line, never through it.
+        let pole = size.height / 2 - gap - dotSize
+        canvas.fill(Path(CGRect(x: x - 0.5, y: dotSize, width: 1, height: max(0, pole))), with: .color(momentTint.opacity(0.6)))
         canvas.fill(Path(ellipseIn: CGRect(x: x - dotSize / 2, y: 0, width: dotSize, height: dotSize)), with: .color(momentTint))
     }
 
-    /// Where a section starts: a quiet hairline, with its name when there is room.
-    static func drawSection(in canvas: inout GraphicsContext, x: CGFloat, size: CGSize, title: String?) {
-        canvas.fill(Path(CGRect(x: x - 0.5, y: 0, width: 1, height: size.height)), with: .color(.secondary.opacity(0.35)))
-        if let title {
-            canvas.draw(
-                Text(title).font(.caption2.weight(.medium)).foregroundStyle(.secondary),
-                at: CGPoint(x: x + 5, y: 0),
-                anchor: .topLeading
-            )
+    /// Where a section starts: a quiet hairline down to the line, with its name when there
+    /// is room, shortened with an ellipsis before it reaches the next section.
+    static func drawSection(
+        in canvas: inout GraphicsContext,
+        x: CGFloat,
+        size: CGSize,
+        title: String?,
+        maxWidth: CGFloat = .infinity
+    ) {
+        canvas.fill(Path(CGRect(x: x - 0.5, y: 0, width: 1, height: max(0, size.height / 2 - gap))), with: .color(.secondary.opacity(0.35)))
+        guard let title, maxWidth > 24 else { return }
+        func label(_ string: String) -> GraphicsContext.ResolvedText {
+            canvas.resolve(Text(string).font(.caption2.weight(.medium)).foregroundStyle(.secondary))
         }
+        var shown = title
+        var resolved = label(shown)
+        while resolved.measure(in: CGSize(width: CGFloat.infinity, height: .infinity)).width > maxWidth, shown.count > 1 {
+            shown = String(shown.dropLast(shown.hasSuffix("…") ? 2 : 1)).trimmingCharacters(in: .whitespaces) + "…"
+            resolved = label(shown)
+        }
+        canvas.draw(resolved, at: CGPoint(x: x + 5, y: 0), anchor: .topLeading)
     }
 
     static func drawPlayhead(in canvas: inout GraphicsContext, x: CGFloat, size: CGSize, color: Color) {
@@ -362,8 +375,16 @@ struct RecordingWaveform: View {
 
         Style.drawVoiceLine(in: &bars, size: size, samples: voices, singleTint: recording.waveformTint)
 
-        for section in recording.notes.sections where (0...size.width).contains(x(section.start)) {
-            Style.drawSection(in: &bars, x: x(section.start), size: size, title: labelsSections ? section.title : nil)
+        let sections = recording.notes.sections.sorted { $0.start < $1.start }
+        for (index, section) in sections.enumerated() where (0...size.width).contains(x(section.start)) {
+            let next = index + 1 < sections.count ? x(sections[index + 1].start) : size.width
+            Style.drawSection(
+                in: &bars,
+                x: x(section.start),
+                size: size,
+                title: labelsSections ? section.title : nil,
+                maxWidth: next - x(section.start) - 14
+            )
         }
         for moment in recording.notes.moments where (0...size.width).contains(x(moment.time)) {
             Style.drawMoment(in: &bars, x: x(moment.time), size: size)
