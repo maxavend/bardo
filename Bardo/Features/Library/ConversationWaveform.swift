@@ -69,25 +69,38 @@ enum ConversationWaveformStyle {
 
         let middle = size.height / 2
         let thickness: CGFloat = 3
-        let tube = Path(roundedRect: CGRect(x: 0, y: middle - thickness / 2, width: size.width, height: thickness), cornerRadius: thickness / 2)
+        // What has been heard is a tube of glass; what is ahead, a hairline track.
+        let split = samples.first { !isHeard($0) }?.x ?? size.width
+        var heard = canvas
+        heard.clip(to: Path(CGRect(x: 0, y: 0, width: max(0, split), height: size.height)))
+        var ahead = canvas
+        ahead.clip(to: Path(CGRect(x: split, y: 0, width: max(0, size.width - split), height: size.height)))
 
-        // A steady glow, only along what has been heard.
-        var glow = canvas
+        // A steady glow along what has been heard.
+        var glow = heard
         glow.addFilter(.blur(radius: 3))
         glow.fill(
             Path(CGRect(x: 0, y: middle - 2.5, width: size.width, height: 5)),
-            with: shading { index, sample in isHeard(sample) ? colors[index].opacity(0.22) : .clear }
+            with: shading { index, _ in colors[index].opacity(0.22) }
         )
-        // The glass: coloured where heard, inactive grey ahead, like a slider's track.
-        canvas.fill(tube, with: shading { index, sample in isHeard(sample) ? colors[index].opacity(0.95) : Color.gray.opacity(0.14) })
-        // Its reflections: a bright edge along the top and a soft shade underneath.
-        canvas.fill(
+        // The glass, with its reflections: a bright edge along the top and a soft shade
+        // underneath.
+        heard.fill(
+            Path(roundedRect: CGRect(x: 0, y: middle - thickness / 2, width: size.width, height: thickness), cornerRadius: thickness / 2),
+            with: shading { index, _ in colors[index].opacity(0.95) }
+        )
+        heard.fill(
             Path(roundedRect: CGRect(x: 0, y: middle - thickness / 2 + 0.25, width: size.width, height: 0.9), cornerRadius: 0.45),
-            with: shading { _, sample in .white.opacity(isHeard(sample) ? 0.6 : 0.08) }
+            with: shading { _, _ in .white.opacity(0.6) }
         )
-        canvas.fill(
+        heard.fill(
             Path(CGRect(x: 0, y: middle + thickness / 2 - 0.8, width: size.width, height: 0.8)),
-            with: shading { _, sample in .black.opacity(isHeard(sample) ? 0.25 : 0.04) }
+            with: shading { _, _ in .black.opacity(0.25) }
+        )
+        // The track ahead, like a slider's: thin and quiet.
+        ahead.fill(
+            Path(CGRect(x: 0, y: middle - 0.5, width: size.width, height: 1)),
+            with: shading { _, _ in Color.gray.opacity(0.22) }
         )
     }
 
