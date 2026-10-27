@@ -13,7 +13,7 @@ final class LiveRecorderTests: XCTestCase {
         let snapshot = meter.snapshot
         XCTAssertEqual(snapshot.levels.count, 20)
         XCTAssertEqual(snapshot.duration, 1, accuracy: 0.001)
-        XCTAssertGreaterThan(snapshot.lastBarTime, 0)
+        XCTAssertGreaterThan(snapshot.heardAt, 0)
         // A -14 dBFS tone (RMS about -17 dB) sits high on a 50 dB scale.
         XCTAssertEqual(Double(snapshot.levels[10]), 0.66, accuracy: 0.03)
     }
@@ -37,7 +37,7 @@ final class LiveRecorderTests: XCTestCase {
         XCTAssertEqual(meter.snapshot.duration, 25, accuracy: 0.001)
 
         meter.reset()
-        XCTAssertEqual(meter.snapshot, LiveAudioMeter.Snapshot(levels: [], lastBarTime: 0, duration: 0))
+        XCTAssertEqual(meter.snapshot, LiveAudioMeter.Snapshot(levels: [], heardAt: 0, duration: 0))
     }
 
     func testHandsFreeMicrophoneAudioShowsAtItsOwnRate() {
@@ -50,6 +50,36 @@ final class LiveRecorderTests: XCTestCase {
         }
         XCTAssertEqual(meter.snapshot.levels.count, 20)
         XCTAssertEqual(meter.snapshot.duration, 1, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testWaveGlidesEvenlyWhileAudioArrivesInUnevenBuffers() {
+        let meter = LiveAudioMeter()
+        let track = LiveRecorderTrack.system(meter)
+        let motion = LiveWaveMotion()
+        let samples = [Float](repeating: 0.1, count: 4_096)
+        let start = Date()
+        var nextBuffer = 0.0
+        var buffers = 0
+        var times: [TimeInterval] = []
+        // Three seconds at 120 Hz, with 4,096-frame buffers arriving up to 30 ms late.
+        for frame in 0..<360 {
+            let now = Double(frame) / 120
+            while nextBuffer <= now {
+                samples.withUnsafeBufferPointer { meter.append($0, frames: 4_096, sampleRate: 48_000, at: 1_000 + nextBuffer) }
+                buffers += 1
+                nextBuffer = Double(buffers) * 4_096 / 48_000 + Double(buffers % 3) * 0.015
+            }
+            let time = motion.frame(for: [track], at: start.addingTimeInterval(now), isMoving: true, now: 1_000 + now)[0].time
+            times.append(time)
+        }
+
+        // Once it has caught up, every frame moves the audio forward by about one
+        // frame's worth, never jumping or stopping.
+        for (previous, time) in zip(times[60...], times[61...]) {
+            XCTAssertEqual(time - previous, 1.0 / 120, accuracy: 0.004)
+        }
+        XCTAssertEqual(times.last!, meter.snapshot.duration, accuracy: 0.2)
     }
 
     @MainActor

@@ -2,6 +2,12 @@
 
 All notable changes to Bardo. Each version is also a [GitHub release](https://github.com/maxavend/bardo/releases) with its DMG.
 
+## 1.1.1 — 2026-10-27
+
+### Recording
+
+- **A smoother live waveform.** The recording's waveform glides at the display's full pace, up to 120 Hz on ProMotion screens, instead of stuttering at about 30. It now moves with the screen's clock rather than with each burst of audio, so it never stops and jumps, and each frame takes a fraction of the work it did.
+
 ## 1.1.0 — 2026-10-21
 
 ### Fixed

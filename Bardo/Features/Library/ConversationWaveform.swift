@@ -147,10 +147,13 @@ enum ConversationWaveformStyle {
         }
 
         // Mixed as light, then softened with a wide bell so speakers fade into each other.
+        // The default tints are resolved once; only a speaker's own tint is resolved per point.
+        let defaultUpper = (hasTwoSides ? upperTint : singleTint).resolve(in: environment)
+        let defaultLower = lowerTint.resolve(in: environment)
         let raw: [SIMD3<Double>] = samples.indices.map { index in
             let sample = samples[index]
-            let upper = (sample.upperTint ?? (hasTwoSides ? upperTint : singleTint)).resolve(in: environment)
-            let lower = (sample.lowerTint ?? lowerTint).resolve(in: environment)
+            let upper = sample.upperTint?.resolve(in: environment) ?? defaultUpper
+            let lower = sample.lowerTint?.resolve(in: environment) ?? defaultLower
             let t = Float(mix[index] ?? 0.5)
             return SIMD3(
                 Double(upper.red + (lower.red - upper.red) * t),
