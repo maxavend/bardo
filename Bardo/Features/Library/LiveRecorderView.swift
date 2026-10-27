@@ -272,26 +272,97 @@ private struct LiveRecorderGlassGroup<Content: View>: View {
     }
 }
 
-extension LiveAudioMeter.Snapshot {
-    /// How far the newest bar has glided left toward the next one, from 0 to 1. It stays
-    /// still while paused or when Reduce Motion is on.
-    func glide(isPaused: Bool, reduceMotion: Bool) -> CGFloat {
-        guard !reduceMotion, !isPaused, lastBarTime > 0 else { return 0 }
-        let elapsed = ProcessInfo.processInfo.systemUptime - lastBarTime
-        return CGFloat(min(1, max(0, elapsed / LiveAudioMeter.bucketDuration)))
+/// Keeps the live waveform gliding at the display's pace. Audio arrives in uneven
+/// buffers, so the moment shown at the playhead runs with the clock and only leans
+/// toward the audio heard, a tenth of a second behind it so each bar is ready when it
+/// gets there. The line's colours are blended once per new bar, not on every frame.
+@MainActor
+final class LiveWaveMotion {
+    struct Track {
+        var snapshot: LiveAudioMeter.Snapshot
+        /// The moment of audio at the playhead, in seconds of the track.
+        var time: TimeInterval
+    }
+
+    static let latency: TimeInterval = 0.1
+    /// How long the audio is assumed to keep flowing after the last buffer.
+    static let maximumLead: TimeInterval = 0.25
+
+    private var shown: [ObjectIdentifier: TimeInterval] = [:]
+    private var lastFrame: Date?
+    private var line: (key: [TimeInterval], first: Int, colors: [Color])?
+
+    /// Each track as of the frame at `date`. It stands still while paused or when
+    /// Reduce Motion is on, stepping a bar at a time.
+    func frame(
+        for tracks: [LiveRecorderTrack],
+        at date: Date,
+        isMoving: Bool,
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> [Track] {
+        let elapsed = min(0.1, max(0, lastFrame.map { date.timeIntervalSince($0) } ?? 0))
+        lastFrame = date
+        return tracks.map { track in
+            let snapshot = track.meter.snapshot
+            let id = ObjectIdentifier(track.meter)
+            guard isMoving, snapshot.heardAt > 0 else {
+                shown[id] = nil
+                return Track(snapshot: snapshot, time: snapshot.newestBarEnd)
+            }
+            let target = snapshot.duration - Self.latency + min(Self.maximumLead, max(0, now - snapshot.heardAt))
+            // Starts from the newest bar, so resuming never jumps ahead.
+            var time = shown[id].map { $0 + elapsed } ?? min(target, snapshot.newestBarEnd)
+            let error = target - time
+            time = abs(error) > 0.5 ? target : time + error * min(1, elapsed * 3)
+            shown[id] = time
+            return Track(snapshot: snapshot, time: time)
+        }
+    }
+
+    /// The blended colour under each of the first track's newest `count` bars, and the
+    /// index of the first of them.
+    func lineColors(
+        for tracks: [LiveRecorderTrack],
+        frame: [Track],
+        count: Int,
+        in environment: EnvironmentValues
+    ) -> (first: Int, colors: [Color]) {
+        let key = frame.flatMap { [$0.snapshot.newestBarEnd, Double($0.snapshot.levels.count)] } + [Double(count)]
+        if let line, line.key == key { return (line.first, line.colors) }
+        let upper = frame[0].snapshot.levels
+        let lower = frame.count > 1 ? frame[1].snapshot.levels : nil
+        let first = max(0, upper.count - count)
+        let samples = upper.indices.suffix(from: first).map { index in
+            let age = upper.count - 1 - index
+            return ConversationWaveformStyle.VoiceSample(
+                x: 0,
+                upper: CGFloat(upper[index]),
+                lower: lower.map { $0.count - 1 - age >= 0 ? CGFloat($0[$0.count - 1 - age]) : 0 }
+            )
+        }
+        let colors = ConversationWaveformStyle.blendedColors(
+            of: samples,
+            upperTint: tracks[0].tint,
+            lowerTint: tracks.count > 1 ? tracks[1].tint : tracks[0].tint,
+            singleTint: tracks[0].tint,
+            in: environment
+        )
+        line = (key, first, colors)
+        return (first, colors)
     }
 }
 
 /// The Mac's audio rises above one shared line and your voice falls below it, so the
 /// turns of a call read at a glance; a single source fills both sides. Audio enters at a
 /// red playhead on the right and drifts left, fading as it ages. The meters are read on
-/// every frame, so the levels never re-render anything else.
+/// every frame, at the display's full rate, so the levels never re-render anything else.
 struct LiveConversationWave: View {
     let tracks: [LiveRecorderTrack]
     let isPaused: Bool
     var notes = RecordingNotes()
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var motion = LiveWaveMotion()
 
     private let barWidth: CGFloat = 2
     private let step: CGFloat = 4
@@ -301,8 +372,11 @@ struct LiveConversationWave: View {
     private let gap: CGFloat = 3
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: isPaused)) { _ in
+        // Under Reduce Motion the bars step once per bar, so there is nothing to glide.
+        TimelineView(.animation(minimumInterval: reduceMotion ? LiveAudioMeter.bucketDuration : nil, paused: isPaused)) { timeline in
             Canvas { canvas, size in
+                guard !tracks.isEmpty else { return }
+                let frame = motion.frame(for: tracks, at: timeline.date, isMoving: !isPaused && !reduceMotion)
                 var bars = canvas
                 // Older audio fades out toward the leading edge instead of being cut off.
                 bars.clipToLayer { layer in
@@ -316,25 +390,45 @@ struct LiveConversationWave: View {
                     )
                 }
                 if isPaused { bars.opacity = 0.5 }
-                drawVoiceLine(in: &bars, size: size)
-                if tracks.count == 1, let track = tracks.first {
-                    draw(track, in: &bars, size: size, direction: 0)
+                drawVoiceLine(in: &bars, size: size, frame: frame)
+                if tracks.count == 1 {
+                    draw(frame[0], tint: tracks[0].tint, in: &bars, size: size, direction: 0)
                 } else {
-                    for (offset, track) in tracks.prefix(2).enumerated() {
-                        draw(track, in: &bars, size: size, direction: offset == 0 ? -1 : 1)
+                    for index in 0..<min(2, tracks.count) {
+                        draw(frame[index], tint: tracks[index].tint, in: &bars, size: size, direction: index == 0 ? -1 : 1)
                     }
                 }
-                drawNotes(in: &canvas, size: size)
+                drawNotes(in: &canvas, size: size, frame: frame)
                 drawPlayhead(in: &canvas, size: size)
             }
         }
         .accessibilityHidden(true)
     }
 
+    /// Where the newest bar is drawn the moment it arrives.
+    private func newest(in size: CGSize) -> CGFloat {
+        size.width - playheadInset - barWidth - 3
+    }
+
+    /// Where the bar ending at `end` sits while `time` is at the playhead.
+    private func x(ending end: TimeInterval, at time: TimeInterval, size: CGSize) -> CGFloat {
+        newest(in: size) - CGFloat((time - end) / LiveAudioMeter.bucketDuration) * step
+    }
+
+    /// Calls `body` with each bar on screen, newest first, once the playhead reaches it.
+    private func forEachVisibleBar(of track: LiveWaveMotion.Track, size: CGSize, _ body: (_ index: Int, _ x: CGFloat) -> Void) {
+        let snapshot = track.snapshot
+        for index in snapshot.levels.indices.reversed() {
+            let end = snapshot.newestBarEnd - Double(snapshot.levels.count - 1 - index) * LiveAudioMeter.bucketDuration
+            guard end <= track.time + 0.001 else { continue }
+            let x = x(ending: end, at: track.time, size: size)
+            guard x > -barWidth else { break }
+            body(index, x)
+        }
+    }
+
     /// `direction` -1 draws above the line, 1 below it and 0 on both sides.
-    private func draw(_ track: LiveRecorderTrack, in context: inout GraphicsContext, size: CGSize, direction: CGFloat) {
-        let snapshot = track.meter.snapshot
-        let glide = snapshot.glide(isPaused: isPaused, reduceMotion: reduceMotion)
+    private func draw(_ track: LiveWaveMotion.Track, tint: Color, in context: inout GraphicsContext, size: CGSize, direction: CGFloat) {
         let middle = size.height / 2
         // Each half draws only in its own band: the Mac's audio can never cross below
         // the line, nor your voice above it.
@@ -345,67 +439,62 @@ struct LiveConversationWave: View {
         default: canvas.clip(to: Path(CGRect(x: 0, y: middle + gap, width: size.width, height: middle - gap)))
         }
         let reach = middle - gap - 6
-        let levels = snapshot.levels
-        let newest = size.width - playheadInset - barWidth - 3
-        let count = Int(newest / step) + 2
-        for slot in 0..<count {
-            let x = newest - (CGFloat(slot) + glide) * step
-            guard x > -barWidth else { break }
-            let index = levels.count - 1 - slot
-            guard index >= 0 else { break }
-            let height = pow(CGFloat(levels[index]), 2) * reach
+        let corner = CGSize(width: barWidth / 2, height: barWidth / 2)
+        // Every bar goes into one shape, filled once.
+        var shape = Path()
+        forEachVisibleBar(of: track, size: size) { index, x in
+            let height = pow(CGFloat(track.snapshot.levels[index]), 2) * reach
             // Room noise leaves the line clean instead of dotting it.
-            guard height > 2 else { continue }
+            guard height > 2 else { return }
             // A single source mirrors on both sides; nothing ever crosses the line.
             if direction <= 0 {
-                canvas.fill(Path(roundedRect: CGRect(x: x, y: middle - gap - height, width: barWidth, height: height), cornerRadius: barWidth / 2), with: .color(track.tint))
+                shape.addRoundedRect(in: CGRect(x: x, y: middle - gap - height, width: barWidth, height: height), cornerSize: corner)
             }
             if direction >= 0 {
-                canvas.fill(Path(roundedRect: CGRect(x: x, y: middle + gap, width: barWidth, height: height), cornerRadius: barWidth / 2), with: .color(track.tint))
+                shape.addRoundedRect(in: CGRect(x: x, y: middle + gap, width: barWidth, height: height), cornerSize: corner)
             }
         }
+        canvas.fill(shape, with: .color(tint))
     }
 
     /// The line between the halves, coloured by whoever is heard as it drifts left.
-    private func drawVoiceLine(in canvas: inout GraphicsContext, size: CGSize) {
+    private func drawVoiceLine(in canvas: inout GraphicsContext, size: CGSize, frame: [LiveWaveMotion.Track]) {
         let lineSize = CGSize(width: size.width - playheadInset, height: size.height)
-        guard let first = tracks.first else { return }
-        let snapshots = tracks.prefix(2).map(\.meter.snapshot)
-        let glide = snapshots[0].glide(isPaused: isPaused, reduceMotion: reduceMotion)
-        let newest = size.width - playheadInset - barWidth - 3
+        // Enough bars to cross the view, and a few past its edge so the blend is the same there.
+        let line = motion.lineColors(for: tracks, frame: frame, count: Int(size.width / step) + 24, in: canvas.environment)
+        let upper = frame[0].snapshot.levels
+        let lower = frame.count > 1 ? frame[1].snapshot.levels : nil
         var samples: [ConversationWaveformStyle.VoiceSample] = []
-        for slot in 0..<(Int(newest / step) + 2) {
-            let x = newest - (CGFloat(slot) + glide) * step + barWidth / 2
-            guard x > 0 else { break }
-            func level(_ snapshot: LiveAudioMeter.Snapshot) -> CGFloat {
-                let index = snapshot.levels.count - 1 - slot
-                return index >= 0 ? CGFloat(snapshot.levels[index]) : 0
-            }
+        var sampleColors: [Color] = []
+        forEachVisibleBar(of: frame[0], size: size) { index, x in
+            guard x + barWidth / 2 > 0, index >= line.first else { return }
+            let age = upper.count - 1 - index
             samples.append(.init(
-                x: x,
-                upper: level(snapshots[0]),
-                lower: snapshots.count > 1 ? level(snapshots[1]) : nil
+                x: x + barWidth / 2,
+                upper: CGFloat(upper[index]),
+                lower: lower.map { $0.count - 1 - age >= 0 ? CGFloat($0[$0.count - 1 - age]) : 0 }
             ))
+            sampleColors.append(line.colors[index - line.first])
         }
+        // Before there is enough audio to reach the leading edge, the line still does.
+        if let oldest = samples.last, let color = sampleColors.last, oldest.x > step {
+            samples.append(.init(x: oldest.x.truncatingRemainder(dividingBy: step), upper: 0, lower: lower == nil ? nil : 0))
+            sampleColors.append(color)
+        }
+        // The line runs left to right.
         ConversationWaveformStyle.drawVoiceLine(
             in: &canvas,
             size: lineSize,
-            samples: samples,
-            upperTint: first.tint,
-            lowerTint: tracks.count > 1 ? tracks[1].tint : first.tint,
-            singleTint: first.tint
+            samples: samples.reversed(),
+            colors: sampleColors.reversed()
         )
     }
 
     /// Sections and moments drawn as on a saved recording, drifting left with the audio.
-    private func drawNotes(in canvas: inout GraphicsContext, size: CGSize) {
-        guard !notes.isEmpty else { return }
-        let snapshots = tracks.map(\.meter.snapshot)
-        guard let latest = snapshots.max(by: { $0.duration < $1.duration }) else { return }
-        let glide = latest.glide(isPaused: isPaused, reduceMotion: reduceMotion)
-        let newest = size.width - playheadInset - barWidth - 3
+    private func drawNotes(in canvas: inout GraphicsContext, size: CGSize, frame: [LiveWaveMotion.Track]) {
+        guard !notes.isEmpty, let latest = frame.max(by: { $0.snapshot.duration < $1.snapshot.duration }) else { return }
         func x(for time: TimeInterval) -> CGFloat {
-            newest - (CGFloat((latest.duration - time) / LiveAudioMeter.bucketDuration) + glide) * step
+            self.x(ending: time, at: latest.time, size: size)
         }
         let sections = notes.sections.sorted { $0.start < $1.start }
         for (index, section) in sections.enumerated() {
@@ -466,3 +555,4 @@ struct LiveRecorderClock: View {
         return clock + separator + fraction
     }
 }
+

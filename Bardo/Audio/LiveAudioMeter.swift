@@ -18,33 +18,42 @@ final class LiveAudioMeter: @unchecked Sendable {
     struct Snapshot: Equatable, Sendable {
         /// Bar heights from 0 to 1, oldest first.
         var levels: [Float]
-        /// `ProcessInfo.systemUptime` when the newest bar was added.
-        var lastBarTime: TimeInterval
+        /// `ProcessInfo.systemUptime` when audio last arrived.
+        var heardAt: TimeInterval
         /// Seconds of audio the meter has heard.
         var duration: TimeInterval
+        /// Seconds heard since the newest bar ended, not yet enough for another.
+        var pending: TimeInterval = 0
+
+        /// Where the newest bar ends, in seconds of audio.
+        var newestBarEnd: TimeInterval { duration - pending }
     }
 
     private let lock = NSLock()
     // Guarded by `lock`.
     private var levels: [Float] = []
-    private var lastBarTime: TimeInterval = 0
+    private var heardAt: TimeInterval = 0
     private var framesHeard: Double = 0
     private var bucketSquares: Float = 0
     private var bucketSamples = 0
     private var bucketFrames: Double = 0
+    private var sampleRate: Double = 0
 
     var snapshot: Snapshot {
-        lock.bardoWithLock { Snapshot(levels: levels, lastBarTime: lastBarTime, duration: framesHeard) }
+        lock.bardoWithLock {
+            Snapshot(levels: levels, heardAt: heardAt, duration: framesHeard, pending: sampleRate > 0 ? bucketFrames / sampleRate : 0)
+        }
     }
 
     func reset() {
         lock.bardoWithLock {
             levels.removeAll(keepingCapacity: true)
-            lastBarTime = 0
+            heardAt = 0
             framesHeard = 0
             bucketSquares = 0
             bucketSamples = 0
             bucketFrames = 0
+            sampleRate = 0
         }
     }
 
@@ -77,15 +86,22 @@ final class LiveAudioMeter: @unchecked Sendable {
         }
     }
 
-    /// Adds `frames` frames of audio whose samples, of every channel, are `samples`.
-    func append(_ samples: UnsafeBufferPointer<Float>, frames: Int, sampleRate: Double) {
+    /// Adds `frames` frames of audio whose samples, of every channel, are `samples`,
+    /// arriving at `now` (`ProcessInfo.systemUptime`).
+    func append(
+        _ samples: UnsafeBufferPointer<Float>,
+        frames: Int,
+        sampleRate: Double,
+        at now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
         guard frames > 0, !samples.isEmpty, let base = samples.baseAddress else { return }
         var squares: Float = 0
         vDSP_svesq(base, 1, &squares, vDSP_Length(samples.count))
-        let now = ProcessInfo.processInfo.systemUptime
         let framesPerBar = Self.bucketDuration * sampleRate
 
         lock.bardoWithLock {
+            heardAt = now
+            self.sampleRate = sampleRate
             framesHeard += Double(frames) / sampleRate
             bucketSquares += squares
             bucketSamples += samples.count
@@ -100,7 +116,6 @@ final class LiveAudioMeter: @unchecked Sendable {
             }
             bucketSquares = 0
             bucketSamples = 0
-            lastBarTime = now
             if levels.count > Self.capacity {
                 levels.removeFirst(levels.count - Self.capacity)
             }
@@ -161,7 +176,7 @@ extension LiveAudioMeter {
         lock.bardoWithLock {
             levels.append(level)
             if levels.count > Self.capacity { levels.removeFirst(levels.count - Self.capacity) }
-            lastBarTime = now
+            heardAt = now
             framesHeard += Self.bucketDuration
         }
     }
