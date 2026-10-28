@@ -11,7 +11,11 @@ public interface IAudioMetadataReader
     AudioMetadata Read(string path);
 }
 
-public sealed class AudioImportException(string message, Exception? inner = null) : Exception(message, inner);
+public sealed class AudioImportException(string message, Exception? inner = null) : Exception(message, inner)
+{
+    /// <summary>The file has no audio stream Bardo can read.</summary>
+    public static AudioImportException Unreadable(Exception? inner = null) => new(Strings.UnreadableAudio, inner);
+}
 
 /// <summary>Copies an audio file into the Library as a new conversation.</summary>
 public sealed class AudioImporter(RecordingStore store, IAudioMetadataReader metadataReader)
