@@ -25,4 +25,10 @@
   <data name="TranscriptUnsupportedSchema" xml:space="preserve"><value>Esta transcripción usa un formato más nuevo ({0}) que esta versión de Bardo no reconoce.</value></data>
   <data name="TranscriptInvalid" xml:space="preserve"><value>La transcripción no es válida: {0}</value></data>
   <data name="TranscriptIdentityMismatch" xml:space="preserve"><value>La transcripción {1} no corresponde a la grabación {0}.</value></data>
+  <data name="Yesterday" xml:space="preserve"><value>Ayer</value></data>
+  <data name="RecordingFrom" xml:space="preserve"><value>Grabación del {0}</value></data>
+  <data name="SourceMicrophone" xml:space="preserve"><value>Micrófono</value></data>
+  <data name="SourceSystemAudio" xml:space="preserve"><value>Audio del sistema</value></data>
+  <data name="SourceImportedFile" xml:space="preserve"><value>Archivo importado</value></data>
+  <data name="UnknownSource" xml:space="preserve"><value>Origen desconocido</value></data>
 </root>

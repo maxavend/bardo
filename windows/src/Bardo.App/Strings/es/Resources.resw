@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="LibrarySearch.PlaceholderText" xml:space="preserve"><value>Buscar</value></data>
+  <data name="LibrarySearch.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Buscar en la biblioteca</value></data>
+  <data name="LibraryHeader.Content" xml:space="preserve"><value>Biblioteca</value></data>
+  <data name="SectionAll.Content" xml:space="preserve"><value>Todas</value></data>
+  <data name="SectionRecorded.Content" xml:space="preserve"><value>Grabadas</value></data>
+  <data name="SectionImported.Content" xml:space="preserve"><value>Importadas</value></data>
+  <data name="RecordingList.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Conversaciones</value></data>
+  <data name="IssuesBar.Title" xml:space="preserve"><value>Algunos elementos no se pueden mostrar</value></data>
+  <data name="IssuesBar.Message" xml:space="preserve"><value>Siguen en la carpeta de la biblioteca.</value></data>
+  <data name="IssuesOpenFolderButton.Content" xml:space="preserve"><value>Abrir carpeta</value></data>
+  <data name="EmptyLibraryTitle.Text" xml:space="preserve"><value>Aún no hay conversaciones</value></data>
+  <data name="EmptyLibraryBody.Text" xml:space="preserve"><value>Para ver aquí las conversaciones de tu Mac, copia su biblioteca en esta carpeta.</value></data>
+  <data name="EmptyOpenFolderButton.Content" xml:space="preserve"><value>Abrir carpeta de la biblioteca</value></data>
+  <data name="FilterEmptyText.Text" xml:space="preserve"><value>Sin resultados</value></data>
+  <data name="NoSelectionText.Text" xml:space="preserve"><value>Selecciona una conversación</value></data>
+  <data name="CopyTranscriptText.Text" xml:space="preserve"><value>Copiar transcripción</value></data>
+  <data name="NoTranscriptTitle.Text" xml:space="preserve"><value>Sin transcripción</value></data>
+  <data name="NoTranscriptBody.Text" xml:space="preserve"><value>Bardo para Windows aún no transcribe.</value></data>
+</root>

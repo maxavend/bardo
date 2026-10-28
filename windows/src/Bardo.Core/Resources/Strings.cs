@@ -54,4 +54,16 @@ internal static class Strings
     public static string TranscriptInvalid(object? arg0) => Format(nameof(TranscriptInvalid), arg0);
 
     public static string TranscriptIdentityMismatch(object? arg0, object? arg1) => Format(nameof(TranscriptIdentityMismatch), arg0, arg1);
+
+    public static string Yesterday => Get(nameof(Yesterday));
+
+    public static string RecordingFrom(object? arg0) => Format(nameof(RecordingFrom), arg0);
+
+    public static string SourceMicrophone => Get(nameof(SourceMicrophone));
+
+    public static string SourceSystemAudio => Get(nameof(SourceSystemAudio));
+
+    public static string SourceImportedFile => Get(nameof(SourceImportedFile));
+
+    public static string UnknownSource => Get(nameof(UnknownSource));
 }

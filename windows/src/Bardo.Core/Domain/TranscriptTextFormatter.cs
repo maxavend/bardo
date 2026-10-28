@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Bardo.Domain;
 
 /// <summary>
@@ -45,7 +43,7 @@ public sealed class TranscriptTextFormatter
     {
         var lines = new List<string> { Title };
         var details = new List<string>();
-        if (Date is { } date) details.Add(LongDateWithoutWeekday(date));
+        if (Date is { } date) details.Add(DateFormatting.LongDate(date));
         if (Duration is { } duration) details.Add(DurationFormatting.Duration(duration));
         if (details.Count > 0) lines.Add(string.Join(" · ", details));
 
@@ -125,17 +123,5 @@ public sealed class TranscriptTextFormatter
     {
         var heading = $"⚑ {DurationFormatting.Duration(moment.Time)} · {moment.Title}";
         return moment.Note is { } note ? $"{heading}: {note}" : heading;
-    }
-
-    /// <summary>"28 de octubre de 2026" or "October 28, 2026": the long date, without the weekday.</summary>
-    private static string LongDateWithoutWeekday(DateTimeOffset date)
-    {
-        var culture = CultureInfo.CurrentCulture;
-        var pattern = culture.DateTimeFormat.LongDatePattern
-            .Replace("dddd, ", "", StringComparison.Ordinal)
-            .Replace("dddd ", "", StringComparison.Ordinal)
-            .Replace(", dddd", "", StringComparison.Ordinal)
-            .Trim();
-        return date.ToLocalTime().ToString(pattern, culture);
     }
 }

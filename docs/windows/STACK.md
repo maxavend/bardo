@@ -16,7 +16,7 @@ Bardo for Windows is a native Windows 11 app, not a port of the macOS code. It k
 | Language and runtime | C# 14 on .NET 10 (LTS) |
 | UI framework | WinUI 3, Windows App SDK 2.x |
 | Design system | Fluent, as implemented by WinUI 3 and described in the Windows design guidelines |
-| App architecture | MVVM with CommunityToolkit.Mvvm |
+| App architecture | MVVM; view models live in `Bardo.Core`, so they are tested on any OS |
 | Minimum OS | Windows 11 (`10.0.22621.0`); Windows 10 is out of support |
 | Architectures | x64 and ARM64 |
 | Packaging | MSIX (package identity is needed for Windows AI APIs and clean install/uninstall) |
@@ -65,7 +65,7 @@ windows/
     └── Bardo.Core.Tests/        MSTest; runs on macOS too
 ```
 
-`Bardo.Core` targets plain `net10.0`, so its tests run on a Mac as well as in Windows CI. It is translated from `Bardo/Domain` and `Bardo/Persistence` together with their tests. `Bardo.Core` and `Bardo.Core.Tests` exist today; the other projects arrive with the spikes below.
+`Bardo.Core` targets plain `net10.0`, so its tests run on a Mac as well as in Windows CI. It is translated from `Bardo/Domain` and `Bardo/Persistence` together with their tests. `Bardo.Core`, `Bardo.Core.Tests` and a first `Bardo.App` (the Library window, read-only) exist today; the other projects arrive with the spikes below. Until MSIX packaging is set up, the app runs unpackaged and self-contained.
 
 ## Compatibility with the macOS Library
 

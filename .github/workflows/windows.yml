@@ -49,13 +49,55 @@ jobs:
         with:
           global-json-file: windows/global.json
 
-      - name: Build
-        working-directory: windows
-        run: dotnet build --configuration Release
-
       - name: Run unit tests
-        working-directory: windows
-        run: dotnet test --configuration Release --no-build
+        run: dotnet test windows/tests/Bardo.Core.Tests --configuration Release
+
+  app:
+    name: App (${{ matrix.platform }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x64
+            rid: win-x64
+          - platform: ARM64
+            rid: win-arm64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: windows/global.json
+
+      # Self-contained, so it opens on any Windows 11 PC without installing .NET or the
+      # Windows App SDK first.
+      - name: Publish
+        run: >
+          dotnet publish windows/src/Bardo.App
+          --configuration Release
+          --runtime ${{ matrix.rid }}
+          --self-contained
+          -p:Platform=${{ matrix.platform }}
+          --output publish/Bardo-${{ matrix.rid }}
+
+      - name: Check the app was produced
+        shell: pwsh
+        run: |
+          if (-not (Test-Path publish/Bardo-${{ matrix.rid }}/Bardo.exe)) { exit 1 }
+          if (-not (Test-Path publish/Bardo-${{ matrix.rid }}/resources.pri)) { exit 1 }
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bardo-${{ matrix.rid }}
+          path: publish/Bardo-${{ matrix.rid }}
+          if-no-files-found: error
+          retention-days: 14
 
   mac-library-fixtures:
     name: macOS Library fixtures are current

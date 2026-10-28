@@ -25,4 +25,10 @@
   <data name="TranscriptUnsupportedSchema" xml:space="preserve"><value>Transcript schema version {0} is not supported.</value></data>
   <data name="TranscriptInvalid" xml:space="preserve"><value>The transcript is invalid: {0}</value></data>
   <data name="TranscriptIdentityMismatch" xml:space="preserve"><value>Transcript identity {1} does not match recording {0}.</value></data>
+  <data name="Yesterday" xml:space="preserve"><value>Yesterday</value></data>
+  <data name="RecordingFrom" xml:space="preserve"><value>Recording from {0}</value></data>
+  <data name="SourceMicrophone" xml:space="preserve"><value>Microphone</value></data>
+  <data name="SourceSystemAudio" xml:space="preserve"><value>System Audio</value></data>
+  <data name="SourceImportedFile" xml:space="preserve"><value>Imported File</value></data>
+  <data name="UnknownSource" xml:space="preserve"><value>Unknown source</value></data>
 </root>

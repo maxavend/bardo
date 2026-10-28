@@ -21,6 +21,21 @@ public static class DurationFormatting
     }
 }
 
+public static class DateFormatting
+{
+    /// <summary>"28 de octubre de 2026" or "October 28, 2026": the long date, without the weekday.</summary>
+    public static string LongDate(DateTimeOffset date, CultureInfo? culture = null)
+    {
+        culture ??= CultureInfo.CurrentCulture;
+        var pattern = culture.DateTimeFormat.LongDatePattern
+            .Replace("dddd, ", "", StringComparison.Ordinal)
+            .Replace("dddd ", "", StringComparison.Ordinal)
+            .Replace(", dddd", "", StringComparison.Ordinal)
+            .Trim();
+        return date.ToLocalTime().ToString(pattern, culture);
+    }
+}
+
 internal static class StringExtensions
 {
     public static string? NonEmpty(this string value) => value.Length == 0 ? null : value;
