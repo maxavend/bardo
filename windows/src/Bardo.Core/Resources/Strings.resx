@@ -31,4 +31,16 @@
   <data name="SourceSystemAudio" xml:space="preserve"><value>System Audio</value></data>
   <data name="SourceImportedFile" xml:space="preserve"><value>Imported File</value></data>
   <data name="UnknownSource" xml:space="preserve"><value>Unknown source</value></data>
+  <data name="ImportedAudio" xml:space="preserve"><value>Imported audio</value></data>
+  <data name="UnsupportedAudioFormat" xml:space="preserve"><value>{0} is not a supported audio format.</value></data>
+  <data name="UnreadableAudio" xml:space="preserve"><value>The file does not contain a readable audio stream.</value></data>
+  <data name="EmptyRecordingTitle" xml:space="preserve"><value>Recording title cannot be empty.</value></data>
+  <data name="RecordingRenamed" xml:space="preserve"><value>Recording renamed</value></data>
+  <data name="RecordingRecycled" xml:space="preserve"><value>Recording moved to the Recycle Bin</value></data>
+  <data name="RecordingImported" xml:space="preserve"><value>{0} imported</value></data>
+  <data name="Transcribing" xml:space="preserve"><value>Transcribing</value></data>
+  <data name="IdentifyingSpeakers" xml:space="preserve"><value>Identifying speakers</value></data>
+  <data name="TranscriptionFailed" xml:space="preserve"><value>Couldn’t transcribe: {0}</value></data>
+  <data name="SpeakerIdentificationFailed" xml:space="preserve"><value>Couldn’t identify speakers: {0}</value></data>
+  <data name="EmptySpeakerName" xml:space="preserve"><value>A name can’t be empty.</value></data>
 </root>

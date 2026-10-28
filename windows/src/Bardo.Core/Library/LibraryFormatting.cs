@@ -11,17 +11,43 @@ public enum LibrarySection
     All,
     Recorded,
     Imported,
+    Favorites,
 }
 
 public static class LibrarySectionExtensions
 {
-    public static bool Contains(this LibrarySection section, Recording recording) => section switch
+    public static bool Contains(this LibrarySection section, Recording recording, Func<Guid, bool>? isFavorite = null) => section switch
     {
         LibrarySection.All => true,
         LibrarySection.Recorded => !recording.Sources.Contains(AudioSource.ImportedFile),
         LibrarySection.Imported => recording.Sources.Contains(AudioSource.ImportedFile),
+        LibrarySection.Favorites => isFavorite?.Invoke(recording.Id) ?? false,
         _ => false,
     };
+}
+
+/// <summary>The orders the Library list offers.</summary>
+public enum LibrarySort
+{
+    Newest,
+    Oldest,
+    Name,
+    Duration,
+}
+
+public static class LibrarySortExtensions
+{
+    public static IEnumerable<Recording> Sorted(this LibrarySort sort, IEnumerable<Recording> recordings, CultureInfo? culture = null)
+    {
+        var comparer = StringComparer.Create(culture ?? CultureInfo.CurrentCulture, CompareOptions.IgnoreCase | CompareOptions.NumericOrdering);
+        return sort switch
+        {
+            LibrarySort.Oldest => recordings.OrderBy(recording => recording.CreatedAt),
+            LibrarySort.Name => recordings.OrderBy(recording => LibraryFormatting.RecordingTitle(recording), comparer),
+            LibrarySort.Duration => recordings.OrderByDescending(recording => recording.Duration ?? 0),
+            _ => recordings.OrderByDescending(recording => recording.CreatedAt),
+        };
+    }
 }
 
 public static class LibraryFormatting

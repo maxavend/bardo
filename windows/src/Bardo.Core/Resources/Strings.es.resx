@@ -31,4 +31,16 @@
   <data name="SourceSystemAudio" xml:space="preserve"><value>Audio del sistema</value></data>
   <data name="SourceImportedFile" xml:space="preserve"><value>Archivo importado</value></data>
   <data name="UnknownSource" xml:space="preserve"><value>Origen desconocido</value></data>
+  <data name="ImportedAudio" xml:space="preserve"><value>Audio importado</value></data>
+  <data name="UnsupportedAudioFormat" xml:space="preserve"><value>{0} no es un formato de audio compatible.</value></data>
+  <data name="UnreadableAudio" xml:space="preserve"><value>El archivo no contiene audio legible.</value></data>
+  <data name="EmptyRecordingTitle" xml:space="preserve"><value>El nombre de la grabación no puede quedar vacío.</value></data>
+  <data name="RecordingRenamed" xml:space="preserve"><value>Grabación renombrada</value></data>
+  <data name="RecordingRecycled" xml:space="preserve"><value>Grabación movida a la Papelera de reciclaje</value></data>
+  <data name="RecordingImported" xml:space="preserve"><value>{0} importado</value></data>
+  <data name="Transcribing" xml:space="preserve"><value>Transcribiendo</value></data>
+  <data name="IdentifyingSpeakers" xml:space="preserve"><value>Identificando participantes</value></data>
+  <data name="TranscriptionFailed" xml:space="preserve"><value>No se pudo transcribir: {0}</value></data>
+  <data name="SpeakerIdentificationFailed" xml:space="preserve"><value>No se pudo identificar a los participantes: {0}</value></data>
+  <data name="EmptySpeakerName" xml:space="preserve"><value>El nombre no puede quedar vacío.</value></data>
 </root>

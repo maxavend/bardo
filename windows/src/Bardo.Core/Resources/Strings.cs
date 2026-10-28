@@ -66,4 +66,28 @@ internal static class Strings
     public static string SourceImportedFile => Get(nameof(SourceImportedFile));
 
     public static string UnknownSource => Get(nameof(UnknownSource));
+
+    public static string ImportedAudio => Get(nameof(ImportedAudio));
+
+    public static string UnsupportedAudioFormat(object? arg0) => Format(nameof(UnsupportedAudioFormat), arg0);
+
+    public static string UnreadableAudio => Get(nameof(UnreadableAudio));
+
+    public static string EmptyRecordingTitle => Get(nameof(EmptyRecordingTitle));
+
+    public static string RecordingRenamed => Get(nameof(RecordingRenamed));
+
+    public static string RecordingRecycled => Get(nameof(RecordingRecycled));
+
+    public static string RecordingImported(object? arg0) => Format(nameof(RecordingImported), arg0);
+
+    public static string Transcribing => Get(nameof(Transcribing));
+
+    public static string IdentifyingSpeakers => Get(nameof(IdentifyingSpeakers));
+
+    public static string TranscriptionFailed(object? arg0) => Format(nameof(TranscriptionFailed), arg0);
+
+    public static string SpeakerIdentificationFailed(object? arg0) => Format(nameof(SpeakerIdentificationFailed), arg0);
+
+    public static string EmptySpeakerName => Get(nameof(EmptySpeakerName));
 }
