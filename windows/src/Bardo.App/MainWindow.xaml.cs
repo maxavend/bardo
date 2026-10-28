@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using Bardo.Library;
 using Bardo.Persistence;
 using Microsoft.UI.Dispatching;
@@ -11,6 +12,7 @@ using Windows.Graphics;
 
 namespace Bardo.App;
 
+[SuppressMessage("Reliability", "CA1001", Justification = "The watcher is disposed when the window closes.")]
 public sealed partial class MainWindow : Window
 {
     private readonly DispatcherQueueTimer _reloadTimer;
