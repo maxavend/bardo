@@ -5,8 +5,10 @@
     </Project>
     <Project Path="src/Bardo.Audio/Bardo.Audio.csproj" />
     <Project Path="src/Bardo.Core/Bardo.Core.csproj" />
+    <Project Path="src/Bardo.Engines/Bardo.Engines.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Bardo.Core.Tests/Bardo.Core.Tests.csproj" />
+    <Project Path="tests/Bardo.Engines.Tests/Bardo.Engines.Tests.csproj" />
   </Folder>
 </Solution>
