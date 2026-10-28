@@ -1,0 +1,16 @@
+---
+import { DownloadIcon } from "lucide-react"
+import { buttonVariants } from "@/components/ui/button"
+import { links } from "@/lib/site"
+
+interface Props {
+  label?: string
+}
+
+const { label = "Descargar para Mac" } = Astro.props
+---
+
+<a class={buttonVariants()} href={links.download}>
+  <DownloadIcon data-icon="inline-start" aria-hidden="true" />
+  {label}
+</a>

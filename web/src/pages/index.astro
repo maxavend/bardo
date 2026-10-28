@@ -1,0 +1,202 @@
+---
+import Layout from "@/layouts/main.astro"
+import DownloadButton from "@/components/site/DownloadButton.astro"
+import Shot from "@/components/site/Shot.astro"
+import { FlowTabs } from "@/components/site/FlowTabs"
+import { url } from "@/lib/site"
+
+const tiles = [
+  {
+    wide: true,
+    title: "Marca lo importante",
+    text: "Un momento con título y nota, mientras grabas o escuchas.",
+    shot: { src: "assets/capturas/momento.webp", width: 1305, height: 546, slotName: "momento", slotAlt: "Un momento marcado sobre la onda, con título y nota" },
+  },
+  {
+    wide: false,
+    float: true,
+    title: "Cada voz, con su nombre",
+    text: "Escucha una muestra, ponle nombre o junta dos voces en una.",
+    shot: { src: "assets/capturas/participantes.webp", width: 1038, height: 702, slotName: "participantes", slotAlt: "La hoja Participantes, con un nombre por voz" },
+  },
+  {
+    wide: false,
+    title: "Se ve quién habla",
+    text: "La onda se colorea por voz y los subtítulos siguen cada palabra.",
+    shot: { src: "assets/capturas/quien-habla.webp", width: 900, height: 779, slotName: "quien-habla", slotAlt: "El reproductor completo con la onda coloreada por hablante y los subtítulos" },
+  },
+  {
+    wide: true,
+    title: "Encuentra cualquier frase",
+    text: "Una búsqueda recorre toda la biblioteca y resalta lo que encuentra.",
+    shot: { src: "assets/capturas/busqueda.webp", width: 1728, height: 719, slotName: "busqueda", slotAlt: "Resultados de búsqueda de una palabra en toda la biblioteca" },
+  },
+]
+
+const stages = [
+  {
+    value: "grabando",
+    label: "Mientras grabas",
+    caption: "Cada frase aparece a medida que Bardo la escucha.",
+    alt: "Bardo transcribe la retro de un sprint mientras se graba",
+    slotAlt: "Bardo transcribiendo una reunión en vivo",
+    desktop: { src: url("assets/capturas/03-transcribiendo-en-vivo.webp"), width: 2400, height: 938 },
+    mobile: { src: url("assets/capturas/03-movil.webp"), width: 900, height: 696 },
+  },
+  {
+    value: "lista",
+    label: "Al terminar",
+    caption: "Secciones, momentos y participantes, listos para leer.",
+    alt: "La biblioteca de Bardo con una revisión de diseño abierta, sus secciones y un momento marcado",
+    slotAlt: "La biblioteca con una reunión transcrita abierta",
+    desktop: { src: url("assets/capturas/04-biblioteca.webp"), width: 2400, height: 923 },
+    mobile: { src: url("assets/capturas/04-movil.webp"), width: 900, height: 696 },
+  },
+  {
+    value: "pistas",
+    label: "Por pistas",
+    caption: "Escucha todo, solo tu micrófono o solo a los demás.",
+    alt: "El menú Pistas de Bardo para escuchar todo, solo tu micrófono o solo a los demás",
+    slotAlt: "El selector de pistas: todos, solo tú o solo los demás",
+    desktop: { src: url("assets/capturas/07-pistas.webp"), width: 1770, height: 690 },
+    mobile: { src: url("assets/capturas/07-movil.webp"), width: 900, height: 696 },
+  },
+]
+
+const ways = [
+  { name: "Rápido", engine: "Reconocimiento de Apple", text: "Incluido en macOS 26 o posterior. No descarga nada." },
+  { name: "Equilibrado", engine: "Whisper Large v3 Turbo", text: "Muy preciso, también con nombres y siglas. 646 MB." },
+  { name: "Preciso", engine: "Whisper Large v3", text: "El más exacto cuando las voces se cruzan. 3,1 GB." },
+]
+---
+
+<Layout
+  title="Bardo, transcripción privada para Mac"
+  description="Bardo graba o importa conversaciones y las transcribe en tu Mac, con quién dijo qué, sin enviar nada a la nube."
+  current="inicio"
+>
+  <section
+    class="grid min-h-[calc(100dvh-73px)] items-center pt-10 pb-16 max-lg:min-h-0 max-lg:py-16 max-sm:pt-6"
+    aria-labelledby="hero-title"
+  >
+    <div class="shell grid grid-cols-[minmax(0,5fr)_minmax(0,6fr)] items-center gap-24 max-lg:grid-cols-1 max-lg:gap-10 max-sm:gap-6">
+      <div class="flex flex-col items-start gap-6 max-sm:gap-4">
+        <img class="size-22 max-sm:size-14" src={url("assets/marca/icono-bardo.webp")} width="320" height="320" alt="Ícono de Bardo" />
+        <h1 id="hero-title" class="max-w-[16ch] text-display">Quién dijo qué, sin salir del Mac.</h1>
+        <p class="max-w-[34ch] text-lead text-ink-2">Graba tus conversaciones y léelas transcritas, con el nombre de cada voz.</p>
+        <div class="flex flex-col items-start gap-3 pt-2">
+          <DownloadButton />
+          <p class="text-sm text-ink-muted">Gratis. Mac con Apple silicon y macOS 15 o posterior.</p>
+        </div>
+      </div>
+      <Shot
+        src="assets/capturas/portada-transcripcion.webp"
+        width={1560}
+        height={1310}
+        mobile={{ src: "assets/capturas/portada-movil.webp", width: 760, height: 880 }}
+        alt="Transcripción de una revisión de diseño en Bardo: cada intervención con su hablante y su minuto, y un momento marcado"
+        slotName="portada"
+        slotAlt="Una reunión transcrita en Bardo, con secciones, hablantes y un momento marcado"
+        window
+        priority
+        class="aspect-[1560/1310] max-sm:-mr-(--gutter) max-sm:aspect-[760/880] max-sm:rounded-r-none"
+      />
+    </div>
+  </section>
+
+  <section class="pt-36 max-lg:pt-24" aria-labelledby="moments-title">
+    <div class="shell">
+      <h2 id="moments-title" class="mb-16 max-w-[30ch] text-section">Encuentra el minuto sin escucharlo todo.</h2>
+      <div class="grid grid-cols-12 gap-8 max-sm:gap-4">
+        {
+          tiles.map((tile) => (
+            <article class:list={["grid min-w-0 grid-rows-[auto_1fr] bg-paper-2 max-lg:col-span-12", tile.wide ? "col-span-8" : "col-span-4"]}>
+              <Shot
+                {...tile.shot}
+                alt=""
+                float={tile.float}
+                class="h-90 max-lg:aspect-video max-lg:h-auto max-sm:aspect-[4/3]"
+              />
+              <div class="flex flex-col gap-2 px-10 pt-6 pb-10 max-sm:p-6">
+                <h3 class="text-3xl">{tile.title}</h3>
+                <p class="max-w-[46ch] text-ink-2">{tile.text}</p>
+              </div>
+            </article>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <section class="pt-36 max-lg:pt-24" aria-labelledby="privacy-title">
+    <div class="bg-ink py-30 text-paper max-lg:py-20">
+      <div class="shell flex flex-col items-start gap-10">
+        <h2 id="privacy-title" class="max-w-[18ch] text-display max-lg:text-display-s">
+          Tu audio, tu texto y cada nombre se quedan en tu Mac.
+        </h2>
+        <a
+          class="text-lead font-medium text-paper underline decoration-magenta-deep transition-[text-decoration-thickness] hover:decoration-2 focus-visible:outline-paper"
+          href={url("privacidad/")}>Qué guarda Bardo y dónde</a
+        >
+      </div>
+    </div>
+  </section>
+
+  <section class="pt-36 max-lg:pt-24" aria-labelledby="flow-title">
+    <div class="shell">
+      <div class="mb-16 grid grid-cols-[minmax(0,5fr)_minmax(0,6fr)] items-end gap-24 max-lg:grid-cols-1 max-lg:gap-4">
+        <h2 id="flow-title" class="max-w-[30ch] text-section">El texto llega mientras escuchas.</h2>
+        <p class="max-w-[52ch] text-lead text-ink-2">La misma reunión, de la grabación a la lectura.</p>
+      </div>
+      <FlowTabs client:visible stages={stages} />
+    </div>
+  </section>
+
+  <section class="pt-44 max-lg:pt-30" aria-labelledby="ways-title">
+    <div class="shell grid grid-cols-[minmax(0,4fr)_minmax(0,8fr)] gap-8 max-lg:grid-cols-1">
+      <div class="flex flex-col gap-4">
+        <h2 id="ways-title" class="text-section">Tres formas de transcribir</h2>
+        <p class="max-w-[34ch] text-ink-2">Reconocer a cada hablante pesa 11&nbsp;MB y funciona igual con las tres.</p>
+      </div>
+      <ol class="border-t-[1.5px] border-primary">
+        {
+          ways.map((way) => (
+            <li class="grid grid-cols-[minmax(0,4fr)_minmax(0,3fr)_minmax(0,5fr)] items-baseline gap-8 border-b py-10 max-lg:grid-cols-1 max-lg:gap-2">
+              <h3 class="text-4xl">{way.name}</h3>
+              <small class="text-sm font-medium text-ink-muted">{way.engine}</small>
+              <p class="text-ink-2">{way.text}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+
+  <section class="pt-36 max-lg:pt-24" aria-labelledby="close-title">
+    <div class="bg-paper-2 py-30 text-ink max-lg:py-20">
+      <div class="shell grid grid-cols-[minmax(0,5fr)_minmax(0,6fr)] items-center gap-24 max-lg:grid-cols-1 max-lg:gap-10">
+        <div class="flex flex-col items-start gap-6">
+          <h2 class="max-w-[30ch] text-section" id="close-title">Tu próxima reunión, escrita sin conexión.</h2>
+          <p class="text-ink-2">Para Mac con Apple silicon y macOS 15 o posterior.</p>
+          <div class="flex flex-wrap items-center gap-6">
+            <DownloadButton />
+            <a
+              class="text-link"
+              href={url("descargar/")}>Cómo instalarlo</a
+            >
+          </div>
+        </div>
+        <Shot
+          src="assets/capturas/bienvenida.webp"
+          width={1400}
+          height={1050}
+          alt="La bienvenida de Bardo: cada palabra en su momento, quién dijo qué y privado en tu Mac"
+          slotName="bienvenida"
+          slotAlt="La bienvenida de Bardo"
+          window
+          class="aspect-[1400/1050]"
+        />
+      </div>
+    </div>
+  </section>
+</Layout>

@@ -1,0 +1,66 @@
+---
+import { cn } from "@/lib/utils"
+import { url } from "@/lib/site"
+
+interface Source {
+  src: string
+  width: number
+  height: number
+}
+
+interface Props extends Source {
+  alt: string
+  slotName?: string
+  slotAlt?: string
+  /** A narrower crop for phones. */
+  mobile?: Source
+  /** Rounds the frame like a macOS window. */
+  window?: boolean
+  /** Shows a whole component on a well instead of filling the frame. */
+  float?: boolean
+  priority?: boolean
+  class?: string
+}
+
+const {
+  src,
+  width,
+  height,
+  alt,
+  slotName,
+  slotAlt,
+  mobile,
+  window = false,
+  float = false,
+  priority = false,
+  class: className,
+} = Astro.props
+---
+
+<figure
+  class={cn(
+    "relative m-0 overflow-hidden bg-paper-2",
+    window && "rounded-window",
+    float && "bg-paper-3",
+    className
+  )}
+  data-slot={slotName}
+  data-kind="product"
+  data-alt={slotAlt}
+>
+  <picture class={cn("absolute z-1", float ? "inset-6" : "inset-0")}>
+    {mobile && <source media="(max-width: 40rem)" srcset={url(mobile.src)} width={mobile.width} height={mobile.height} />}
+    <img
+      class={cn(
+        "size-full",
+        float ? "object-contain" : "object-cover object-top outline-1 -outline-offset-1 outline-ink/8"
+      )}
+      src={url(src)}
+      width={width}
+      height={height}
+      alt={alt}
+      loading={priority ? undefined : "lazy"}
+      fetchpriority={priority ? "high" : undefined}
+    />
+  </picture>
+</figure>

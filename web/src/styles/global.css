@@ -1,0 +1,202 @@
+/* Hallmark · shape: Bento Grid · genre: editorial · theme: Hedgerow (deal 2/3, seed bardo-app-nativa-macos-0ed3·4d053886·2026-10-28·r0) · job: try · draw: a871bc
+ * hero: Settled · nav: slab · footer: letter close · imagery: screenshots 10 (the user's own captures, cropped) · signature: a real meeting transcript, who said what, set big beside the download · hedgerow: sloe, plum ground retuned to the Bardo kit ink, accent moved to the kit magenta
+ * axes: dark/high-contrast-serif/chromatic-pink · posture: drenched · contrast: pass · fold: pass · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H4 E4 S5 R4 V4 · weakest: P, privacy could read as a slogan; set it as the one statement and backed it with where the files live */
+/* Hallmark · hero-review: fix · 5 findings · 5 resolved · finish-review: subagent · 7 findings · 7 resolved · gap: none · port: Astro + shadcn (base-nova), same design */
+/* Hallmark · dismissed F18 · data-slot="separator" is shadcn's component marker on the footer rule, not an image slot */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource/prata/400.css";
+@import "@fontsource-variable/manrope";
+
+/* Bardo's tokens: the plum of the logo kit, cream ink and the kit magenta lifted for dark paper. */
+:root {
+  color-scheme: dark;
+
+  --paper: oklch(23% 0.047 302);
+  --paper-2: oklch(19% 0.042 302);
+  --paper-3: oklch(28.5% 0.05 302);
+  --ink: oklch(94% 0.02 80);
+  --ink-2: oklch(84% 0.03 310);
+  --ink-muted: oklch(72% 0.04 310);
+  --rule: oklch(36% 0.05 302);
+  --magenta: oklch(76% 0.15 355);
+  --magenta-2: oklch(83% 0.11 355);
+  --magenta-deep: oklch(52% 0.2 355);
+  --magenta-ink: oklch(21% 0.05 302);
+  --focus: oklch(83% 0.11 355);
+
+  /* shadcn roles, mapped onto Bardo's tokens */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper-2);
+  --card-foreground: var(--ink);
+  --popover: var(--paper-3);
+  --popover-foreground: var(--ink);
+  --primary: var(--magenta);
+  --primary-foreground: var(--magenta-ink);
+  --secondary: var(--paper-3);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-2);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--paper-3);
+  --accent-foreground: var(--ink);
+  --destructive: oklch(72% 0.15 27);
+  --border: var(--rule);
+  --input: var(--ink-muted);
+  --ring: var(--focus);
+  --radius: 0rem;
+
+  --gutter: 64px;
+}
+
+@media (max-width: 60rem) {
+  :root { --gutter: 24px; }
+}
+@media (max-width: 40rem) {
+  :root { --gutter: 16px; }
+}
+
+@theme {
+  --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
+  --text-display--line-height: 1.12;
+  --text-display-s: clamp(2.25rem, 4vw + 0.5rem, 3.75rem);
+  --text-display-s--line-height: 1.12;
+  --text-section: clamp(2rem, 2.5vw + 1rem, 3.5rem);
+  --text-section--line-height: 1.1;
+  --text-title: clamp(1.25rem, 0.75vw + 0.875rem, 1.625rem);
+  --text-title--line-height: 1.2;
+  --text-lead: clamp(1.125rem, 0.35vw + 1rem, 1.375rem);
+  --text-lead--line-height: 1.45;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@theme inline {
+  --font-sans: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Prata", Georgia, serif;
+  --font-display: "Prata", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-paper-3: var(--paper-3);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-muted: var(--ink-muted);
+  --color-rule: var(--rule);
+  --color-magenta: var(--magenta);
+  --color-magenta-2: var(--magenta-2);
+  --color-magenta-deep: var(--magenta-deep);
+  --color-magenta-ink: var(--magenta-ink);
+  --color-focus: var(--focus);
+
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+  --radius-window: 14px;
+}
+
+/* The one container: capped at 1440, gutters grow past it. */
+@utility shell {
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* Text links: cream with a magenta underline that thickens on hover. */
+@utility text-link {
+  color: var(--ink);
+  text-decoration-line: underline;
+  text-decoration-color: var(--magenta);
+  text-decoration-thickness: 1px;
+  transition: text-decoration-thickness 220ms var(--ease-out-expo), color 120ms var(--ease-out-expo);
+  &:hover {
+    text-decoration-thickness: 2px;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    overflow-x: clip;
+  }
+  html {
+    @apply font-sans;
+    scroll-padding-top: 6rem;
+    scrollbar-color: var(--ink-muted) var(--paper);
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-size: 1rem;
+    line-height: 1.55;
+    caret-color: var(--magenta);
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+    font-weight: 400;
+    font-synthesis: none;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+    overflow-wrap: break-word;
+    min-width: 0;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--magenta) 22%, transparent);
+    color: var(--ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  a {
+    text-underline-offset: 0.16em;
+    text-decoration-thickness: 1px;
+  }
+  a:active {
+    color: var(--ink-2);
+  }
+  code:not(pre code) {
+    @apply bg-paper-3 px-1 font-mono text-[0.9em] text-ink;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,45 @@
+---
+import { buttonVariants } from "@/components/ui/button"
+import { url, type Page } from "@/lib/site"
+
+interface Props {
+  current: Page
+}
+
+const { current } = Astro.props
+
+const items: { page: Page; label: string; href: string }[] = [
+  { page: "novedades", label: "Novedades", href: url("novedades/") },
+  { page: "privacidad", label: "Privacidad", href: url("privacidad/") },
+]
+---
+
+<header class="border-b bg-paper-2">
+  <nav class="shell flex min-h-18 items-center justify-between gap-6" aria-label="Principal">
+    <a class="inline-flex min-h-11 shrink-0 items-center" href={url()} aria-label="Bardo, inicio">
+      <img class="h-7.5 w-auto" src={url("assets/marca/bardo-horizontal.svg")} width="818" height="258" alt="" />
+    </a>
+    <ul class="flex items-center gap-6 max-lg:gap-4">
+      {
+        items.map((item) => (
+          <li class="max-sm:hidden">
+            <a
+              class="inline-flex min-h-11 items-center text-sm font-medium whitespace-nowrap text-ink-2 no-underline transition-colors duration-200 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:underline aria-[current=page]:decoration-primary"
+              href={item.href}
+              aria-current={current === item.page ? "page" : undefined}
+            >
+              {item.label}
+            </a>
+          </li>
+        ))
+      }
+      <li>
+        <a
+          class={buttonVariants({ variant: "outline", size: "sm" })}
+          href={url("descargar/")}
+          aria-current={current === "descargar" ? "page" : undefined}>Descargar</a
+        >
+      </li>
+    </ul>
+  </nav>
+</header>

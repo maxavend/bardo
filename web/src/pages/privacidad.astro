@@ -1,0 +1,44 @@
+---
+import Layout from "@/layouts/main.astro"
+import "@/styles/pages.css"
+import { links } from "@/lib/site"
+
+const rows = [
+  { term: "Lo que guarda", detail: "El audio, el texto, tus correcciones y los nombres." },
+  { term: "Dónde", detail: "En <code>~/Library/Application Support/Bardo</code>, solo para tu usuario." },
+  { term: "Qué usa internet", detail: "Solo para descargar los modelos. Después, todo funciona sin conexión." },
+  { term: "Qué permisos pide", detail: "El micrófono y, para grabar lo que suena en el Mac, el audio del sistema." },
+  {
+    term: "Cómo comprobarlo",
+    detail: `Lee el código abierto en <a class="text-link" href="${links.repo}">GitHub</a>.`,
+  },
+]
+---
+
+<Layout
+  title="Privacidad en Bardo"
+  description="Qué guarda Bardo, dónde lo guarda y qué usa internet: el audio y el texto nunca salen de tu Mac."
+  current="privacidad"
+>
+  <section class="pt-24 pb-16 max-lg:pt-16" aria-labelledby="page-title">
+    <div class="shell flex flex-col gap-6">
+      <h1 id="page-title" class="max-w-[20ch] text-display">Tu audio no sale de tu Mac.</h1>
+      <p class="max-w-[52ch] text-lead text-ink-2">Bardo transcribe y reconoce cada voz en el propio Mac.</p>
+    </div>
+  </section>
+
+  <section class="pb-30" aria-label="Qué guarda Bardo">
+    <div class="shell">
+      <dl class="border-t-[1.5px] border-primary">
+        {
+          rows.map((row) => (
+            <div class="grid grid-cols-[minmax(0,4fr)_minmax(0,8fr)] gap-8 border-b py-16 max-lg:grid-cols-1 max-lg:gap-2 max-lg:py-10">
+              <dt class="font-display text-3xl">{row.term}</dt>
+              <dd class="max-w-[52ch] text-lead text-ink-2" set:html={row.detail} />
+            </div>
+          ))
+        }
+      </dl>
+    </div>
+  </section>
+</Layout>
