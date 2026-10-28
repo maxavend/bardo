@@ -1,0 +1,79 @@
+name: Windows
+
+"on":
+  pull_request:
+    paths:
+      - "windows/**"
+      - "Bardo/Domain/**"
+      - "Bardo/Persistence/**"
+      - "Bardo/Transcription/TranscriptionBackend.swift"
+      - ".github/workflows/windows.yml"
+  push:
+    branches:
+      - main
+      - windows/port
+    paths:
+      - "windows/**"
+      - "Bardo/Domain/**"
+      - "Bardo/Persistence/**"
+      - "Bardo/Transcription/TranscriptionBackend.swift"
+      - ".github/workflows/windows.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Core (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: windows/global.json
+
+      - name: Build
+        working-directory: windows
+        run: dotnet build --configuration Release
+
+      - name: Run unit tests
+        working-directory: windows
+        run: dotnet test --configuration Release --no-build
+
+  mac-library-fixtures:
+    name: macOS Library fixtures are current
+    runs-on: macos-26
+    timeout-minutes: 10
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      # The fixtures come from the macOS app's own persistence code. If that code now
+      # writes something different, Bardo for Windows must learn to read it.
+      - name: Regenerate fixtures with the macOS persistence code
+        run: windows/tools/macos-fixtures/make-fixtures.sh
+
+      - name: Compare with the committed fixtures
+        run: |
+          git status --porcelain -- windows/tests/Bardo.Core.Tests/Fixtures
+          test -z "$(git status --porcelain -- windows/tests/Bardo.Core.Tests/Fixtures)"

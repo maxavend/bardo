@@ -1,0 +1,81 @@
+{
+  "audioAssets" : [
+    {
+      "channelCount" : 1,
+      "codec" : "aac",
+      "derivedFromAssetIDs" : [
+
+      ],
+      "duration" : 187.25,
+      "fileExtension" : "m4a",
+      "id" : "00000000-0000-0000-0000-000000000011",
+      "originalFileName" : "Micrófono.caf",
+      "role" : "microphoneOriginal",
+      "sampleRate" : 32000,
+      "timelineOffset" : 0
+    },
+    {
+      "channelCount" : 2,
+      "codec" : "aac",
+      "derivedFromAssetIDs" : [
+
+      ],
+      "duration" : 187.5,
+      "fileExtension" : "m4a",
+      "id" : "00000000-0000-0000-0000-000000000012",
+      "originalFileName" : "Sistema.m4a",
+      "role" : "systemOriginal",
+      "sampleRate" : 48000,
+      "timelineOffset" : 0.125
+    },
+    {
+      "channelCount" : 2,
+      "codec" : "aac",
+      "derivedFromAssetIDs" : [
+        "00000000-0000-0000-0000-000000000011",
+        "00000000-0000-0000-0000-000000000012"
+      ],
+      "duration" : 187.5,
+      "fileExtension" : "m4a",
+      "id" : "00000000-0000-0000-0000-000000000013",
+      "originalFileName" : "Conversación.m4a",
+      "role" : "conversationMix",
+      "sampleRate" : 32000,
+      "timelineOffset" : 0
+    }
+  ],
+  "createdAtEpochSeconds" : 1761650000.1234567,
+  "createdAtEpochSecondsBitPattern" : 4745175703635879607,
+  "duration" : 187.5,
+  "id" : "00000000-0000-0000-0000-000000000001",
+  "notes" : {
+    "moments" : [
+      {
+        "id" : "00000000-0000-0000-0000-000000000021",
+        "note" : "Lanzar el jueves",
+        "time" : 42.5,
+        "title" : "Decisión"
+      }
+    ],
+    "sections" : [
+      {
+        "id" : "00000000-0000-0000-0000-000000000022",
+        "start" : 0,
+        "title" : "Contexto"
+      },
+      {
+        "id" : "00000000-0000-0000-0000-000000000023",
+        "start" : 90,
+        "title" : "Cierre"
+      }
+    ]
+  },
+  "processingState" : "completed",
+  "schemaVersion" : 3,
+  "skipsSilences" : true,
+  "sources" : [
+    "microphone",
+    "systemAudio"
+  ],
+  "title" : "Reunión de diseño"
+}

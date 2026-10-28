@@ -1,0 +1,86 @@
+{
+  "schemaVersion" : 1,
+  "transcript" : {
+    "diarizationMetadata" : {
+      "createdAt" : 783343010,
+      "engine" : "SpeakerKit",
+      "engineVersion" : "1.1.0",
+      "modelID" : "pyannote",
+      "processingDuration" : 0.75
+    },
+    "languageCode" : "es",
+    "metadata" : {
+      "createdAt" : 783343000.5,
+      "engine" : "WhisperKit",
+      "engineVersion" : "1.1.0",
+      "modelID" : "large-v3",
+      "processingDuration" : 18.25,
+      "selection" : {
+        "backend" : "whisperKit",
+        "modelID" : "large-v3"
+      },
+      "trackMode" : "perTrack"
+    },
+    "recordingID" : "00000000-0000-0000-0000-000000000001",
+    "segments" : [
+      {
+        "endTime" : 3.25,
+        "id" : "00000000-0000-0000-0000-000000000041",
+        "source" : "microphone",
+        "speakerID" : "00000000-0000-0000-0000-000000000031",
+        "startTime" : 0.5,
+        "text" : "Hola, partamos.",
+        "words" : [
+          {
+            "endTime" : 1,
+            "id" : "00000000-0000-0000-0000-000000000051",
+            "probability" : 0.98,
+            "startTime" : 0.5,
+            "text" : "Hola,"
+          },
+          {
+            "endTime" : 3.25,
+            "id" : "00000000-0000-0000-0000-000000000052",
+            "startTime" : 1.1,
+            "text" : "partamos."
+          }
+        ]
+      },
+      {
+        "editedText" : "Revisemos el estado vacío.",
+        "endTime" : 9.75,
+        "id" : "00000000-0000-0000-0000-000000000042",
+        "source" : "system",
+        "speakerID" : "00000000-0000-0000-0000-000000000033",
+        "startTime" : 4,
+        "text" : "Revisemos el empty state.",
+        "words" : [
+
+        ]
+      },
+      {
+        "endTime" : 12,
+        "id" : "00000000-0000-0000-0000-000000000043",
+        "startTime" : 10,
+        "text" : "Sin hablante.",
+        "words" : [
+
+        ]
+      }
+    ],
+    "speakers" : [
+      {
+        "id" : "00000000-0000-0000-0000-000000000031",
+        "name" : "Maxi",
+        "role" : "localUser"
+      },
+      {
+        "id" : "00000000-0000-0000-0000-000000000032",
+        "role" : "others"
+      },
+      {
+        "id" : "00000000-0000-0000-0000-000000000033"
+      }
+    ]
+  }
+}
