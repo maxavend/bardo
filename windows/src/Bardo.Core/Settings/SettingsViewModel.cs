@@ -53,6 +53,12 @@ public sealed class SettingsViewModel : ObservableModel, IDisposable
         set => Update(current => current with { LocalName = value.Trim().Length == 0 ? null : value.Trim() });
     }
 
+    public string? MicrophoneDeviceId
+    {
+        get => _preferences.Current.MicrophoneDeviceId;
+        set => Update(current => current with { MicrophoneDeviceId = value });
+    }
+
     public int AudioQualityIndex
     {
         get => (int)_preferences.Current.AudioQuality;

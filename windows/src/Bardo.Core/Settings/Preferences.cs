@@ -30,6 +30,10 @@ public sealed record Preferences
     public TranscriptionTrackMode TrackMode { get; init; } = TranscriptionTrackMode.PerTrack;
     public TranscriptionQuality TranscriptionQuality { get; init; } = TranscriptionQuality.Balanced;
 
+    /// <summary>The microphone to record from; none means the one Windows uses for calls.</summary>
+    public string? MicrophoneDeviceId { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
     public AudioEncoding Encoding => new(AudioQuality, AudioFormat);
 
     public bool IsFavorite(Guid recordingId) => Favorites.Contains(recordingId);
