@@ -36,10 +36,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <!-- Whisper on any GPU with Vulkan; Whisper.net falls back to the CPU without one. -->
+    <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.1" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Bardo.Core\Bardo.Core.csproj" />
+    <ProjectReference Include="..\Bardo.Audio\Bardo.Audio.csproj" />
+    <ProjectReference Include="..\Bardo.Engines\Bardo.Engines.csproj" />
   </ItemGroup>
 
 </Project>
