@@ -38,9 +38,14 @@ public sealed partial class MainWindow
         Directory.CreateDirectory(folder);
         var root = (FrameworkElement)Content;
         AppWindow.Move(new PointInt32(0, 0));
-        AppWindow.Resize(new SizeInt32(1280, 800));
+        await Settle();
+        // Logical 1280 x 800, as large as the screen's scale makes it in pixels.
+        var scale = root.XamlRoot?.RasterizationScale ?? 1;
+        AppWindow.Resize(new SizeInt32((int)(1280 * scale), (int)(800 * scale)));
         await LoadAsync();
         await Settle();
+        await File.WriteAllTextAsync(Path.Combine(folder, "display.txt"),
+            $"Scale {scale:0.##}, window {AppWindow.Size.Width}x{AppWindow.Size.Height}");
 
         foreach (var theme in new[] { ElementTheme.Dark, ElementTheme.Light })
         {
@@ -100,7 +105,7 @@ public sealed partial class MainWindow
 
         // The smallest size people use, where nothing may be cut off.
         root.RequestedTheme = ElementTheme.Dark;
-        AppWindow.Resize(new SizeInt32(980, 620));
+        AppWindow.Resize(new SizeInt32((int)(980 * scale), (int)(620 * scale)));
         ViewModel.Select(ViewModel.Rows[0].Id);
         await WaitFor(() => Playback.IsAvailable);
         await Capture(folder, "07-ventana-pequena");

@@ -104,10 +104,12 @@ jobs:
         if: matrix.platform == 'x64'
         shell: pwsh
         run: |
+          ./windows/tools/design-review/Set-Display.ps1
           $folder = Join-Path $PWD "design-review"
           $app = Start-Process -FilePath "publish/Bardo-${{ matrix.rid }}/Bardo.exe" -ArgumentList "--design-review", "`"$folder`"" -PassThru
           if (-not $app.WaitForExit(180000)) { $app.Kill(); Write-Error "The design review did not finish." }
           Get-ChildItem $folder -Filter *.png | ForEach-Object { "$($_.Name) $($_.Length)" }
+          if (Test-Path "$folder/display.txt") { Get-Content "$folder/display.txt" }
           if (-not (Get-ChildItem $folder -Filter *.png)) { exit 1 }
 
       - name: Upload the design review
