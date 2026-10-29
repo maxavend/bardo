@@ -12,6 +12,8 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
     var notes: RecordingNotes
     /// Playback jumps over long silences in this recording.
     var skipsSilences: Bool
+    /// Kept out of the Library's lists, in Archivadas, without being deleted.
+    var isArchived: Bool
 
     init(
         id: UUID = UUID(),
@@ -22,7 +24,8 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
         processingState: ProcessingState = .pending,
         audioAssets: [AudioAsset] = [],
         notes: RecordingNotes = RecordingNotes(),
-        skipsSilences: Bool = false
+        skipsSilences: Bool = false,
+        isArchived: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -33,6 +36,7 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
         self.audioAssets = audioAssets
         self.notes = notes
         self.skipsSilences = skipsSilences
+        self.isArchived = isArchived
     }
 
     var playbackAudioAssets: [AudioAsset] {
@@ -54,6 +58,7 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
         case audioAssets
         case notes
         case skipsSilences
+        case isArchived
     }
 
     init(from decoder: Decoder) throws {
@@ -67,6 +72,7 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
         audioAssets = try container.decodeIfPresent([AudioAsset].self, forKey: .audioAssets) ?? []
         notes = try container.decodeIfPresent(RecordingNotes.self, forKey: .notes) ?? RecordingNotes()
         skipsSilences = try container.decodeIfPresent(Bool.self, forKey: .skipsSilences) ?? false
+        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -84,6 +90,9 @@ struct Recording: Identifiable, Codable, Equatable, Sendable {
         }
         if skipsSilences {
             try container.encode(skipsSilences, forKey: .skipsSilences)
+        }
+        if isArchived {
+            try container.encode(isArchived, forKey: .isArchived)
         }
     }
 }

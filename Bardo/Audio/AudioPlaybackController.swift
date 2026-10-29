@@ -336,8 +336,16 @@ final class AudioPlaybackController: ObservableObject {
         duration = timelineDuration
         let current = currentTimelinePosition
 
-        if isPlaying, let skipped = skippedRanges.first(where: { $0.contains(current) }), skipped.upperBound < duration {
-            seek(to: skipped.upperBound)
+        if isPlaying, let skipped = skippedRanges.first(where: { $0.contains(current) }) {
+            if skipped.upperBound < duration {
+                seek(to: skipped.upperBound)
+                return
+            }
+            // Nothing left to hear: it ends as the recording would.
+            pausePlayers()
+            position = duration
+            isPlaying = false
+            stopProgressUpdates()
             return
         }
 

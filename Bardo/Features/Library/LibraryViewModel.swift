@@ -10,7 +10,17 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var importErrorMessage: String?
     @Published private(set) var recordingActionErrorMessage: String?
     @Published private(set) var recordingActionFeedback: String?
-    @Published private(set) var transcript: Transcript?
+    @Published private(set) var transcript: Transcript? {
+        didSet {
+            // Merging or identifying participants changes whose turns are whose.
+            if oldValue?.speakers != transcript?.speakers, !listenedSpeakers.isEmpty {
+                Task { await applySkipping() }
+            }
+        }
+    }
+    /// Whom playback lets through, per recording, while Bardo is open; everyone when
+    /// a recording has no entry.
+    @Published private(set) var listenedSpeakers: [Recording.ID: Set<Speaker.ID>] = [:]
     @Published private(set) var transcriptErrorMessage: String?
     @Published private(set) var transcriptEditErrorMessage: String?
     @Published private(set) var transcriptionProgress: TranscriptionProgressSnapshot?
@@ -32,7 +42,15 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var compressingRecordingID: Recording.ID?
     /// A manual edit is being written; model work must not start from a stale copy.
     @Published private(set) var isSavingTranscriptEdit = false
-    @Published var selection: Recording.ID?
+    /// The conversations selected in the list; several when a person ⌘- or ⇧-clicks.
+    @Published var selectedIDs: Set<Recording.ID> = []
+
+    /// The one conversation open in the detail column; `nil` when none or several are
+    /// selected.
+    var selection: Recording.ID? {
+        get { selectedIDs.count == 1 ? selectedIDs.first : nil }
+        set { selectedIDs = newValue.map { [$0] } ?? [] }
+    }
 
     let playback: AudioPlaybackController
 
@@ -181,10 +199,23 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    /// Moves recordings to Archivadas, or back to the Library's lists. Nothing is
+    /// deleted; the change is saved in each recording's manifest.
+    func setArchived(_ recordingIDs: Set<Recording.ID>, _ archived: Bool) async {
+        recordingActionErrorMessage = nil
+        for recording in recordings where recordingIDs.contains(recording.id) && recording.isArchived != archived {
+            do {
+                try await updateRecording(recording.id) { $0.isArchived = archived }
+            } catch {
+                recordingActionErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
     func setSkipsSilences(_ recordingID: Recording.ID, _ skips: Bool) async {
         do {
             try await updateRecording(recordingID) { $0.skipsSilences = skips }
-            await applySilenceSkipping()
+            await applySkipping()
         } catch {
             recordingActionErrorMessage = error.localizedDescription
         }
@@ -267,6 +298,34 @@ final class LibraryViewModel: ObservableObject {
                 selection = nil
                 transcript = nil
                 playback.unload()
+            }
+            recordingActionFeedback = String(localized: "Recording moved to the Trash")
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+        }
+    }
+
+    /// Moves several recordings to the macOS Trash. Those being transcribed or
+    /// identified stay, as they do one at a time.
+    func deleteRecordings(_ recordingIDs: Set<Recording.ID>) async {
+        let ids = recordings.map(\.id).filter { recordingIDs.contains($0) && !isProcessing($0) }
+        guard !ids.isEmpty else { return }
+        recordingActionErrorMessage = nil
+        recordingActionFeedback = nil
+
+        do {
+            let activeStore = try resolveStore()
+            for id in ids {
+                try await activeStore.moveToTrash(id: id)
+                recordings.removeAll { $0.id == id }
+                issues.removeAll { $0.recordingID == id }
+                if selectedIDs.contains(id) {
+                    selectedIDs.remove(id)
+                    if selectedIDs.isEmpty {
+                        transcript = nil
+                        playback.unload()
+                    }
+                }
             }
             recordingActionFeedback = String(localized: "Recording moved to the Trash")
         } catch {
@@ -369,21 +428,46 @@ final class LibraryViewModel: ObservableObject {
         // Loading the audio that is already playing is a no-op, so reloads (an import,
         // a finished recording) never interrupt playback.
         _ = await preparePlayback(playback, for: recording)
-        await applySilenceSkipping()
+        // Read the waveform now, so it is ready when the player or the empty transcript
+        // shows it.
+        AudioWaveformOverviewModel.preload(
+            playback.loadedTracks,
+            resolution: RecordingWaveform.resolution(for: playback.duration > 0 ? playback.duration : recording.duration ?? 0)
+        )
+        await applySkipping()
     }
 
     /// Long silences of each recording, found once and kept for the session.
     private var silentRanges: [Recording.ID: [ClosedRange<TimeInterval>]] = [:]
 
-    /// Has the player jump over long silences when the selected recording asks for it.
-    func applySilenceSkipping() async {
-        guard let recording = selectedRecording, recording.skipsSilences else {
+    /// Plays only what `speakers` say in a recording; nil lets everyone through again.
+    func setListenedSpeakers(_ speakers: Set<Speaker.ID>?, for recordingID: Recording.ID) async {
+        listenedSpeakers[recordingID] = speakers
+        await applySkipping()
+    }
+
+    /// Has the player jump over what the selected recording asks to skip: the turns of
+    /// participants left out of listening, and long silences.
+    func applySkipping() async {
+        guard let recording = selectedRecording else {
             playback.skippedRanges = []
             return
         }
-        let ranges = await longSilences(of: recording.id)
-        guard selection == recording.id, selectedRecording?.skipsSilences == true else { return }
-        playback.skippedRanges = ranges
+        var ranges: [ClosedRange<TimeInterval>] = []
+        if let transcript, transcript.recordingID == recording.id,
+           let listened = listenedSpeakers[recording.id] {
+            // Participants merged away since they were chosen no longer count.
+            let speakers = listened.intersection(transcript.speakers.map(\.id))
+            if !speakers.isEmpty {
+                let duration = max(playback.duration, recording.duration ?? 0)
+                ranges += SpeakerPlaybackFilter.skippedRanges(of: transcript, keeping: speakers, duration: duration)
+            }
+        }
+        if recording.skipsSilences {
+            ranges += await longSilences(of: recording.id)
+        }
+        guard selection == recording.id else { return }
+        playback.skippedRanges = SpeakerPlaybackFilter.merged(ranges)
     }
 
     /// The long silences of the selected recording, found once its audio is loaded and
@@ -1015,9 +1099,11 @@ final class LibraryViewModel: ObservableObject {
     }
 
     private func reconcileSelection() {
-        if let selection, recordings.contains(where: { $0.id == selection }) {
+        let remaining = selectedIDs.filter { id in recordings.contains { $0.id == id } }
+        if !remaining.isEmpty {
+            if remaining != selectedIDs { selectedIDs = remaining }
             return
         }
-        selection = recordings.first?.id
+        selection = recordings.first { !$0.isArchived }?.id
     }
 }

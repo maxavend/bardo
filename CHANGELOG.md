@@ -2,6 +2,38 @@
 
 All notable changes to Bardo. Each version is also a [GitHub release](https://github.com/maxavend/bardo/releases) with its DMG.
 
+## 1.1.4 — 2026-10-29
+
+1.1.3 was never released: its build stopped on a compiler time limit, fixed here.
+
+### Library
+
+- **Archive conversations.** Archivar (⌃⌘A) moves conversations out of the Library's lists without deleting them; they wait in the new **Archivadas** section, from where they can come back.
+- **Select several at once** with ⌘-click or ⇧-click to archive them or add them to Favoritas together, from the context menu, the toolbar or the new **Conversación** menu.
+
+### Recording
+
+- **Recording in the menu bar.** While Bardo records, a red dot with the time shows in the menu bar, grey while paused. Its menu shows Bardo, pauses, silences the microphone, marks a moment and finishes the recording.
+
+### Transcription
+
+- **Which model and how long.** Información › Detalles técnicos shows the model that transcribed a conversation and how long it took.
+
+## 1.1.2 — 2026-10-29
+
+### Transcription
+
+- **No more words over silence.** Whisper wrote stock phrases such as "Thank you." over silent stretches, once every 22 seconds while a microphone was muted. Text whose audio never rises above room noise is now left out, as it is heard and in the finished transcript.
+
+### Playback
+
+- **Listen to some participants only.** The full player's Opciones lets you choose whom to hear; what the others say is skipped, together with silences if you skip those too.
+- **The waveform is ready sooner.** A recording's waveform is read as soon as you choose it, both tracks at once, so the full player opens with it. If it is still being read, placeholder bars stand in and the real ones fade in.
+
+### Design
+
+- The participants button keeps its avatars as close to the edge as to the top, following its curve.
+
 ## 1.1.1 — 2026-10-27
 
 ### Recording
