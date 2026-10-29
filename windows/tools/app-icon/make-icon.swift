@@ -1,11 +1,13 @@
 import AppKit
 
-// Draws Bardo's character on the light plate the macOS icon uses, at the sizes Windows
-// asks for, and packs them into one .ico (PNG entries) plus a PNG for the title bar.
-// Usage: swift make-icon.swift <character.png> <output directory>
+// Draws Bardo's head, without a plate as Windows 11 app icons are drawn, at the sizes
+// Windows asks for, and packs them into one .ico (PNG entries) plus a PNG for the title bar.
+// Usage: swift make-icon.swift <head with transparency.png> <output directory>
+// The head is design/mascota/image-v2/bardo-mascota-original.png.
 let character = NSImage(contentsOfFile: CommandLine.arguments[1])!
 let output = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
-let plate = NSColor(srgbRed: 0.97647, green: 0.96471, blue: 0.99216, alpha: 1)
+/// Windows icons keep a little room inside their square; small sizes need less of it.
+func padding(_ size: Int) -> CGFloat { size <= 24 ? 0.02 : 0.06 }
 
 func render(_ size: Int) -> Data {
     let bitmap = NSBitmapImageRep(
@@ -15,13 +17,12 @@ func render(_ size: Int) -> Data {
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
     NSGraphicsContext.current?.imageInterpolation = .high
-    let rect = NSRect(x: 0, y: 0, width: size, height: size)
-    // The same rounded plate as the macOS icon.
-    let shape = NSBezierPath(roundedRect: rect, xRadius: CGFloat(size) * 0.18, yRadius: CGFloat(size) * 0.18)
-    plate.setFill()
-    shape.fill()
-    shape.addClip()
-    character.draw(in: rect)
+    let inset = CGFloat(size) * padding(size)
+    let box = NSRect(x: 0, y: 0, width: size, height: size).insetBy(dx: inset, dy: inset)
+    // Fitted whole, keeping its proportions.
+    let scale = min(box.width / character.size.width, box.height / character.size.height)
+    let drawn = NSSize(width: character.size.width * scale, height: character.size.height * scale)
+    character.draw(in: NSRect(x: box.midX - drawn.width / 2, y: box.midY - drawn.height / 2, width: drawn.width, height: drawn.height))
     NSGraphicsContext.restoreGraphicsState()
     return bitmap.representation(using: .png, properties: [:])!
 }
