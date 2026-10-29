@@ -16,16 +16,17 @@ namespace Bardo.App.Controls;
 /// <summary>
 /// The colours that tell participants apart, shared by the waveform and the participant list.
 /// The first is the person's accent colour, as in Windows' own apps; the rest are Fluent
-/// colours that read on light and dark.
+/// colours that read on light and dark, in the order the macOS app gives them: orange,
+/// green, then the others.
 /// </summary>
 internal static class SpeakerPalette
 {
     private static readonly Color[] Others =
     [
-        Color.FromArgb(255, 0, 183, 195),
         Color.FromArgb(255, 247, 99, 12),
-        Color.FromArgb(255, 135, 100, 184),
         Color.FromArgb(255, 16, 137, 62),
+        Color.FromArgb(255, 0, 183, 195),
+        Color.FromArgb(255, 135, 100, 184),
         Color.FromArgb(255, 227, 0, 140),
         Color.FromArgb(255, 202, 80, 16),
     ];

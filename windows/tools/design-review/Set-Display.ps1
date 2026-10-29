@@ -1,6 +1,6 @@
 # Gives the CI machine a large, high-DPI screen before the design review, so captures are
 # sharp enough for portfolio slides. Picks the largest mode the display offers, up to the
-# requested size, then the largest Windows scale up to the requested one. Prints what it got.
+# requested size, then sets Windows' scale. Prints what it got.
 param(
     [int] $Width = 1920,
     [int] $Height = 1080,
@@ -81,19 +81,17 @@ public static class BardoDisplay
         return best.dmPelsWidth + "x" + best.dmPelsHeight + " (" + result + ")";
     }
 
-    /// <summary>Raises Windows' scale step by step, keeping the largest it accepts up to the target.</summary>
-    public static uint SetScale(int percent)
+    /// <summary>
+    /// Sets Windows' scale. The setting counts steps from the scale Windows recommends for
+    /// the display (100 % at 1920 x 1080); the system DPI only changes at sign-in, so the
+    /// app reports the scale it really got.
+    /// </summary>
+    public static int SetScale(int percent, int recommended)
     {
-        const uint get = 0x009E, set = 0x009F;
-        var current = 0;
-        SystemParametersInfo(get, 0, ref current, 0);
-        for (var step = current + 1; step <= current + 8; step++)
-        {
-            SystemParametersInfo(set, step, IntPtr.Zero, 1);
-            System.Threading.Thread.Sleep(300);
-            if (GetDpiForSystem() * 100 / 96 >= percent) break;
-        }
-        return GetDpiForSystem() * 100 / 96;
+        int[] scales = { 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500 };
+        var step = Array.IndexOf(scales, percent) - Array.IndexOf(scales, recommended);
+        SystemParametersInfo(0x009F, step, IntPtr.Zero, 1);
+        return step;
     }
 }
 "@
@@ -101,4 +99,4 @@ public static class BardoDisplay
 "Modes offered: " + [BardoDisplay]::Modes()
 "Resolution: " + [BardoDisplay]::SetLargest($Width, $Height)
 Start-Sleep -Seconds 2
-"Scale: " + [BardoDisplay]::SetScale($Scale) + "%"
+"Scale step: " + [BardoDisplay]::SetScale($Scale, 100)

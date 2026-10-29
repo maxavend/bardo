@@ -73,7 +73,7 @@ public sealed class PortfolioScriptTests
         model.Select(model.Rows.Single(row => row.Title == "Revisión de diseño: onboarding v2").Id);
         CollectionAssert.AreEquivalent(new[] { Bardo.Resources.Strings.LocalSpeaker, "Valentina", "Diego" }, model.Speakers.Select(speaker => speaker.DisplayName).ToArray());
         Assert.IsTrue(model.IsSelectedFavorite);
-        CollectionAssert.AreEqual(new[] { "Contexto", "Propuesta", "Próximos pasos" }, model.Selected!.Recording.Notes.Sections.Select(section => section.Title).ToArray());
+        CollectionAssert.AreEqual(new[] { "Contexto", "Propuesta de pantallas" }, model.Selected!.Recording.Notes.Sections.Select(section => section.Title).ToArray());
 
         model.Select(model.Rows.Single(row => row.Title == "Retro del sprint 14").Id);
         Assert.IsTrue(model.HasNoTranscript, "Pending, as in the script");

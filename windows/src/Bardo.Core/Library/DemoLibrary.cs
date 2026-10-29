@@ -96,9 +96,10 @@ public static class DemoLibrary
                 item.TryGetProperty("favorite", out var favorite) && favorite.GetBoolean(),
                 names,
                 turns,
-                // The design review is the conversation the slides read: give it its sections and moments.
+                // The design review is the conversation the slides read: its sections and moment, as
+                // the macOS captures mark them.
                 id == "revision-onboarding"
-                    ? [new(0, "Contexto", true), new(5, "Propuesta", true), new(9, "Decisión", false, "Probar con cinco usuarias"), new(13, "Próximos pasos", true)]
+                    ? [new(0, "Contexto", true), new(2, "Bajar a 3 datos", false, "Nombre, comuna y tipo de cuidado; validar con Diego"), new(5, "Propuesta de pantallas", true)]
                     : null,
                 item.TryGetProperty("fileName", out var file) ? file.GetString() : null));
         }
