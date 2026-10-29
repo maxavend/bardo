@@ -12,10 +12,11 @@ struct RecordingListView: View {
     @ObservedObject var favorites: BardoFavoritesStore
     let onNewRecording: () -> Void
     let onImport: () -> Void
-    let onMoveToTrash: (Recording) -> Void
+    let onToggleArchived: (Set<Recording.ID>) -> Void
+    /// Asks for confirmation before the conversations go to the Trash.
+    let onRequestTrash: (Set<Recording.ID>) -> Void
 
     @State private var renameTarget: Recording?
-    @State private var deletionTarget: Recording?
 
     private var isSearching: Bool { !searchQuery.isEmpty }
 
@@ -42,22 +43,6 @@ struct RecordingListView: View {
                     },
                     onCancel: { renameTarget = nil }
                 )
-            }
-            .confirmationDialog(
-                "¿Mover «\(deletionTarget.map(LibraryFormatting.recordingTitle) ?? "")» a la Papelera?",
-                isPresented: Binding(
-                    get: { deletionTarget != nil },
-                    set: { if !$0 { deletionTarget = nil } }
-                ),
-                titleVisibility: .visible,
-                presenting: deletionTarget
-            ) { recording in
-                Button("Mover a la Papelera", role: .destructive) {
-                    onMoveToTrash(recording)
-                }
-                Button("Cancelar", role: .cancel) {}
-            } message: { _ in
-                Text("El audio y la transcripción se moverán a la Papelera de macOS, donde podrás recuperarlos.")
             }
             .enableInjection()
     }
@@ -87,13 +72,15 @@ struct RecordingListView: View {
 
     private var recordingList: some View {
         let recordings = visibleRecordings
-        return List(selection: $model.selection) {
+        // Like Mail and Finder, ⌘-click, ⇧-click and ⌘A select several conversations.
+        return List(selection: $model.selectedIDs) {
             ForEach(recordings) { recording in
                 RecordingListRow(
                     recording: recording,
                     isFavorite: favorites.contains(recording.id),
                     participants: participantSummary(for: recording.id),
                     status: status(for: recording),
+                    isArchived: isSearching && recording.isArchived,
                     snippet: snippet(for: recording.id)
                 )
                 .tag(recording.id)
@@ -105,13 +92,16 @@ struct RecordingListView: View {
         // imported. Rebuilding the list when its rows change measures every row again;
         // the selection lives in the model, so it survives.
         .id(recordings.map(\.id))
+        // Right-clicking a selected row acts on the whole selection; any other row, on
+        // that row alone.
         .contextMenu(forSelectionType: Recording.ID.self) { ids in
-            if let id = ids.first, let recording = model.recordings.first(where: { $0.id == id }) {
-                contextMenu(for: recording)
+            let selected = model.recordings.filter { ids.contains($0.id) }
+            if !selected.isEmpty {
+                contextMenu(for: selected)
             }
         }
         .onDeleteCommand {
-            deletionTarget = model.selectedRecording
+            if !model.selectedIDs.isEmpty { onRequestTrash(model.selectedIDs) }
         }
         .onKeyPress(.space) {
             guard model.selection != nil, model.playback.isLoaded else { return .ignored }
@@ -121,45 +111,63 @@ struct RecordingListView: View {
     }
 
     @ViewBuilder
-    private func contextMenu(for recording: Recording) -> some View {
-        Button {
-            Task { await model.playRecording(recording.id) }
-        } label: {
-            Label("Reproducir", systemImage: "play")
+    private func contextMenu(for recordings: [Recording]) -> some View {
+        let ids = Set(recordings.map(\.id))
+        let single = recordings.count == 1 ? recordings.first : nil
+        let addsToFavorites = LibrarySelection.addsToFavorites(ids, favorites: favorites)
+
+        if let single {
+            Button {
+                Task { await model.playRecording(single.id) }
+            } label: {
+                Label("Reproducir", systemImage: "play")
+            }
+            .disabled(single.audioAssets.isEmpty)
         }
-        .disabled(recording.audioAssets.isEmpty)
 
         Button {
-            favorites.toggle(recording.id)
+            favorites.set(ids, favorite: addsToFavorites)
         } label: {
             Label(
-                favorites.contains(recording.id) ? "Quitar de Favoritas" : "Agregar a Favoritas",
-                systemImage: favorites.contains(recording.id) ? "star.slash" : "star"
+                addsToFavorites ? "Agregar a Favoritas" : "Quitar de Favoritas",
+                systemImage: addsToFavorites ? "star" : "star.slash"
             )
         }
 
         Divider()
 
-        Button {
-            renameTarget = recording
-        } label: {
-            Label("Renombrar…", systemImage: "pencil")
+        if let single {
+            Button {
+                renameTarget = single
+            } label: {
+                Label("Renombrar…", systemImage: "pencil")
+            }
         }
 
         Button {
-            revealInFinder(recording)
+            revealInFinder(recordings)
         } label: {
             Label("Mostrar en Finder", systemImage: "folder")
         }
 
         Divider()
 
+        Button {
+            onToggleArchived(ids)
+        } label: {
+            if LibrarySelection.archives(recordings) {
+                Label("Archivar", systemImage: "archivebox")
+            } else {
+                Label("Desarchivar", systemImage: "tray.and.arrow.up")
+            }
+        }
+
         Button(role: .destructive) {
-            deletionTarget = recording
+            onRequestTrash(ids)
         } label: {
             Label("Mover a la Papelera…", systemImage: "trash")
         }
-        .disabled(model.isProcessing(recording.id))
+        .disabled(recordings.contains { model.isProcessing($0.id) })
     }
 
     private var sortMenu: some View {
@@ -214,6 +222,12 @@ struct RecordingListView: View {
                     "No hay favoritas",
                     systemImage: "star",
                     description: Text("Marca una conversación con una estrella para tenerla siempre a mano.")
+                )
+            case .archived:
+                ContentUnavailableView(
+                    "No hay archivadas",
+                    systemImage: "archivebox",
+                    description: Text("Archiva las conversaciones que ya no usas. Salen de la lista, pero siguen en este Mac.")
                 )
             }
         }
@@ -283,13 +297,17 @@ struct RecordingListView: View {
 
     // MARK: - Actions
 
-    private func revealInFinder(_ recording: Recording) {
+    private func revealInFinder(_ recordings: [Recording]) {
         Task {
-            guard let location = try? await model.managedLocation(for: recording.id) else {
-                model.reportRecordingActionError(String(localized: "Bardo could not locate the managed recording folder."))
-                return
+            var locations: [URL] = []
+            for recording in recordings {
+                guard let location = try? await model.managedLocation(for: recording.id) else {
+                    model.reportRecordingActionError(String(localized: "Bardo could not locate the managed recording folder."))
+                    return
+                }
+                locations.append(location)
             }
-            NSWorkspace.shared.activateFileViewerSelecting([location])
+            NSWorkspace.shared.activateFileViewerSelecting(locations)
         }
     }
 }
@@ -306,6 +324,8 @@ struct RecordingListRow: View {
     let isFavorite: Bool
     let participants: String?
     let status: Status
+    /// Marks an archived conversation among search results.
+    var isArchived = false
     let snippet: AttributedString?
 
     @Environment(\.backgroundProminence) private var backgroundProminence
@@ -324,6 +344,14 @@ struct RecordingListRow: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("Favorita")
+                }
+
+                if isArchived {
+                    Image(systemName: "archivebox")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Archivada")
+                        .help("Archivada")
                 }
 
                 Spacer(minLength: 8)

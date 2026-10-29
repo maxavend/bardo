@@ -196,7 +196,7 @@ struct RootView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.markMoment)) { _ in
                 // On screen, the recorder opens its note; elsewhere the moment is just marked.
-                if library.selection == nil {
+                if library.selectedIDs.isEmpty {
                     NotificationCenter.default.post(name: LiveRecorderCommand.newMoment, object: nil)
                 } else if microphone.isBusy {
                     microphone.addMoment(at: microphone.recordingPosition, title: "", note: nil)
@@ -205,7 +205,7 @@ struct RootView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.startSection)) { _ in
-                if library.selection == nil {
+                if library.selectedIDs.isEmpty {
                     NotificationCenter.default.post(name: LiveRecorderCommand.newSection, object: nil)
                 } else if microphone.isBusy {
                     microphone.addSection(at: microphone.recordingPosition, title: "")

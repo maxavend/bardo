@@ -42,7 +42,15 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var compressingRecordingID: Recording.ID?
     /// A manual edit is being written; model work must not start from a stale copy.
     @Published private(set) var isSavingTranscriptEdit = false
-    @Published var selection: Recording.ID?
+    /// The conversations selected in the list; several when a person ⌘- or ⇧-clicks.
+    @Published var selectedIDs: Set<Recording.ID> = []
+
+    /// The one conversation open in the detail column; `nil` when none or several are
+    /// selected.
+    var selection: Recording.ID? {
+        get { selectedIDs.count == 1 ? selectedIDs.first : nil }
+        set { selectedIDs = newValue.map { [$0] } ?? [] }
+    }
 
     let playback: AudioPlaybackController
 
@@ -191,6 +199,19 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    /// Moves recordings to Archivadas, or back to the Library's lists. Nothing is
+    /// deleted; the change is saved in each recording's manifest.
+    func setArchived(_ recordingIDs: Set<Recording.ID>, _ archived: Bool) async {
+        recordingActionErrorMessage = nil
+        for recording in recordings where recordingIDs.contains(recording.id) && recording.isArchived != archived {
+            do {
+                try await updateRecording(recording.id) { $0.isArchived = archived }
+            } catch {
+                recordingActionErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
     func setSkipsSilences(_ recordingID: Recording.ID, _ skips: Bool) async {
         do {
             try await updateRecording(recordingID) { $0.skipsSilences = skips }
@@ -277,6 +298,34 @@ final class LibraryViewModel: ObservableObject {
                 selection = nil
                 transcript = nil
                 playback.unload()
+            }
+            recordingActionFeedback = String(localized: "Recording moved to the Trash")
+        } catch {
+            recordingActionErrorMessage = error.localizedDescription
+        }
+    }
+
+    /// Moves several recordings to the macOS Trash. Those being transcribed or
+    /// identified stay, as they do one at a time.
+    func deleteRecordings(_ recordingIDs: Set<Recording.ID>) async {
+        let ids = recordings.map(\.id).filter { recordingIDs.contains($0) && !isProcessing($0) }
+        guard !ids.isEmpty else { return }
+        recordingActionErrorMessage = nil
+        recordingActionFeedback = nil
+
+        do {
+            let activeStore = try resolveStore()
+            for id in ids {
+                try await activeStore.moveToTrash(id: id)
+                recordings.removeAll { $0.id == id }
+                issues.removeAll { $0.recordingID == id }
+                if selectedIDs.contains(id) {
+                    selectedIDs.remove(id)
+                    if selectedIDs.isEmpty {
+                        transcript = nil
+                        playback.unload()
+                    }
+                }
             }
             recordingActionFeedback = String(localized: "Recording moved to the Trash")
         } catch {
@@ -1050,9 +1099,11 @@ final class LibraryViewModel: ObservableObject {
     }
 
     private func reconcileSelection() {
-        if let selection, recordings.contains(where: { $0.id == selection }) {
+        let remaining = selectedIDs.filter { id in recordings.contains { $0.id == id } }
+        if !remaining.isEmpty {
+            if remaining != selectedIDs { selectedIDs = remaining }
             return
         }
-        selection = recordings.first?.id
+        selection = recordings.first { !$0.isArchived }?.id
     }
 }

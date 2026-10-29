@@ -142,6 +142,9 @@ struct RecordingManifestV3: Codable, Equatable, Sendable {
     let notes: RecordingNotes?
     /// Present only when playback skips silences.
     let skipsSilences: Bool?
+    /// Present only for an archived recording; older versions of Bardo show it in
+    /// their lists as before.
+    let isArchived: Bool?
 
     init(recording: Recording) {
         schemaVersion = Self.currentSchemaVersion
@@ -155,6 +158,7 @@ struct RecordingManifestV3: Codable, Equatable, Sendable {
         audioAssets = recording.audioAssets.map(AudioAssetRecord.init(asset:))
         notes = recording.notes.isEmpty ? nil : recording.notes
         skipsSilences = recording.skipsSilences ? true : nil
+        isArchived = recording.isArchived ? true : nil
     }
 
     var recording: Recording {
@@ -167,7 +171,8 @@ struct RecordingManifestV3: Codable, Equatable, Sendable {
             processingState: processingState,
             audioAssets: audioAssets.map(\.asset),
             notes: notes ?? RecordingNotes(),
-            skipsSilences: skipsSilences ?? false
+            skipsSilences: skipsSilences ?? false,
+            isArchived: isArchived ?? false
         )
     }
 }
