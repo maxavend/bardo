@@ -1,0 +1,28 @@
+name: Website
+
+# Cloudflare Pages builds the site in web/ from main. The site reads the newest
+# release while it builds, so publishing a release asks Pages to build it again.
+# Without the CLOUDFLARE_PAGES_DEPLOY_HOOK secret this does nothing.
+
+"on":
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  rebuild:
+    name: Rebuild the website
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask Cloudflare Pages to build the site
+        env:
+          HOOK: ${{ secrets.CLOUDFLARE_PAGES_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::CLOUDFLARE_PAGES_DEPLOY_HOOK is not set, so the website was not rebuilt."
+            exit 0
+          fi
+          curl --fail --silent --show-error --request POST "$HOOK" > /dev/null
+          echo "Cloudflare Pages is building the website."
