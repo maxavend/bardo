@@ -2,7 +2,9 @@
 
 All notable changes to Bardo. Each version is also a [GitHub release](https://github.com/maxavend/bardo/releases) with its DMG.
 
-## 1.1.3 — 2026-10-29
+## 1.1.4 — 2026-10-29
+
+1.1.3 was never released: its build stopped on a compiler time limit, fixed here.
 
 ### Library
 
