@@ -2,6 +2,7 @@ import Accelerate
 import AVFAudio
 import Combine
 import Foundation
+import Synchronization
 
 /// The loudness of a whole recording, as evenly spaced levels from 0 to 1 on the live
 /// meter's decibel scale, for the overview a person scrubs through.
@@ -135,16 +136,24 @@ struct WaveformLanes: Equatable, Sendable {
             let file = try AVAudioFile(forReading: track.url)
             return track.offset + Double(file.length) / file.processingFormat.sampleRate
         }.max() ?? 0
-        return WaveformLanes(
-            upper: try AudioWaveformOverview.levels(of: system, resolution: resolution, timeline: timeline),
-            lower: try AudioWaveformOverview.levels(of: microphone, resolution: resolution, timeline: timeline)
-        )
+        // Decoding is most of the work; the two tracks are read at the same time.
+        let lanes = [system, microphone]
+        let results = Mutex<[Result<[Float], Error>?]>([nil, nil])
+        DispatchQueue.concurrentPerform(iterations: lanes.count) { index in
+            let result = Result { try AudioWaveformOverview.levels(of: lanes[index], resolution: resolution, timeline: timeline) }
+            results.withLock { $0[index] = result }
+        }
+        let levels = try results.withLock { $0 }.map { try $0!.get() }
+        return WaveformLanes(upper: levels[0], lower: levels[1])
     }
 }
 
 /// Loads a recording's waveform off the main thread and remembers it for the session.
+/// A recording starts loading as soon as it is chosen, so its waveform is usually ready
+/// by the time it is shown.
 @MainActor
 final class AudioWaveformOverviewModel: ObservableObject {
+    /// Already normalized, so drawing a frame never scales it again.
     @Published private(set) var lanes: WaveformLanes?
 
     private struct Key: Hashable {
@@ -153,8 +162,32 @@ final class AudioWaveformOverviewModel: ObservableObject {
     }
 
     private static var cache: [Key: WaveformLanes] = [:]
+    private static var loading: [Key: Task<WaveformLanes?, Never>] = [:]
     private var loadedKey: Key?
     private var task: Task<Void, Never>?
+
+    /// Starts reading a waveform before anything shows it. It runs at low priority until
+    /// a view waits for it.
+    static func preload(_ tracks: [PlaybackTrack], resolution: Int) {
+        let key = Key(tracks: tracks, resolution: resolution)
+        guard !tracks.isEmpty, cache[key] == nil else { return }
+        _ = lanes(for: key, priority: .utility)
+    }
+
+    /// One read per waveform, however many views and preloads ask for it.
+    private static func lanes(for key: Key, priority: TaskPriority) -> Task<WaveformLanes?, Never> {
+        if let task = loading[key] { return task }
+        let task = Task { @MainActor () -> WaveformLanes? in
+            let lanes = await Task.detached(priority: priority) {
+                (try? WaveformLanes.of(key.tracks, resolution: key.resolution))?.normalized
+            }.value
+            loading[key] = nil
+            if let lanes { cache[key] = lanes }
+            return lanes
+        }
+        loading[key] = task
+        return task
+    }
 
     func load(_ tracks: [PlaybackTrack], resolution: Int = AudioWaveformOverview.resolution) {
         let key = Key(tracks: tracks, resolution: resolution)
@@ -170,12 +203,11 @@ final class AudioWaveformOverviewModel: ObservableObject {
             return
         }
         lanes = nil
+        // Waiting from here raises a preload's priority to the person's.
+        let shared = Self.lanes(for: key, priority: .userInitiated)
         task = Task { [weak self] in
-            let lanes = await Task.detached(priority: .utility) {
-                try? WaveformLanes.of(tracks, resolution: resolution)
-            }.value
+            let lanes = await shared.value
             guard !Task.isCancelled, let self, self.loadedKey == key, let lanes else { return }
-            Self.cache[key] = lanes
             self.lanes = lanes
         }
     }
