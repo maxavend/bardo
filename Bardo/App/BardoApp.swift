@@ -4,6 +4,9 @@ import SwiftUI
 @main
 struct BardoApp: App {
     @NSApplicationDelegateAdaptor(BardoAppDelegate.self) private var appDelegate
+    @StateObject private var recordingMenuBar = RecordingMenuBar.shared
+
+    static let mainWindowID = "main-v3-native-toolbar"
 
     private static let logger = Logger(
         subsystem: "com.maxavend.bardo",
@@ -24,7 +27,7 @@ struct BardoApp: App {
     }
 
     var body: some Scene {
-        Window("Bardo", id: "main-v3-native-toolbar") {
+        Window("Bardo", id: Self.mainWindowID) {
             Group {
                 if Self.isHostingUnitTests {
                     Color.clear
@@ -46,6 +49,15 @@ struct BardoApp: App {
 
         Settings {
             SettingsView()
+        }
+
+        // Only while Bardo records, so a recording in the background stays in sight.
+        MenuBarExtra(isInserted: Binding(get: { recordingMenuBar.state != nil }, set: { _ in })) {
+            RecordingMenuBarMenu(model: recordingMenuBar)
+        } label: {
+            if let state = recordingMenuBar.state {
+                RecordingMenuBarLabel(state: state, clock: recordingMenuBar.clock)
+            }
         }
     }
 }

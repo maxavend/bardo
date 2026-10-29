@@ -11,6 +11,8 @@ enum BardoCommandNotification {
     static let toggleMicrophoneMute = Notification.Name("Bardo.Command.ToggleMicrophoneMute")
     static let markMoment = Notification.Name("Bardo.Command.MarkMoment")
     static let startSection = Notification.Name("Bardo.Command.StartSection")
+    /// Brings the recorder into view in the main window.
+    static let showRecording = Notification.Name("Bardo.Command.ShowRecording")
     static let libraryChanged = Notification.Name("Bardo.Library.Changed")
 }
 
@@ -67,51 +69,67 @@ struct BardoCommands: Commands {
         CommandGroup(replacing: .help) {}
 
         CommandMenu("Grabación") {
-            // One item that alternates, like Play and Pause. ⌥⌘Space belongs to Finder's
-            // search window, so Bardo's own shortcuts use ⌥⌘ with a letter.
-            if capture?.canResume == true {
-                Button("Reanudar grabación") {
-                    post(BardoCommandNotification.resumeRecording)
-                }
-                .keyboardShortcut("p", modifiers: [.command, .option])
-            } else {
-                Button("Pausar grabación") {
-                    post(BardoCommandNotification.pauseRecording)
-                }
-                .keyboardShortcut("p", modifiers: [.command, .option])
-                .disabled(capture?.canPause != true)
+            RecordingCommandButtons(capture: capture, includesSections: true)
+        }
+    }
+
+    private func post(_ name: Notification.Name) {
+        NotificationCenter.default.post(name: name, object: nil)
+    }
+}
+
+/// The recording's own commands, shared by the Grabación menu and the menu bar item.
+struct RecordingCommandButtons: View {
+    let capture: BardoCaptureCommandState?
+    let includesSections: Bool
+
+    var body: some View {
+        // One item that alternates, like Play and Pause. ⌥⌘Space belongs to Finder's
+        // search window, so Bardo's own shortcuts use ⌥⌘ with a letter.
+        if capture?.canResume == true {
+            Button("Reanudar grabación") {
+                post(BardoCommandNotification.resumeRecording)
             }
-
-            Button(capture?.isMuted == true ? "Activar micrófono" : "Silenciar micrófono") {
-                post(BardoCommandNotification.toggleMicrophoneMute)
+            .keyboardShortcut("p", modifiers: [.command, .option])
+        } else {
+            Button("Pausar grabación") {
+                post(BardoCommandNotification.pauseRecording)
             }
-            .keyboardShortcut("s", modifiers: [.command, .option])
-            .disabled(capture?.canMute != true)
+            .keyboardShortcut("p", modifiers: [.command, .option])
+            .disabled(capture?.canPause != true)
+        }
 
-            Divider()
+        Button(capture?.isMuted == true ? "Activar micrófono" : "Silenciar micrófono") {
+            post(BardoCommandNotification.toggleMicrophoneMute)
+        }
+        .keyboardShortcut("s", modifiers: [.command, .option])
+        .disabled(capture?.canMute != true)
 
-            // Bardo's own: ⌘N starts a recording, ⌥⌘N marks a moment in it and ⇧⌥⌘N
-            // starts a section.
-            Button("Marcar momento") {
-                post(BardoCommandNotification.markMoment)
-            }
-            .keyboardShortcut("n", modifiers: [.command, .option])
-            .disabled(capture?.canMark != true)
+        Divider()
 
+        // Bardo's own: ⌘N starts a recording, ⌥⌘N marks a moment in it and ⇧⌥⌘N
+        // starts a section.
+        Button("Marcar momento") {
+            post(BardoCommandNotification.markMoment)
+        }
+        .keyboardShortcut("n", modifiers: [.command, .option])
+        .disabled(capture?.canMark != true)
+
+        if includesSections {
             Button("Nueva sección") {
                 post(BardoCommandNotification.startSection)
             }
             .keyboardShortcut("n", modifiers: [.command, .option, .shift])
             .disabled(capture?.canMark != true)
-
-            Divider()
-
-            Button("Finalizar grabación") {
-                post(BardoCommandNotification.stopRecording)
-            }
-            .keyboardShortcut(".", modifiers: [.command])
-            .disabled(capture?.canStop != true)
         }
+
+        Divider()
+
+        Button("Finalizar grabación") {
+            post(BardoCommandNotification.stopRecording)
+        }
+        .keyboardShortcut(".", modifiers: [.command])
+        .disabled(capture?.canStop != true)
     }
 
     private func post(_ name: Notification.Name) {
