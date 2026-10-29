@@ -89,8 +89,16 @@ public sealed partial class MainWindow
             ViewModel.SetListened(ViewModel.Speakers[^1].Id, false);
             OnChooseListened(ListenButton, new RoutedEventArgs());
             await Capture(folder, $"09-escuchar-a-{suffix}");
-            foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(Content.XamlRoot)) popup.IsOpen = false;
+            ClosePopups();
             ViewModel.ListenToEveryone();
+
+            // A participant's actions: rename, or merge with someone heard twice.
+            if (SpeakerActions(ViewModel.Speakers[1].Id) is { } speakerActions)
+            {
+                OnSpeakerActions(speakerActions, new RoutedEventArgs());
+                await Capture(folder, $"11-participante-{suffix}");
+                ClosePopups();
+            }
 
             // A waveform still being read: placeholder bars until it is ready.
             PlaybackWaveform.ShowLoading();
@@ -138,6 +146,12 @@ public sealed partial class MainWindow
             ViewModel.Query = "Antártica";
             SearchBox.Text = "Antártica";
             await Capture(folder, $"06-sin-resultados-{suffix}");
+
+            // A search that finds a word in several transcripts.
+            ViewModel.Query = "horario";
+            SearchBox.Text = "horario";
+            ViewModel.Select(Row(row => row.Title.StartsWith("Nota de voz", StringComparison.Ordinal)).Id);
+            await Capture(folder, $"12-busqueda-{suffix}");
             ViewModel.Query = "";
             SearchBox.Text = "";
         }
@@ -163,6 +177,25 @@ public sealed partial class MainWindow
     }
 
     private RecordingRow Row(Func<RecordingRow, bool> matches) => ViewModel.Rows.FirstOrDefault(matches) ?? ViewModel.Rows[0];
+
+    private void ClosePopups()
+    {
+        foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(Content.XamlRoot)) popup.IsOpen = false;
+    }
+
+    /// <summary>The "…" button beside a participant in the Participants list.</summary>
+    private Button? SpeakerActions(Guid id) =>
+        Descendants(ParticipantsExpander).OfType<Button>().FirstOrDefault(button => button.Tag is Guid tag && tag == id);
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
+    {
+        for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, index);
+            yield return child;
+            foreach (var descendant in Descendants(child)) yield return descendant;
+        }
+    }
 
     private static Task Settle() => Task.Delay(TimeSpan.FromMilliseconds(900));
 
