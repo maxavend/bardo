@@ -81,6 +81,10 @@ public sealed partial class WaveformView : Grid
         };
         IsTabStop = true;
         UseSystemFocusVisuals = true;
+        PointerPressed += OnPointerPressed;
+        PointerMoved += OnPointerMoved;
+        PointerReleased += OnPointerReleased;
+        KeyDown += OnKeyDown;
     }
 
     /// <summary>Raised when the overview is clicked or dragged, with where in the recording, from 0 to 1.</summary>
@@ -248,30 +252,26 @@ public sealed partial class WaveformView : Grid
 
     private static float[] Tail(float[] values, int count) => values.Length <= count ? values : values[^count..];
 
-    protected override void OnPointerPressed(PointerRoutedEventArgs e)
+    private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        base.OnPointerPressed(e);
         if (_isLive || _levels.Length == 0) return;
         CapturePointer(e.Pointer);
         Focus(FocusState.Pointer);
         Seek(e);
     }
 
-    protected override void OnPointerMoved(PointerRoutedEventArgs e)
+    private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        base.OnPointerMoved(e);
         if (!_isLive && PointerCaptures?.Count > 0) Seek(e);
     }
 
-    protected override void OnPointerReleased(PointerRoutedEventArgs e)
+    private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
-        base.OnPointerReleased(e);
         ReleasePointerCapture(e.Pointer);
     }
 
-    protected override void OnKeyDown(KeyRoutedEventArgs e)
+    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        base.OnKeyDown(e);
         if (_isLive) return;
         var step = e.Key switch
         {
