@@ -178,53 +178,59 @@ struct LibraryView: View {
         }
         .frame(minWidth: BardoLayout.windowMinWidth, minHeight: BardoLayout.windowMinHeight)
         #if DEBUG
-        .onDesignReviewCommand { step in
-            switch step.action {
-            case "section":
-                if let section = BardoLibrarySection(rawValue: step.value) { selectedSection = section }
-            case "open":
-                let list = sort.sorted(model.recordings)
-                if let index = Int(step.value), list.indices.contains(index) { model.selection = list[index].id }
-            case "deselect":
-                model.selection = nil
-            case "select":
-                // Several conversations, as with ⌘-click: `select:0,1,2`.
-                let list = sectionRecordings
-                model.selectedIDs = Set(step.value.split(separator: ",").compactMap { Int($0) }
-                    .filter(list.indices.contains).map { list[$0].id })
-            case "archive":
-                toggleArchived(model.selectedIDs)
-            case "trashSelection":
-                trashCandidates = model.selectedIDs
-            case "search":
-                searchText = step.value
-            case "inspector":
-                isInfoPresented = true
-            case "player":
-                isFullPlayerPresented = true
-            case "sidebar":
-                columnVisibility = step.value == "hidden" ? .doubleColumn : .all
-            case "settings":
-                openSettings()
-            case "issues":
-                isIssuesReviewPresented = true
-            case "mute":
-                model.playback.setVolume(Float(step.value) ?? 0)
-            case "transcribe":
-                model.beginTranscription()
-            case "identify":
-                model.beginDiarization()
-            case "import":
-                Task { await model.importAudio(from: [URL(fileURLWithPath: step.value)]) }
-            case "trash":
-                if let recording = model.selectedRecording { moveToTrash([recording.id]) }
-            default:
-                break
-            }
-        }
+        .onDesignReviewCommand(perform: performDesignReview)
         #endif
         .enableInjection()
     }
+
+    #if DEBUG
+    /// Kept out of `body`, whose long chain of modifiers is already slow to type-check.
+    private func performDesignReview(_ step: DesignReview.Step) {
+        switch step.action {
+        case "section":
+            if let section = BardoLibrarySection(rawValue: step.value) { selectedSection = section }
+        case "open":
+            let list = sort.sorted(model.recordings)
+            if let index = Int(step.value), list.indices.contains(index) { model.selection = list[index].id }
+        case "deselect":
+            model.selection = nil
+        case "select":
+            // Several conversations, as with ⌘-click: `select:0,1,2`.
+            let list: [Recording] = sectionRecordings
+            let indices: [Int] = step.value.split(separator: ",").compactMap { Int($0) }
+            let ids: [Recording.ID] = indices.filter { list.indices.contains($0) }.map { list[$0].id }
+            model.selectedIDs = Set(ids)
+        case "archive":
+            toggleArchived(model.selectedIDs)
+        case "trashSelection":
+            trashCandidates = model.selectedIDs
+        case "search":
+            searchText = step.value
+        case "inspector":
+            isInfoPresented = true
+        case "player":
+            isFullPlayerPresented = true
+        case "sidebar":
+            columnVisibility = step.value == "hidden" ? .doubleColumn : .all
+        case "settings":
+            openSettings()
+        case "issues":
+            isIssuesReviewPresented = true
+        case "mute":
+            model.playback.setVolume(Float(step.value) ?? 0)
+        case "transcribe":
+            model.beginTranscription()
+        case "identify":
+            model.beginDiarization()
+        case "import":
+            Task { await model.importAudio(from: [URL(fileURLWithPath: step.value)]) }
+        case "trash":
+            if let recording = model.selectedRecording { moveToTrash([recording.id]) }
+        default:
+            break
+        }
+    }
+    #endif
 
     /// The Library's three columns: filters, conversations and the selected one.
     private var libraryColumns: some View {
