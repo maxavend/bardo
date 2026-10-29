@@ -298,7 +298,7 @@
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
-                                <ScrollViewer>
+                                <ScrollViewer x:Name="DetailScroll">
                                     <StackPanel
                                         MaxWidth="760"
                                         Padding="40,28,40,48"
@@ -457,7 +457,10 @@
                                         </Expander>
 
                                         <!--  Transcript  -->
-                                        <ItemsRepeater Margin="0,8,0,0" ItemsSource="{x:Bind ViewModel.Blocks}">
+                                        <ItemsRepeater
+                                            x:Name="TranscriptBlocks"
+                                            Margin="0,8,0,0"
+                                            ItemsSource="{x:Bind ViewModel.Blocks}">
                                             <ItemsRepeater.ItemTemplate>
                                                 <DataTemplate x:DataType="library:TranscriptBlockRow">
                                                     <StackPanel Padding="0,20,0,0" Spacing="4">

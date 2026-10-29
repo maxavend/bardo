@@ -70,7 +70,9 @@ public sealed partial class MainWindow
             await Capture(folder, $"00-bienvenida-descargando-{suffix}");
             Onboarding.Close();
 
-            // From here on, as a set-up app: models installed, nothing left to download.
+            // From here on, as a set-up app: models installed, nothing left to download. The
+            // notice is closed once the Library has shown, which first opens it.
+            await Settle();
             SetupBar.IsOpen = false;
             ViewModel.Transcriber ??= new ReviewEngine();
             ViewModel.SpeakerIdentifier ??= new ReviewEngine();
@@ -85,7 +87,11 @@ public sealed partial class MainWindow
 
             // The same conversation to read: its sections and moment among the turns.
             ParticipantsExpander.IsExpanded = false;
+            await Settle();
+            var transcriptTop = TranscriptBlocks.TransformToVisual((UIElement)DetailScroll.Content).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+            DetailScroll.ChangeView(null, Math.Max(0, transcriptTop - 8), null, disableAnimation: true);
             await Capture(folder, $"08-lectura-{suffix}");
+            DetailScroll.ChangeView(null, 0, null, disableAnimation: true);
             ParticipantsExpander.IsExpanded = true;
 
             // A call transcribed per track: you and the others.
