@@ -1,36 +1,43 @@
-# Astro + React + TypeScript + shadcn/ui
+# Web de Bardo
 
-This is a template for a new Astro project with React, TypeScript, and shadcn/ui.
+Sitio estático con Astro, Tailwind y componentes Base UI/shadcn. React se hidrata únicamente en la demostración del hero, cuando es visible. El fondo WebGL y el control para compartir son elementos nativos; las otras tres páginas no cargan React. No hay servicios externos de fuentes, analítica, formularios ni grabación de audio en esta web.
 
-## Adding components
+## Desarrollo y comprobaciones
 
-To add components to your app, run the following command:
+Requiere la versión de Node indicada en `package.json`.
 
-```bash
-npx shadcn@latest add button
+```sh
+npm ci
+npm run dev
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run check:build
+npm audit
+npm run preview
 ```
 
-This will place the ui components in the `src/components` directory.
+`check:build` valida los hashes de scripts y estilos contra la CSP generada, los archivos locales enlazados, la ausencia de handlers inline y el presupuesto de hidratación. `test` comprueba compartir, cancelar y las alternativas cuando falta un permiso o una API. Revisar la CSP con `build` y `preview`: Astro no la aplica en el servidor de desarrollo.
 
-## Using components
+Los componentes existentes están en `src/components/ui`; para añadir otro puede usarse `npx shadcn@latest add nombre`. La CLI no es una dependencia del sitio.
 
-To use the components in your app, import them in an `.astro` file:
+## Rendimiento y accesibilidad
 
-```astro
----
-import { Button } from "@/components/ui/button"
----
+- Fuentes WOFF2 locales de subconjunto latino, con precarga y `font-display: swap`.
+- Capturas WebP con fuentes específicas para móvil, dimensiones reservadas, carga diferida y decodificación asíncrona.
+- El fondo tiene un buffer de resolución reducida y un máximo de 60 dibujos por segundo. La onda limita el DPR a 2 y reutiliza máscaras. Ambas animaciones duermen fuera de pantalla y con la pestaña oculta.
+- El cambio de Reducir movimiento se respeta en vivo. La transcripción revela por opacidad, sin filtros de desenfoque por palabra.
+- El enlace móvil usa el origen y la ruta actuales. Cancelar el panel de compartir no modifica el portapapeles. Si copiar falla, ofrece una URL seleccionable.
 
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width" />
-    <title>Astro App</title>
-  </head>
-  <body>
-    <div class="grid h-screen place-items-center content-center">
-      <Button>Button</Button>
-    </div>
-  </body>
-</html>
-```
+Revisión local de producción, 28 de octubre de 2026: las cuatro rutas se comprobaron a 320, 390, 640, 768, 1024 y 1440 px, sin texto ni controles recortados, ni referencias `aria-labelledby` inexistentes. Se verificaron visualmente el hero, las capturas, el cierre y el footer. Esto no sustituye pruebas en dispositivos físicos ni mediciones de campo.
+
+## Publicación y seguridad
+
+Publicar **solo `dist/`**. Astro genera una CSP por meta con hashes para los scripts/estilos, recursos del mismo origen y bloqueo de objetos, marcos, formularios y handlers inline. Se permiten atributos de estilo para los retardos y las máscaras de la demostración, sin permitir scripts inline arbitrarios ni `eval`.
+
+`public/_headers` añade protección contra inclusión en marcos, restricciones de permisos, `nosniff`, política de referrer y caché inmutable de un año **solo para `/_astro/*`**, cuyos nombres incluyen hashes. Los archivos públicos sin hash y el HTML pueden cambiar en cada publicación.
+
+**El hosting debe admitir `_headers`** (por ejemplo, [Netlify](https://docs.netlify.com/manage/routing/headers/)); en otro servicio hay que trasladar las reglas a su configuración. `astro preview` no aplica ese archivo. La protección [`frame-ancestors`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/frame-ancestors) requiere una cabecera HTTP y no funciona desde meta.
+
+Al confirmar dominio y hosting, comprobar las cabeceras de las respuestas reales, HTTPS y compresión Brotli/gzip. Configurar entonces la URL `site` de Astro para futuras URLs canónicas. No se ha configurado HSTS para un dominio desconocido. La auditoría local no mide CDN, TTFB público ni Core Web Vitals reales; esas mediciones quedan para el despliegue.

@@ -1,0 +1,28 @@
+---
+import { DownloadIcon } from "lucide-react"
+import { buttonVariants } from "@/components/ui/button"
+import MacOnly from "@/components/site/MacOnly.astro"
+import { links, release, requirements } from "@/lib/site"
+import { cn } from "@/lib/utils"
+
+interface Props {
+  align?: "start" | "center"
+  class?: string
+}
+
+const { align = "start", class: className } = Astro.props
+---
+
+<div class={cn("flex flex-col gap-3 max-sm:w-full", align === "center" ? "items-center text-center" : "items-start", className)}>
+  <a class={cn(buttonVariants(), "max-sm:hidden")} href={links.dmg}>
+    <DownloadIcon data-icon="inline-start" aria-hidden="true" />
+    Descargar para Mac
+  </a>
+  <div class="w-full sm:hidden">
+    <MacOnly align={align} />
+  </div>
+  <p class="text-sm text-faint max-sm:hidden">
+    Gratis. {requirements}. Versión {release.version}.
+  </p>
+  <p class="text-sm text-faint sm:hidden">Gratis · Apple silicon · macOS 15 o posterior</p>
+</div>

@@ -1,0 +1,11 @@
+# Applied by static hosts that support _headers. Other hosts need equivalent rules.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+
+# Only content-hashed files are immutable; HTML and public images can change in place.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable

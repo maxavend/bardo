@@ -1,0 +1,81 @@
+---
+import { CheckIcon, ShareIcon } from "lucide-react"
+import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
+
+interface Props {
+  align?: "start" | "center"
+}
+
+const { align = "start" } = Astro.props
+---
+
+<bardo-mac-link class={cn("flex w-full min-w-0 flex-col gap-3", align === "center" ? "items-center" : "items-start")}>
+  <div class="flex flex-col gap-1">
+    <p class="font-medium text-foreground">Bardo es una app para Mac.</p>
+    <p class="text-sm leading-relaxed text-soft">Comparte el enlace y ábrelo allí para descargarla.</p>
+  </div>
+  <button type="button" class={cn(buttonVariants(), "w-full")}>
+    <span data-link-icon class="contents"><ShareIcon data-icon="inline-start" aria-hidden="true" /></span>
+    <span data-check-icon class="contents" hidden><CheckIcon data-icon="inline-start" aria-hidden="true" /></span>
+    <span data-label>Compartir enlace</span>
+  </button>
+  <span data-status class="sr-only" role="status"></span>
+  <label data-fallback hidden class="w-full max-w-72 text-left text-sm text-soft">
+    Copia este enlace para abrirlo en tu Mac:
+    <input class="mt-2 w-full min-w-0 rounded-md border bg-background px-3 py-2 text-foreground" type="url" readonly aria-label="Enlace de Bardo" />
+  </label>
+  <noscript><p class="max-w-72 text-sm text-soft">Abre esta misma dirección en tu Mac para descargar Bardo.</p></noscript>
+</bardo-mac-link>
+
+<script>
+  import { shareLink } from "./share-link"
+
+  class MacLinkElement extends HTMLElement {
+    private timer = 0
+    private busy = false
+
+    connectedCallback() {
+      this.setCopied(false)
+      this.querySelector("button")?.addEventListener("click", this.send)
+    }
+
+    disconnectedCallback() {
+      this.querySelector("button")?.removeEventListener("click", this.send)
+      window.clearTimeout(this.timer)
+    }
+
+    private setCopied(copied: boolean) {
+      this.querySelector<HTMLElement>("[data-link-icon]")!.hidden = copied
+      this.querySelector<HTMLElement>("[data-check-icon]")!.hidden = !copied
+      this.querySelector("[data-label]")!.textContent = copied ? "Enlace copiado" : typeof navigator.share === "function" ? "Compartir enlace" : "Copiar enlace"
+      this.querySelector("[data-status]")!.textContent = copied ? "Enlace copiado" : ""
+    }
+
+    private send = async () => {
+      if (this.busy) return
+      this.busy = true
+      // Resolve at runtime so previews and deployments share their own public URL.
+      const url = new URL(window.location.pathname, window.location.origin).href
+      try {
+        const result = await shareLink(url, navigator)
+        if (!this.isConnected) return
+        if (result === "copied") {
+          this.setCopied(true)
+          window.clearTimeout(this.timer)
+          this.timer = window.setTimeout(() => this.setCopied(false), 2400)
+        } else if (result === "manual") {
+          this.querySelector<HTMLElement>("[data-fallback]")!.hidden = false
+          const input = this.querySelector("input")!
+          input.value = url
+          input.focus()
+          input.select()
+        }
+      } finally {
+        this.busy = false
+      }
+    }
+  }
+
+  if (!customElements.get("bardo-mac-link")) customElements.define("bardo-mac-link", MacLinkElement)
+</script>

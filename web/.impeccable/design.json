@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-28T20:00:00Z",
+  "title": "Design System: Bardo (website)",
+  "extensions": {
+    "colorMeta": {
+      "bard-purple": {
+        "role": "primary",
+        "displayName": "Bard Purple",
+        "canonical": "oklch(66% 0.16 302)",
+        "tonalRamp": [
+          "oklch(22% 0.07 302)",
+          "oklch(32% 0.10 302)",
+          "oklch(42% 0.13 302)",
+          "oklch(52% 0.15 302)",
+          "oklch(66% 0.16 302)",
+          "oklch(76% 0.12 302)",
+          "oklch(86% 0.07 302)",
+          "oklch(95% 0.03 302)"
+        ]
+      },
+      "voice-you": {
+        "role": "secondary",
+        "displayName": "Speaker Blue (Tú)",
+        "canonical": "oklch(66% 0.17 252)",
+        "tonalRamp": [
+          "oklch(22% 0.07 252)",
+          "oklch(32% 0.10 252)",
+          "oklch(44% 0.14 252)",
+          "oklch(55% 0.16 252)",
+          "oklch(66% 0.17 252)",
+          "oklch(76% 0.12 252)",
+          "oklch(86% 0.07 252)",
+          "oklch(95% 0.03 252)"
+        ]
+      },
+      "voice-2": {
+        "role": "secondary",
+        "displayName": "Speaker Orange",
+        "canonical": "oklch(74% 0.15 60)",
+        "tonalRamp": [
+          "oklch(25% 0.06 60)",
+          "oklch(35% 0.09 60)",
+          "oklch(47% 0.12 60)",
+          "oklch(60% 0.14 60)",
+          "oklch(74% 0.15 60)",
+          "oklch(82% 0.11 60)",
+          "oklch(89% 0.07 60)",
+          "oklch(96% 0.03 60)"
+        ]
+      },
+      "voice-3": {
+        "role": "secondary",
+        "displayName": "Speaker Green",
+        "canonical": "oklch(75% 0.17 148)",
+        "tonalRamp": [
+          "oklch(25% 0.07 148)",
+          "oklch(35% 0.10 148)",
+          "oklch(47% 0.13 148)",
+          "oklch(61% 0.16 148)",
+          "oklch(75% 0.17 148)",
+          "oklch(83% 0.12 148)",
+          "oklch(90% 0.07 148)",
+          "oklch(96% 0.03 148)"
+        ]
+      },
+      "ground": {
+        "role": "neutral",
+        "displayName": "Graphite Ground",
+        "canonical": "oklch(17.8% 0.013 300)",
+        "tonalRamp": [
+          "oklch(17.8% 0.013 300)",
+          "oklch(20.8% 0.013 300)",
+          "oklch(25.5% 0.014 300)",
+          "oklch(32% 0.013 300)",
+          "oklch(46% 0.01 290)",
+          "oklch(67% 0.01 290)",
+          "oklch(80% 0.008 290)",
+          "oklch(97% 0.004 290)"
+        ]
+      },
+      "ground-raised": {
+        "role": "neutral",
+        "displayName": "Raised Graphite",
+        "canonical": "oklch(20.8% 0.013 300)"
+      },
+      "ground-high": {
+        "role": "neutral",
+        "displayName": "High Graphite",
+        "canonical": "oklch(25.5% 0.014 300)"
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(32% 0.013 300)"
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "Strong Hairline",
+        "canonical": "oklch(46% 0.01 290)"
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "canonical": "oklch(97% 0.004 290)"
+      },
+      "text-soft": {
+        "role": "neutral",
+        "displayName": "Soft Text",
+        "canonical": "oklch(80% 0.008 290)"
+      },
+      "text-faint": {
+        "role": "neutral",
+        "displayName": "Faint Text",
+        "canonical": "oklch(67% 0.01 290)"
+      },
+      "rec": {
+        "role": "accent",
+        "displayName": "Recording Red",
+        "canonical": "oklch(66% 0.21 25)"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The one h1 per page; hero line and page titles, 11-14ch."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section h2, version numbers, step numerals; 14-16ch."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Ledger row headings and privacy terms."
+      },
+      "lead": {
+        "displayName": "Lead",
+        "purpose": "The one sentence under a heading, in soft text, 30-52ch."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Lists and supporting copy."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Nav links, small buttons, captions, footer headings. Sentence case."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Shell commands and file paths."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float",
+        "value": "0 24px 48px -12px oklch(0% 0 0 / 0.55), 0 2px 6px oklch(0% 0 0 / 0.35)",
+        "purpose": "Every floating app capture and nothing else. Never on page structure."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-expo",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The single easing for every transition."
+      },
+      {
+        "name": "control",
+        "value": "200ms",
+        "purpose": "Buttons, nav and text-link state changes."
+      },
+      {
+        "name": "appearance",
+        "value": "500ms",
+        "purpose": "Appearance band background, text and screenshot cross-fade."
+      },
+      {
+        "name": "hero-entrance",
+        "value": "opacity 700ms, translate 24px over 900ms via @starting-style",
+        "purpose": "The one authored entrance, on the hero window only."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "40rem",
+        "purpose": "Phone: gutter 20px, phone capture sources, download button swaps to send-to-Mac."
+      },
+      {
+        "name": "lg",
+        "value": "64rem",
+        "purpose": "Tablet: gutter 32px, grids collapse to one column, section padding 64px."
+      },
+      {
+        "name": "container",
+        "value": "1360px",
+        "purpose": "Shell max width; gutter 64px above lg."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The download action: near-white pill on graphite with a leading download icon.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/></svg>Descargar para Mac</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 24px 0 20px; border: 1.5px solid transparent; border-radius: 9999px; background: var(--text, oklch(97% 0.004 290)); color: var(--ground, oklch(17.8% 0.013 300)); font: 600 16px/1 'Geist Variable', ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: background-color 200ms cubic-bezier(0.16, 1, 0.3, 1), translate 200ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-primary:hover { background: color-mix(in oklab, oklch(97% 0.004 290) 85%, transparent); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(66% 0.16 302); outline-offset: 3px; } .ds-btn-primary:active { translate: 0 1px; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary pill: nav 'Descargar' and the phone 'Enviar el enlace a tu Mac'.",
+      "html": "<button class=\"ds-btn-outline\">Descargar</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; height: 44px; padding: 0 16px; border: 1.5px solid oklch(46% 0.01 290); border-radius: 9999px; background: transparent; color: oklch(97% 0.004 290); font: 600 14px/1 'Geist Variable', ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: background-color 200ms cubic-bezier(0.16, 1, 0.3, 1), border-color 200ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-outline:hover { border-color: oklch(80% 0.008 290); background: oklch(25.5% 0.014 300); } .ds-btn-outline:focus-visible { outline: 2px solid oklch(66% 0.16 302); outline-offset: 3px; } .ds-btn-outline:active { translate: 0 1px; }"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "64px bar: 3D icon + name on the left, soft links and the outline download on the right.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-brand\" href=\"#\"><span class=\"ds-nav-icon\" aria-hidden=\"true\"></span>Bardo</a><ul class=\"ds-nav-links\"><li><a href=\"#\" aria-current=\"page\">Novedades</a></li><li><a href=\"#\">Privacidad</a></li><li><a class=\"ds-nav-cta\" href=\"#\">Descargar</a></li></ul></nav>",
+      "css": ".ds-nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 64px; padding: 0 24px; background: oklch(17.8% 0.013 300); border-bottom: 1px solid color-mix(in oklab, oklch(32% 0.013 300) 60%, transparent); font-family: 'Geist Variable', ui-sans-serif, system-ui, sans-serif; } .ds-nav-brand { display: inline-flex; align-items: center; gap: 10px; color: oklch(97% 0.004 290); font-size: 18px; font-weight: 600; letter-spacing: -0.02em; text-decoration: none; } .ds-nav-icon { width: 32px; height: 32px; border-radius: 8px; background: radial-gradient(circle at 40% 30%, oklch(66% 0.16 302), oklch(30% 0.08 302)); } .ds-nav-links { display: flex; align-items: center; gap: 24px; list-style: none; margin: 0; padding: 0; } .ds-nav-links a { display: inline-flex; align-items: center; min-height: 44px; color: oklch(80% 0.008 290); font-size: 14px; font-weight: 500; text-decoration: none; transition: color 200ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-nav-links a:hover, .ds-nav-links a[aria-current=page] { color: oklch(97% 0.004 290); } .ds-nav-links a:focus-visible { outline: 2px solid oklch(66% 0.16 302); outline-offset: 3px; } .ds-nav-links .ds-nav-cta { height: 44px; min-height: 0; padding: 0 16px; border: 1.5px solid oklch(46% 0.01 290); border-radius: 9999px; color: oklch(97% 0.004 290); font-weight: 600; } .ds-nav-links .ds-nav-cta:hover { background: oklch(25.5% 0.014 300); border-color: oklch(80% 0.008 290); }"
+    },
+    {
+      "name": "Ledger List",
+      "kind": "custom",
+      "refersTo": "ledger",
+      "description": "The house pattern for facts: ruled rows, bold title, faint note, right-aligned tabular value.",
+      "html": "<ul class=\"ds-ledger\"><li><div><h3>Equilibrado <span>· Whisper Large v3 Turbo</span></h3><p>Muy preciso, también con nombres y siglas</p></div><strong>646 MB</strong></li><li><div><h3>Preciso <span>· Whisper Large v3</span></h3><p>El más exacto cuando las voces se cruzan</p></div><strong>3,1 GB</strong></li></ul>",
+      "css": ".ds-ledger { list-style: none; margin: 0; padding: 0; border-top: 1px solid oklch(32% 0.013 300); font-family: 'Geist Variable', ui-sans-serif, system-ui, sans-serif; background: oklch(17.8% 0.013 300); } .ds-ledger li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 24px; padding: 24px 0; border-bottom: 1px solid oklch(32% 0.013 300); } .ds-ledger h3 { margin: 0 0 4px; color: oklch(97% 0.004 290); font-size: 1.375rem; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; } .ds-ledger h3 span { font-weight: 400; color: oklch(80% 0.008 290); } .ds-ledger p { margin: 0; color: oklch(67% 0.01 290); font-size: 14px; } .ds-ledger strong { color: oklch(97% 0.004 290); font-weight: 500; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Floating Capture",
+      "kind": "card",
+      "refersTo": "floating-capture",
+      "description": "A whole app component cut from a real capture, floating on graphite. The only thing that casts a shadow.",
+      "html": "<figure class=\"ds-capture\"><div class=\"ds-capture-row\"><span class=\"ds-dot\" style=\"background: oklch(66% 0.17 252)\"></span><b>Tú</b> 0:18</div><p>Exacto. En la versión actual pedimos 7 datos antes de mostrar cualquier valor.</p></figure>",
+      "css": ".ds-capture { margin: 0; max-width: 480px; padding: 16px 20px; border-radius: 1.35rem; background: oklch(25.5% 0.014 300); box-shadow: 0 24px 48px -12px oklch(0% 0 0 / 0.55), 0 2px 6px oklch(0% 0 0 / 0.35); color: oklch(97% 0.004 290); font: 400 13px/1.45 ui-sans-serif, system-ui, sans-serif; } .ds-capture-row { display: flex; align-items: center; gap: 6px; color: oklch(80% 0.008 290); font-size: 12px; } .ds-capture-row b { color: oklch(97% 0.004 290); } .ds-capture p { margin: 6px 0 0; } .ds-dot { width: 10px; height: 10px; border-radius: 9999px; display: inline-block; }"
+    },
+    {
+      "name": "Speaker Legend",
+      "kind": "custom",
+      "refersTo": "speaker-legend",
+      "description": "Speaker dots and names beside a capture of speakers; the only place speaker hues appear outside captures.",
+      "html": "<ul class=\"ds-legend\"><li><span style=\"background: oklch(66% 0.17 252)\"></span>Tú</li><li><span style=\"background: oklch(74% 0.15 60)\"></span>Valentina</li><li><span style=\"background: oklch(75% 0.17 148)\"></span>Diego</li></ul>",
+      "css": ".ds-legend { display: flex; flex-wrap: wrap; gap: 8px 20px; list-style: none; margin: 0; padding: 0; color: oklch(80% 0.008 290); font: 400 14px/1.4 'Geist Variable', ui-sans-serif, system-ui, sans-serif; } .ds-legend li { display: flex; align-items: center; gap: 8px; } .ds-legend span { width: 10px; height: 10px; border-radius: 9999px; }"
+    },
+    {
+      "name": "Panel Band",
+      "kind": "card",
+      "refersTo": "panel-band",
+      "description": "Flat raised-graphite band with 28px corners and a hairline; holds the closing download or a utility.",
+      "html": "<section class=\"ds-band\"><h2>Tu próxima reunión, por escrito.</h2><a class=\"ds-band-link\" href=\"#\">Cómo instalarlo</a></section>",
+      "css": ".ds-band { display: flex; flex-direction: column; align-items: center; gap: 32px; padding: 80px 24px; border: 1px solid oklch(32% 0.013 300); border-radius: 28px; background: oklch(20.8% 0.013 300); text-align: center; font-family: 'Geist Variable', ui-sans-serif, system-ui, sans-serif; } .ds-band h2 { margin: 0; max-width: 16ch; color: oklch(97% 0.004 290); font-size: clamp(2rem, 2.6vw + 1rem, 3.5rem); font-weight: 700; line-height: 1.04; letter-spacing: -0.035em; text-wrap: balance; } .ds-band-link { color: oklch(97% 0.004 290); font-size: 14px; text-decoration: underline; text-decoration-color: oklch(46% 0.01 290); text-decoration-thickness: 1px; text-underline-offset: 0.2em; transition: text-decoration-color 200ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-band-link:hover { text-decoration-color: oklch(97% 0.004 290); } .ds-band-link:focus-visible { outline: 2px solid oklch(66% 0.16 302); outline-offset: 3px; }"
+    },
+    {
+      "name": "Live Waveform",
+      "refersTo": "live-recorder",
+      "description": "The app's live waveform alone in the hero: orange Mac audio above, blue mic below, a blended centre line, a thin red playhead; generated levels, pauses on hover."
+    }
+  ],
+  "narrative": {
+    "northStar": "The Graphite Window",
+    "overview": "The site is one more window of Bardo, not a separate marketing brand. It sits on the near-neutral graphite the Mac draws in dark mode (the same ground as the owner's portfolio covers, #121016), sets Geist tight and bold, and lets the real app speak: whole components cut from real captures float on that ground with a soft, deep shadow, readable at their own size. Everything else stays quiet so the screenshots carry the page.\n\nColour is a signal, never decoration. The bard's purple appears as brand and focus (focus rings, text selection, caret, and the 3D icon itself). Blue, orange and green appear only where speakers do: in the captures and in the speaker legend. The whole site is dark; there is no light band.\n\nDensity is calm and editorial without the editorial skeleton: one idea per section, a headline of a few words, one lead sentence, then the picture. Sections alternate text and picture on an asymmetric 4:7 grid; lists of facts are ruled ledgers, not cards.",
+    "keyCharacteristics": [
+      "Dark graphite ground with three tonal steps; hairline rules instead of boxes.",
+      "Geist Variable 700 at tight negative tracking for every heading; 400 for reading.",
+      "Real app components, whole and legible, floating with `shadow-float`.",
+      "Purple only for brand and focus; speaker hues only for speakers.",
+      "Pill-shaped controls; generously rounded floating pictures; 28px bands.",
+      "One authored entrance (the hero window); everything else is plain state transitions."
+    ],
+    "rules": [
+      {
+        "name": "The Colour Means Something Rule",
+        "body": "Purple is brand and focus; blue, orange and green are speakers. If a colour on a new surface cannot say which of those it is, it is graphite.",
+        "section": "colors"
+      },
+      {
+        "name": "The All Graphite Rule",
+        "body": "The site is dark from top to bottom: no light band, no appearance switch.",
+        "section": "colors"
+      },
+      {
+        "name": "The Monochrome Primary Rule",
+        "body": "The primary action is near-white on graphite (`text` fill, `ground` label), not purple. The brand colour stays rare so focus remains visible.",
+        "section": "colors"
+      },
+      {
+        "name": "The Short Measure Rule",
+        "body": "Headings are capped in `ch` (display 11-14ch, headline 14-16ch) and leads at 30-52ch, so every section reads as one idea.",
+        "section": "typography"
+      },
+      {
+        "name": "The Numbers Align Rule",
+        "body": "Sizes, versions and step numerals use `tabular-nums`.",
+        "section": "typography"
+      },
+      {
+        "name": "The Only Things That Float Are the App Rule",
+        "body": "Shadows belong to app windows and components shown on the page. Sections, panels, ledgers and the footer are flat and use tone or a hairline instead.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** use the 3D bard app icon (`assets/marca/icono-bardo*.webp`, favicons and touch icons derived from it) as the only logo, at 32px in the nav, 56px in the footer and 144px or larger in closing and download heroes.",
+      "**Do** show the real app as whole, legible components (UI text at least 11px on screen) floating on graphite with the Float shadow, with a phone-specific source for small screens.",
+      "**Do** keep Bard Purple for focus, selection, caret and the icon; keep speaker hues for speakers.",
+      "**Do** set facts as ruled ledgers with tabular numbers instead of cards.",
+      "**Do** keep one idea per section: a short bold headline, one lead sentence, one picture.",
+      "**Do** take every page width from `shell` and every gutter from `--gutter`."
+    ],
+    "donts": [
+      "**Don't** use the flat logo kit in `design/logo/kit` (or any flat wordmark or redraw of the bard) anywhere on the site.",
+      "**Don't** fill buttons, backgrounds or panels with Bard Purple, or use speaker colours for anything that is not a speaker.",
+      "**Don't** introduce a second light surface or a light page theme; light lives only in the appearance band.",
+      "**Don't** put shadows on sections, panels, ledgers or the footer; only app pictures float.",
+      "**Don't** return to the editorial marketing skeleton the site replaced: no serif hero, no bento grid, no slogan band.",
+      "**Don't** crop captures into strips where UI text drops below legibility, or cut through sentences and buttons.",
+      "**Don't** add another entrance animation; the hero window's is the only one."
+    ]
+  }
+}
