@@ -14,6 +14,27 @@ final class LibraryPresentationTests: XCTestCase {
         calendar.date(from: DateComponents(year: 2026, month: 10, day: 8, hour: 15, minute: 30))!
     }
 
+    // MARK: - Technical details
+
+    func testTranscriptionModelNamesTheModelWhenItIsKnown() {
+        func metadata(_ selection: TranscriptionSelection?, modelID: String = "fixture") -> TranscriptMetadata {
+            TranscriptMetadata(engine: "test", engineVersion: "1", modelID: modelID, selection: selection)
+        }
+        XCTAssertEqual(LibraryFormatting.transcriptionModel(metadata(TranscriptionEngine.apple.selection)), "Reconocimiento de Apple")
+        XCTAssertEqual(LibraryFormatting.transcriptionModel(metadata(TranscriptionEngine.balanced.selection)), "Whisper Turbo")
+        XCTAssertEqual(LibraryFormatting.transcriptionModel(metadata(TranscriptionEngine.precise.selection)), "Whisper Large")
+        XCTAssertNil(LibraryFormatting.transcriptionModel(metadata(nil)))
+    }
+
+    func testProcessingDurationReadsAsHoursMinutesAndSeconds() {
+        XCTAssertEqual(LibraryFormatting.processingDuration(0.4), "0 s")
+        XCTAssertEqual(LibraryFormatting.processingDuration(42.6), "43 s")
+        XCTAssertEqual(LibraryFormatting.processingDuration(120), "2 min")
+        XCTAssertEqual(LibraryFormatting.processingDuration(84), "1 min 24 s")
+        XCTAssertEqual(LibraryFormatting.processingDuration(3_660), "1 h 1 min")
+        XCTAssertEqual(LibraryFormatting.processingDuration(3_725), "1 h 2 min 5 s")
+    }
+
     // MARK: - List dates
 
     func testListDateShowsTheTimeForToday() {

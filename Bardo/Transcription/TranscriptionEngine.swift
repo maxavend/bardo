@@ -53,6 +53,15 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// The model's own name, for a transcript's technical details.
+    var modelName: String {
+        switch self {
+        case .apple: "Reconocimiento de Apple"
+        case .balanced: "Whisper Turbo"
+        case .precise: "Whisper Large"
+        }
+    }
+
     /// The local model Bardo downloads and can remove; Apple's lives in macOS.
     var managedModel: ManagedModel? {
         switch self {
@@ -83,6 +92,23 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable, Sendable {
         case .apple: TranscriptionSelection(backend: .appleSpeech, modelID: rawValue)
         case .balanced: TranscriptionSelection(modelID: TranscriptionModelManager.modelID)
         case .precise: TranscriptionSelection(modelID: TranscriptionModelManager.largeModelID)
+        }
+    }
+
+    /// The engine that made a transcript, as saved with it. Transcripts from before Bardo
+    /// saved its choice are known by their Whisper model; anything else is unknown.
+    init?(metadata: TranscriptMetadata) {
+        if let selection = metadata.selection {
+            switch selection.backend {
+            case .appleSpeech: self = .apple
+            case .whisperKit: self = selection.modelID == TranscriptionModelManager.largeModelID ? .precise : .balanced
+            }
+            return
+        }
+        switch metadata.modelID {
+        case TranscriptionModelManager.modelID: self = .balanced
+        case TranscriptionModelManager.largeModelID: self = .precise
+        default: return nil
         }
     }
 
