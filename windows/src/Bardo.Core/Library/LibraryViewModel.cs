@@ -448,8 +448,11 @@ public sealed class LibraryViewModel : ObservableModel, IDisposable
         using var cancellation = new CancellationTokenSource();
         _work = cancellation;
         SetWork(recording.Id, description, 0);
+        // A report can arrive after the work ends; it must not bring the work back.
         var progress = new Progress<WorkProgress>(update =>
-            SetWork(recording.Id, update.Stage ?? description, Math.Clamp(update.Fraction, 0, 1)));
+        {
+            if (_work == cancellation) SetWork(recording.Id, update.Stage ?? description, Math.Clamp(update.Fraction, 0, 1));
+        });
         try
         {
             await work(progress, cancellation.Token);
