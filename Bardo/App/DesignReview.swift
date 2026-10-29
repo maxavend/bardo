@@ -125,6 +125,8 @@ enum DesignReview {
             mainWindow?.makeKeyAndOrderFront(nil)
         case "wait", "menus":
             break
+        case "menuBar":
+            captureMenuBarItems(opensMenu: step.value == "open")
         case "focusList":
             focusTable(at: Int(step.value) ?? 1)
         case "press":
@@ -202,7 +204,97 @@ enum DesignReview {
     }
 }
 
+/// Writes the menu bar item's menu once it opens, then closes it without choosing.
+@MainActor
+private final class MenuBarMenuReader: NSObject {
+    let url: URL
+
+    init(url: URL) { self.url = url }
+
+    @objc func menuDidBeginTracking(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu, menu.supermenu == nil else { return }
+        NotificationCenter.default.removeObserver(self)
+        // SwiftUI fills the menu once it opens.
+        perform(#selector(write(_:)), with: menu, afterDelay: 0.5, inModes: [.common])
+    }
+
+    @objc private func write(_ menu: NSMenu) {
+        let lines = menu.items.filter { !$0.isHidden }.map { item -> String in
+            guard !item.isSeparatorItem else { return "—" }
+            var line = item.title
+            if !item.keyEquivalent.isEmpty {
+                let flags = item.keyEquivalentModifierMask
+                line += "\t" + [flags.contains(.option) ? "⌥" : "", flags.contains(.shift) ? "⇧" : "", flags.contains(.command) ? "⌘" : ""].joined()
+                    + item.keyEquivalent.uppercased()
+            }
+            if !item.isEnabled { line += "\t(disabled)" }
+            return line
+        }
+        try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        menu.cancelTracking()
+    }
+}
+
 extension DesignReview {
+    private static var menuBarCaptures = 0
+    private static var menuReader: MenuBarMenuReader?
+
+    /// `menuBar`: saves Bardo's own menu bar items as `menubar-<n>-<i>.png`, drawn on the
+    /// menu bar's light or dark, with their accessibility labels in `menubar-<n>.txt`
+    /// (`none` when Bardo shows no item). An app may draw its own status item windows,
+    /// so this needs no screen recording. `menuBar:open` also opens the first item's
+    /// menu, writes its items to `menubar-<n>-menu.txt` and closes it without choosing.
+    fileprivate static func captureMenuBarItems(opensMenu: Bool = false) {
+        guard let directory = captureDirectory else { return }
+        menuBarCaptures += 1
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        func labels(in view: NSView) -> [String] {
+            [view.accessibilityLabel(), view.accessibilityTitle()].compactMap { $0 }.filter { !$0.isEmpty }
+                + view.subviews.flatMap(labels(in:))
+        }
+        // A hidden item keeps its window, empty; other displays get offscreen copies.
+        let items = NSApp.windows.compactMap { window -> (NSView, String)? in
+            guard window.isVisible, window.frame.minY >= 0,
+                  String(describing: type(of: window)).contains("StatusBarWindow"),
+                  let view = window.contentView else { return nil }
+            let label = labels(in: view).joined(separator: " | ")
+            return label.isEmpty ? nil : (view, label)
+        }
+        for (index, (view, _)) in items.enumerated() {
+            guard let drawn = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+            view.cacheDisplay(in: view.bounds, to: drawn)
+            guard let item = drawn.cgImage,
+                  let context = CGContext(
+                    data: nil, width: item.width, height: item.height, bitsPerComponent: 8, bytesPerRow: 0,
+                    space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else { continue }
+            let isDark = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            context.setFillColor(isDark ? CGColor(gray: 0.12, alpha: 1) : CGColor(gray: 0.93, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: item.width, height: item.height))
+            context.draw(item, in: CGRect(x: 0, y: 0, width: item.width, height: item.height))
+            guard let image = context.makeImage() else { continue }
+            let url = directory.appendingPathComponent("menubar-\(menuBarCaptures)-\(index).png")
+            try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: url)
+        }
+        let text = items.isEmpty ? "none" : items.map(\.1).joined(separator: "\n")
+        let capture = menuBarCaptures
+        try? text.write(to: directory.appendingPathComponent("menubar-\(capture).txt"), atomically: true, encoding: .utf8)
+
+        func buttons(in view: NSView) -> [NSButton] {
+            (view as? NSButton).map { [$0] } ?? view.subviews.flatMap(buttons(in:))
+        }
+        guard opensMenu, let view = items.first?.0,
+              let button = buttons(in: view.superview ?? view).first ?? buttons(in: view.window?.contentView ?? view).first
+                ?? (view.window?.contentView as? NSButton) else { return }
+        let reader = MenuBarMenuReader(url: directory.appendingPathComponent("menubar-\(capture)-menu.txt"))
+        NotificationCenter.default.addObserver(
+            reader, selector: #selector(MenuBarMenuReader.menuDidBeginTracking(_:)),
+            name: NSMenu.didBeginTrackingNotification, object: nil
+        )
+        menuReader = reader
+        button.performClick(nil)
+    }
+
     /// Gives keyboard focus to one of the window's lists, ordered left to right
     /// (0 is the sidebar, 1 the conversation list), as a click would.
     fileprivate static func focusTable(at index: Int) {
@@ -285,12 +377,14 @@ extension DesignReview {
 
     fileprivate static func compositedImage(of window: NSWindow) -> CGImage? {
         typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-        guard let handle = dlopen(nil, RTLD_NOW),
+        // Windows not yet on screen, such as a menu bar item's, have no number to pass.
+        guard let number = UInt32(exactly: window.windowNumber),
+              let handle = dlopen(nil, RTLD_NOW),
               let symbol = dlsym(handle, "CGWindowListCreateImage") else { return nil }
         let capture = unsafeBitCast(symbol, to: Capture.self)
         let includingWindow: UInt32 = 1 << 3
         let boundsIgnoreFramingAndBestResolution: UInt32 = (1 << 0) | (1 << 3)
-        guard let image = capture(.null, includingWindow, UInt32(window.windowNumber), boundsIgnoreFramingAndBestResolution)?
+        guard let image = capture(.null, includingWindow, number, boundsIgnoreFramingAndBestResolution)?
             .takeRetainedValue(),
               image.width > 1 else { return nil }
         return image

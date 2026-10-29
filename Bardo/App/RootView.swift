@@ -116,6 +116,12 @@ struct RootView: View {
                 }
             }
             .focusedSceneValue(\.captureCommands, captureCommandState)
+            .onChange(of: menuBarState, initial: true) { _, state in
+                RecordingMenuBar.shared.update(state, position: menuBarPosition)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.showRecording)) { _ in
+                if isLiveRecording { library.selection = nil }
+            }
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.newRecording)) { _ in
                 presentRecordingSetup()
             }
@@ -172,7 +178,10 @@ struct RootView: View {
                 if step.action == "record" {
                     Task { await startSystemRecording(includeMicrophone: step.value == "conversation", title: "Prueba de audio") }
                 }
-                if step.action == "stopRecording" { Task { await stopSystemRecording() } }
+                if step.action == "stopRecording" {
+                    previewMeters = nil
+                    Task { await stopSystemRecording() }
+                }
             }
             #endif
             // A new recording opens in the detail column, as in Voice Memos.
@@ -187,7 +196,7 @@ struct RootView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.markMoment)) { _ in
                 // On screen, the recorder opens its note; elsewhere the moment is just marked.
-                if library.selection == nil {
+                if library.selectedIDs.isEmpty {
                     NotificationCenter.default.post(name: LiveRecorderCommand.newMoment, object: nil)
                 } else if microphone.isBusy {
                     microphone.addMoment(at: microphone.recordingPosition, title: "", note: nil)
@@ -196,7 +205,7 @@ struct RootView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.startSection)) { _ in
-                if library.selection == nil {
+                if library.selectedIDs.isEmpty {
                     NotificationCenter.default.post(name: LiveRecorderCommand.newSection, object: nil)
                 } else if microphone.isBusy {
                     microphone.addSection(at: microphone.recordingPosition, title: "")
@@ -205,6 +214,7 @@ struct RootView: View {
                 }
             }
             .onDisappear {
+                RecordingMenuBar.shared.update(nil, position: { 0 })
                 Task {
                     if microphone.requiresTerminationFinalization {
                         await microphone.prepareForApplicationTermination()
@@ -228,6 +238,48 @@ struct RootView: View {
             isMuted: microphone.isMuted || systemAudio.isMicrophoneMuted,
             canMark: isLiveRecording
         )
+    }
+
+    /// What the menu bar item shows, `nil` while nothing records.
+    private var menuBarState: RecordingMenuBarState? {
+        #if DEBUG
+        if previewMeters != nil {
+            return RecordingMenuBarState(
+                isPaused: previewsPausedRecorder,
+                commands: BardoCaptureCommandState(
+                    canStart: false,
+                    canPause: !previewsPausedRecorder,
+                    canResume: previewsPausedRecorder,
+                    canStop: true,
+                    canMute: true,
+                    isMuted: previewsMutedRecorder,
+                    canMark: true
+                )
+            )
+        }
+        #endif
+        guard isLiveRecording else { return nil }
+        return RecordingMenuBarState(
+            isPaused: microphone.phase == .paused || systemAudio.isPaused,
+            commands: captureCommandState
+        )
+    }
+
+    /// Seconds of audio heard, as the recorder's own clock counts them.
+    private var menuBarPosition: @MainActor () -> TimeInterval {
+        let microphone = microphone
+        let systemAudio = systemAudio
+        #if DEBUG
+        if let previewMeters {
+            return { previewMeters.microphone.snapshot.duration }
+        }
+        #endif
+        return {
+            let meters = microphone.isBusy
+                ? [microphone.meter]
+                : [systemAudio.systemMeter, systemAudio.microphoneMeter]
+            return meters.compactMap { $0?.snapshot.duration }.max() ?? 0
+        }
     }
 
     private var isLiveRecording: Bool {

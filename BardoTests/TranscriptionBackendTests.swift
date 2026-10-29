@@ -38,4 +38,30 @@ final class TranscriptionBackendTests: XCTestCase {
             XCTAssertEqual(decoded, selection)
         }
     }
+
+    func testTranscriptKeepsTheEngineThatMadeItAndHowLongItTook() throws {
+        for engine in TranscriptionEngine.allCases {
+            let metadata = TranscriptMetadata(
+                engine: engine == .apple ? "Apple Speech" : "WhisperKit", engineVersion: "1.1.0",
+                modelID: engine.selection.modelID, selection: engine.selection, processingDuration: 84.4
+            )
+            let decoded = try JSONDecoder().decode(TranscriptMetadata.self, from: JSONEncoder().encode(metadata))
+            XCTAssertEqual(TranscriptionEngine(metadata: decoded), engine)
+            XCTAssertEqual(decoded.processingDuration, 84.4)
+        }
+    }
+
+    func testTranscriptSavedBeforeTheChoiceIsKnownByItsWhisperModel() throws {
+        func decode(_ modelID: String) throws -> TranscriptMetadata {
+            let json = """
+            {"engine":"WhisperKit","engineVersion":"1.0.0","modelID":"\(modelID)","createdAt":721692800}
+            """
+            return try JSONDecoder().decode(TranscriptMetadata.self, from: Data(json.utf8))
+        }
+        XCTAssertEqual(TranscriptionEngine(metadata: try decode(TranscriptionModelManager.modelID)), .balanced)
+        XCTAssertEqual(TranscriptionEngine(metadata: try decode(TranscriptionModelManager.largeModelID)), .precise)
+        let unknown = try decode("fixture")
+        XCTAssertNil(TranscriptionEngine(metadata: unknown))
+        XCTAssertNil(unknown.processingDuration)
+    }
 }
