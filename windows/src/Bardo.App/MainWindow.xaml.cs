@@ -489,8 +489,7 @@ public sealed partial class MainWindow : Window
         var footer = new TextBlock
         {
             Text = Localized.Get("ListenFooter"),
-            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
-            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Style = (Style)Application.Current.Resources["SecondaryCaptionTextBlockStyle"],
             TextWrapping = TextWrapping.WrapWholeWords,
             Margin = new Thickness(0, 4, 0, 0),
         };
