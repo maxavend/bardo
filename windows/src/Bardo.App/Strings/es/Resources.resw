@@ -52,7 +52,6 @@
   <data name="SkipBackButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Retroceder 15 segundos</value></data>
   <data name="PlayButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Reproducir o pausar</value></data>
   <data name="PlayButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Reproducir o pausar (Ctrl+P)</value></data>
-  <data name="PositionSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Posición</value></data>
   <data name="PausedText.Text" xml:space="preserve"><value>En pausa</value></data>
   <data name="MicrophoneLevelText.Text" xml:space="preserve"><value>Micrófono</value></data>
   <data name="SystemLevelText.Text" xml:space="preserve"><value>Audio del sistema</value></data>
@@ -110,4 +109,8 @@
   <data name="RenameSpeakerTitle" xml:space="preserve"><value>Nombre del participante</value></data>
   <data name="Save" xml:space="preserve"><value>Guardar</value></data>
   <data name="Cancel" xml:space="preserve"><value>Cancelar</value></data>
+  <data name="EmptyDetailText.Text" xml:space="preserve"><value>No hay nada que mostrar.</value></data>
+  <data name="PlaybackWaveform.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Onda de la conversación</value></data>
+  <data name="PlaybackWaveform.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Haz clic para reproducir desde ahí. Las flechas izquierda y derecha mueven 5 segundos.</value></data>
+  <data name="LiveWaveform.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Onda de la grabación</value></data>
 </root>

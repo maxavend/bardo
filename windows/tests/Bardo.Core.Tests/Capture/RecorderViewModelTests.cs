@@ -21,6 +21,8 @@ public sealed class RecorderViewModelTests
         Assert.AreEqual("1:05", recorder.ElapsedText);
         Assert.AreEqual(0.5, recorder.MicrophoneLevel, 1e-6);
 
+        Assert.HasCount(1, recorder.Live.Microphone, "One bar per tick");
+        Assert.AreEqual(0.88, recorder.Live.Microphone[0], 0.01, "Half scale, -6 dB, is loud speech");
         recorder.AddSection();
         recorder.AddMoment("Decisión");
         CollectionAssert.AreEqual(new[] { Bardo.Resources.Strings.SectionTitle(1), "Decisión" }, recorder.Marks.Select(mark => mark.Title).ToArray());
@@ -29,8 +31,13 @@ public sealed class RecorderViewModelTests
         recorder.Tick();
         Assert.AreEqual(0, recorder.MicrophoneLevel, "A muted microphone shows no level");
 
+        recorder.Tick();
+        Assert.HasCount(2, recorder.Live.Marks, "The section and the moment show on the waveform");
         recorder.TogglePause();
         Assert.IsTrue(recorder.IsPaused);
+        var bars = recorder.Live.Microphone.Length;
+        recorder.Tick();
+        Assert.HasCount(bars, recorder.Live.Microphone, "A paused waveform stands still");
 
         var recording = await recorder.StopAsync(AudioEncoding.Default);
 

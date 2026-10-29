@@ -51,8 +51,11 @@ public sealed class TranscriptBlockRow(TranscriptTextFormatter.Block block)
 }
 
 /// <summary>A participant of the selected conversation, as the naming list shows them.</summary>
-public sealed class SpeakerRow(Speaker speaker, string displayName, bool isNamed)
+public sealed class SpeakerRow(Speaker speaker, string displayName, bool isNamed, int index = 0)
 {
+    /// <summary>The participant's place in the transcript, which picks their colour.</summary>
+    public int Index { get; } = index;
+
     public Guid Id => Speaker.Id;
     public Speaker Speaker { get; } = speaker;
     public string DisplayName { get; } = displayName;
@@ -200,6 +203,8 @@ public sealed class LibraryViewModel : ObservableModel, IDisposable
     public bool HasNoTranscript => Selected is not null && Blocks.Count == 0 && !IsSelectedWorking;
 
     public string SelectedTitle => Selected?.Title ?? "";
+
+    public Transcript? SelectedTranscript => Selected is { } row ? FindTranscript(row.Id) : null;
 
     public bool IsSelectedFavorite => Selected is { } row && _preferences.Current.IsFavorite(row.Id);
 
@@ -514,15 +519,16 @@ public sealed class LibraryViewModel : ObservableModel, IDisposable
             var localName = LocalSpeakerName.Current;
             var formatter = new TranscriptTextFormatter(recording.Title, localName: localName);
             foreach (var block in formatter.Blocks(transcript)) Blocks.Add(new TranscriptBlockRow(block));
-            foreach (var speaker in transcript.Speakers)
+            foreach (var (speaker, index) in transcript.Speakers.Select((speaker, index) => (speaker, index)))
             {
-                Speakers.Add(new SpeakerRow(speaker, transcript.DisplayName(speaker, localName), speaker.Name.NonEmptyTrimmed() is not null));
+                Speakers.Add(new SpeakerRow(speaker, transcript.DisplayName(speaker, localName), speaker.Name.NonEmptyTrimmed() is not null, index));
             }
         }
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(HasNoSelection));
         OnPropertyChanged(nameof(HasTranscript));
         OnPropertyChanged(nameof(SelectedTitle));
+        OnPropertyChanged(nameof(SelectedTranscript));
         OnPropertyChanged(nameof(SelectedDetails));
         OnPropertyChanged(nameof(IsSelectedFavorite));
         OnPropertyChanged(nameof(HasSpeakers));

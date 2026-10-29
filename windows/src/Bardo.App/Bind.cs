@@ -1,3 +1,4 @@
+using Bardo.App.Controls;
 using Bardo.Library;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -14,7 +15,13 @@ internal static class Bind
 
     public static Visibility ShowBoth(bool first, bool second) => Show(first && second);
 
+    public static Visibility ShowEither(bool first, bool second) => Show(first || second);
+
     public static bool Not(bool value) => !value;
+
+    public static Microsoft.UI.Xaml.Media.SolidColorBrush SpeakerBrush(int index) => new(SpeakerPalette.For(index));
+
+    public static Microsoft.UI.Xaml.Media.SolidColorBrush SourceBrush(bool isSystemAudio) => new(SpeakerPalette.For(isSystemAudio ? 1 : 0));
 
     public static InfoBarSeverity Severity(LibraryNotice? notice) => notice is { IsError: true } ? InfoBarSeverity.Error : InfoBarSeverity.Success;
 

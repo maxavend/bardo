@@ -52,7 +52,6 @@
   <data name="SkipBackButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Back 15 seconds</value></data>
   <data name="PlayButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Play or pause</value></data>
   <data name="PlayButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Play or pause (Ctrl+P)</value></data>
-  <data name="PositionSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Position</value></data>
   <data name="PausedText.Text" xml:space="preserve"><value>Paused</value></data>
   <data name="MicrophoneLevelText.Text" xml:space="preserve"><value>Microphone</value></data>
   <data name="SystemLevelText.Text" xml:space="preserve"><value>System audio</value></data>
@@ -110,4 +109,8 @@
   <data name="RenameSpeakerTitle" xml:space="preserve"><value>Participant’s name</value></data>
   <data name="Save" xml:space="preserve"><value>Save</value></data>
   <data name="Cancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="EmptyDetailText.Text" xml:space="preserve"><value>Nothing to show here.</value></data>
+  <data name="PlaybackWaveform.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Conversation waveform</value></data>
+  <data name="PlaybackWaveform.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Click to play from there. Left and right arrows move 5 seconds.</value></data>
+  <data name="LiveWaveform.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Recording waveform</value></data>
 </root>

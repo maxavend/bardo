@@ -43,7 +43,16 @@ public interface ICaptureService
 }
 
 /// <summary>A moment or section marked while recording, as the recorder lists it.</summary>
-public sealed record MarkRow(string Time, string Title, bool IsSection);
+public sealed record MarkRow(string Time, string Title, bool IsSection, double Seconds = 0);
+
+/// <summary>
+/// The recent sound of a recording, newest last, one bar per recorder tick, with the
+/// moments and sections marked during that span. Levels are on <see cref="Waveform"/>'s scale.
+/// </summary>
+public sealed record LiveWaveform(float[] Microphone, float[] System, double Elapsed, double SecondsPerBar, IReadOnlyList<double> Marks)
+{
+    public static LiveWaveform Empty { get; } = new([], [], 0, RecorderViewModel.SecondsPerBar, []);
+}
 
 /// <summary>
 /// The live recorder: its clock, levels, pause and mute, and the moments and sections
@@ -51,6 +60,15 @@ public sealed record MarkRow(string Time, string Title, bool IsSection);
 /// </summary>
 public sealed class RecorderViewModel(ICaptureService service) : ObservableModel
 {
+    /// <summary>The live waveform keeps this many bars: about twelve seconds.</summary>
+    public const int LiveBars = 240;
+
+    /// <summary>One bar per recorder tick.</summary>
+    public const double SecondsPerBar = 0.05;
+
+    private readonly Queue<float> _microphoneHistory = new(LiveBars);
+    private readonly Queue<float> _systemHistory = new(LiveBars);
+    private LiveWaveform _live = LiveWaveform.Empty;
     private ICaptureSession? _session;
     private bool _isFinishing;
     private string _elapsed = DurationFormatting.Duration(0);
@@ -86,11 +104,16 @@ public sealed class RecorderViewModel(ICaptureService service) : ObservableModel
 
     public double SystemLevel => _systemLevel;
 
+    public LiveWaveform Live => _live;
+
     public void Start(CaptureMode mode, string? microphoneDeviceId)
     {
         if (_session is not null) return;
         _session = service.Start(mode, microphoneDeviceId);
         Marks.Clear();
+        _microphoneHistory.Clear();
+        _systemHistory.Clear();
+        _live = LiveWaveform.Empty;
         NotifyAll();
     }
 
@@ -101,6 +124,25 @@ public sealed class RecorderViewModel(ICaptureService service) : ObservableModel
         SetProperty(ref _elapsed, elapsed, nameof(ElapsedText));
         SetProperty(ref _microphoneLevel, session.IsMicrophoneMuted ? 0 : session.MicrophoneLevel, nameof(MicrophoneLevel));
         SetProperty(ref _systemLevel, session.SystemLevel, nameof(SystemLevel));
+
+        // While paused the waveform stands still, like the clock.
+        if (session.IsPaused) return;
+        Append(_microphoneHistory, Waveform.Level(_microphoneLevel));
+        Append(_systemHistory, Waveform.Level(_systemLevel));
+        var window = LiveBars * SecondsPerBar;
+        _live = new LiveWaveform(
+            [.. _microphoneHistory],
+            [.. _systemHistory],
+            session.Elapsed,
+            SecondsPerBar,
+            [.. Marks.Select(mark => mark.Seconds).Where(seconds => seconds > session.Elapsed - window)]);
+        OnPropertyChanged(nameof(Live));
+    }
+
+    private static void Append(Queue<float> history, float level)
+    {
+        if (history.Count == LiveBars) history.Dequeue();
+        history.Enqueue(level);
     }
 
     public void TogglePause()
@@ -115,14 +157,14 @@ public sealed class RecorderViewModel(ICaptureService service) : ObservableModel
     {
         if (_session is not { } session) return;
         var moment = session.AddMoment(title, note);
-        Marks.Add(new MarkRow(DurationFormatting.Duration(moment.Time), moment.Title, IsSection: false));
+        Marks.Add(new MarkRow(DurationFormatting.Duration(moment.Time), moment.Title, IsSection: false, moment.Time));
     }
 
     public void AddSection(string title = "")
     {
         if (_session is not { } session) return;
         var section = session.AddSection(title);
-        Marks.Add(new MarkRow(DurationFormatting.Duration(section.Start), section.Title, IsSection: true));
+        Marks.Add(new MarkRow(DurationFormatting.Duration(section.Start), section.Title, IsSection: true, section.Start));
     }
 
     /// <summary>Stops, and publishes the recording to the Library. Null when nothing was captured.</summary>
@@ -144,6 +186,7 @@ public sealed class RecorderViewModel(ICaptureService service) : ObservableModel
             _elapsed = DurationFormatting.Duration(0);
             _microphoneLevel = 0;
             _systemLevel = 0;
+            _live = LiveWaveform.Empty;
             NotifyAll();
         }
     }

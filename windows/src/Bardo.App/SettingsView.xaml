@@ -22,9 +22,11 @@
     </UserControl.Resources>
 
     <ScrollViewer>
+        <!--  Aligned with the pane, as in Windows Settings, and no wider than reads well.  -->
         <StackPanel
-            MaxWidth="860"
-            Padding="40,20,40,48"
+            MaxWidth="1000"
+            Padding="36,20,36,48"
+            HorizontalAlignment="Left"
             Spacing="4">
             <TextBlock x:Uid="SettingsTitle" Style="{StaticResource TitleTextBlockStyle}" />
 

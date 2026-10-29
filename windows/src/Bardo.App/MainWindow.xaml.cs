@@ -31,6 +31,8 @@ public sealed partial class MainWindow : Window
     private readonly EngineHost _engines;
     private FileSystemWatcher? _watcher;
     private IReadOnlyList<CaptureManifest> _interrupted = [];
+    private readonly Dictionary<Guid, float[]> _overviews = [];
+    private CancellationTokenSource? _overviewLoad;
 
     public MainWindow()
     {
@@ -69,6 +71,19 @@ public sealed partial class MainWindow : Window
         _recorderTimer.Tick += (_, _) => Recorder.Tick();
 
         ViewModel.PropertyChanged += OnViewModelChanged;
+        Playback.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(PlaybackController.Position) or nameof(PlaybackController.Duration))
+            {
+                PlaybackWaveform.Progress = Playback.Position / Math.Max(0.01, Playback.Duration);
+            }
+        };
+        Recorder.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(RecorderViewModel.Live)) LiveWaveform.ShowLive(Recorder.Live);
+        };
+        PlaybackWaveform.SeekRequested += (_, fraction) => Playback.Seek(fraction * Playback.Duration);
+        PlaybackWaveform.StepRequested += (_, seconds) => Playback.SkipBy(seconds);
         Settings.ModelsChanged += (_, _) => _engines.Refresh();
         Closed += OnClosed;
 
@@ -128,11 +143,59 @@ public sealed partial class MainWindow : Window
         if (e.PropertyName == nameof(LibraryViewModel.Selected))
         {
             await Playback.LoadAsync(ViewModel.Selected?.Recording);
+            await ShowOverviewAsync();
         }
+        else if (e.PropertyName == nameof(LibraryViewModel.SelectedTranscript))
+        {
+            // Naming or identifying participants recolours the waveform.
+            ShowSpeakers();
+        }
+    }
+
+    /// <summary>The selected conversation's waveform, read once from its audio and then kept.</summary>
+    private async Task ShowOverviewAsync()
+    {
+        _overviewLoad?.Cancel();
+        if (ViewModel.Selected?.Recording is not { } recording || recording.PlaybackAudioAssets.FirstOrDefault() is not { } asset)
+        {
+            PlaybackWaveform.Clear();
+            return;
+        }
+        if (!_overviews.ContainsKey(recording.Id))
+        {
+            PlaybackWaveform.Clear();
+            using var cancellation = new CancellationTokenSource();
+            _overviewLoad = cancellation;
+            try
+            {
+                var path = await ViewModel.RecordingStore.ManagedAudioPathAsync(recording.Id, asset.Id);
+                _overviews[recording.Id] = await Waveform.OverviewAsync(
+                    new MediaFoundationDecoder(), path, recording.Duration ?? asset.Metadata.Duration, cancellation.Token);
+            }
+            catch (Exception error) when (error is OperationCanceledException or RecordingStoreException or IOException or System.Runtime.InteropServices.COMException)
+            {
+                return;
+            }
+            finally
+            {
+                if (_overviewLoad == cancellation) _overviewLoad = null;
+            }
+            if (ViewModel.Selected?.Id != recording.Id) return;
+        }
+        ShowSpeakers();
+    }
+
+    private void ShowSpeakers()
+    {
+        if (ViewModel.Selected?.Recording is not { } recording || !_overviews.TryGetValue(recording.Id, out var levels)) return;
+        var duration = recording.Duration ?? Playback.Duration;
+        PlaybackWaveform.ShowOverview(levels, Waveform.Speakers(ViewModel.SelectedTranscript, duration, levels.Length));
+        PlaybackWaveform.Progress = Playback.Position / Math.Max(0.01, Playback.Duration);
     }
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
+        _overviewLoad?.Cancel();
         _watcher?.Dispose();
         _recorderTimer.Stop();
         _engines.Dispose();
@@ -148,6 +211,8 @@ public sealed partial class MainWindow : Window
     {
         var showsSettings = args.IsSettingsSelected;
         LibraryContent.Visibility = showsSettings ? Visibility.Collapsed : Visibility.Visible;
+        // Library notices, such as "open Settings", have no place in Settings itself.
+        LibraryNotices.Visibility = showsSettings ? Visibility.Collapsed : Visibility.Visible;
         SettingsContent.Visibility = showsSettings ? Visibility.Visible : Visibility.Collapsed;
         if (args.SelectedItem is NavigationViewItem { Tag: string tag } && Enum.TryParse<LibrarySection>(tag, out var section))
         {
@@ -384,11 +449,5 @@ public sealed partial class MainWindow : Window
     private void OnPlayFromBlock(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: double start }) Playback.Seek(start, play: true);
-    }
-
-    private void OnPositionChanged(object sender, RangeBaseValueChangedEventArgs e)
-    {
-        // The player moves the slider as it plays; only a jump made by hand seeks.
-        if (Math.Abs(e.NewValue - Playback.Position) > 0.5) Playback.Seek(e.NewValue);
     }
 }
