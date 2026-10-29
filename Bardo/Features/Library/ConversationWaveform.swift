@@ -283,8 +283,18 @@ struct RecordingWaveform: View {
     }
 
     private var resolution: Int {
-        // One bar per quarter second keeps the bars evenly spaced at any length.
-        min(24_000, max(1, Int((duration / Self.secondsPerBar).rounded())))
+        Self.resolution(for: duration)
+    }
+
+    /// How many bars a recording gets: one per quarter second keeps them evenly spaced at
+    /// any length.
+    static func resolution(for duration: TimeInterval) -> Int {
+        min(24_000, max(1, Int((duration / secondsPerBar).rounded())))
+    }
+
+    /// Whether the waveform is still being read, so placeholder bars stand in for it.
+    private var isLoading: Bool {
+        overview.lanes == nil && duration > 0 && !playback.loadedTracks.isEmpty
     }
 
     /// The first moment on screen while `position` plays: the playhead rests at the
@@ -308,6 +318,15 @@ struct RecordingWaveform: View {
                 Canvas { canvas, size in
                     draw(in: &canvas, size: size, position: position)
                 }
+                // The bars fade in over the placeholder once they are read.
+                .opacity(isLoading ? 0 : 1)
+                .overlay {
+                    if isLoading {
+                        WaveformSkeleton()
+                            .transition(.opacity)
+                    }
+                }
+                .animation(.easeOut(duration: 0.3), value: isLoading)
                 .overlay(alignment: .topLeading) {
                     if duration > 0 {
                         PlayheadKnob(isGrabbed: scrubOrigin != nil)
@@ -388,7 +407,7 @@ struct RecordingWaveform: View {
             )
         }
 
-        guard let lanes = overview.lanes?.normalized, duration > 0, !lanes.upper.isEmpty else {
+        guard let lanes = overview.lanes, duration > 0, !lanes.upper.isEmpty else {
             Style.drawCenterLine(in: &bars, size: size)
             return
         }
@@ -450,6 +469,56 @@ struct RecordingWaveform: View {
                 with: .color(.yellow)
             )
         }
+    }
+}
+
+/// Stands in for a waveform while it is read: quiet grey bars in the same rhythm and
+/// place, with a soft light passing over them. It appears only if reading takes a moment,
+/// so a waveform that is ready never flashes it, and the light stays still under Reduce
+/// Motion.
+private struct WaveformSkeleton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isShown = false
+
+    /// One pass of the light, in seconds.
+    private static let sweep: TimeInterval = 1.6
+
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion)) { timeline in
+            Canvas { canvas, size in
+                draw(in: &canvas, size: size, at: timeline.date.timeIntervalSinceReferenceDate)
+            }
+        }
+        .opacity(isShown ? 1 : 0)
+        .onAppear {
+            withAnimation(.easeIn(duration: 0.25).delay(0.12)) { isShown = true }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func draw(in canvas: inout GraphicsContext, size: CGSize, at time: TimeInterval) {
+        typealias Style = ConversationWaveformStyle
+        let middle = size.height / 2
+        let reach = middle - Style.gap - Style.dotSize
+        let inset = RecordingWaveform.inset
+        let span = max(1, size.width - inset * 2)
+        // The light crosses from the leading edge to past the trailing one, then again.
+        let light = reduceMotion ? -1 : CGFloat(time.truncatingRemainder(dividingBy: Self.sweep) / Self.sweep) * 1.4 - 0.2
+        var index = 0
+        var x = inset
+        while x <= size.width - inset {
+            // Speech-like heights that never change, so nothing seems to be heard yet.
+            let level = 0.3 + 0.22 * sin(Double(index) * 0.37) + 0.14 * sin(Double(index) * 0.11 + 1.3)
+            let height = CGFloat(level) * reach
+            let distance = (x - inset) / span - light
+            let opacity = 0.14 + 0.16 * exp(-Double(distance * distance) / 0.006)
+            let color = Color.secondary.opacity(opacity)
+            canvas.fill(Path(roundedRect: CGRect(x: x, y: middle - Style.gap - height, width: Style.barWidth, height: height), cornerRadius: Style.barWidth / 2), with: .color(color))
+            canvas.fill(Path(roundedRect: CGRect(x: x, y: middle + Style.gap, width: Style.barWidth, height: height * 0.8), cornerRadius: Style.barWidth / 2), with: .color(color))
+            index += 1
+            x += Style.step
+        }
+        Style.drawCenterLine(in: &canvas, size: size)
     }
 }
 

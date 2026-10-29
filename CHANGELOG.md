@@ -2,6 +2,21 @@
 
 All notable changes to Bardo. Each version is also a [GitHub release](https://github.com/maxavend/bardo/releases) with its DMG.
 
+## 1.1.2 — 2026-10-29
+
+### Transcription
+
+- **No more words over silence.** Whisper wrote stock phrases such as "Thank you." over silent stretches, once every 22 seconds while a microphone was muted. Text whose audio never rises above room noise is now left out, as it is heard and in the finished transcript.
+
+### Playback
+
+- **Listen to some participants only.** The full player's Opciones lets you choose whom to hear; what the others say is skipped, together with silences if you skip those too.
+- **The waveform is ready sooner.** A recording's waveform is read as soon as you choose it, both tracks at once, so the full player opens with it. If it is still being read, placeholder bars stand in and the real ones fade in.
+
+### Design
+
+- The participants button keeps its avatars as close to the edge as to the top, following its curve.
+
 ## 1.1.1 — 2026-10-27
 
 ### Recording
