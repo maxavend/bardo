@@ -420,6 +420,7 @@
 
                                         <!--  Participants  -->
                                         <Expander
+                                            x:Name="ParticipantsExpander"
                                             Margin="0,20,0,0"
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Stretch"

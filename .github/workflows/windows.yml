@@ -98,6 +98,27 @@ jobs:
           # The interface text lives in the PRI file (resources.pri or Bardo.pri).
           if (-not (Get-ChildItem $app -Filter *.pri)) { exit 1 }
 
+      # Opens Bardo on a made-up Library, walks its main states and saves a picture of
+      # each, so the interface can be reviewed without a Windows PC.
+      - name: Capture the design review
+        if: matrix.platform == 'x64'
+        shell: pwsh
+        run: |
+          $folder = Join-Path $PWD "design-review"
+          $app = Start-Process -FilePath "publish/Bardo-${{ matrix.rid }}/Bardo.exe" -ArgumentList "--design-review", "`"$folder`"" -PassThru
+          if (-not $app.WaitForExit(180000)) { $app.Kill(); Write-Error "The design review did not finish." }
+          Get-ChildItem $folder -Filter *.png | ForEach-Object { "$($_.Name) $($_.Length)" }
+          if (-not (Get-ChildItem $folder -Filter *.png)) { exit 1 }
+
+      - name: Upload the design review
+        if: always() && matrix.platform == 'x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-review
+          path: design-review
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload the app
         uses: actions/upload-artifact@v4
         with:

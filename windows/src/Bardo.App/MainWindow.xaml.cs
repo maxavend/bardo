@@ -26,24 +26,29 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherQueueTimer _reloadTimer;
     private readonly DispatcherQueueTimer _recorderTimer;
     private readonly HttpClient _http = new();
-    private readonly PreferencesStore _preferences = PreferencesStore.Live();
-    private readonly WasapiCaptureService _captures;
+    private readonly PreferencesStore _preferences;
+    private readonly ICaptureService _captures;
     private readonly EngineHost _engines;
     private FileSystemWatcher? _watcher;
     private IReadOnlyList<CaptureManifest> _interrupted = [];
     private readonly Dictionary<Guid, float[]> _overviews = [];
     private CancellationTokenSource? _overviewLoad;
 
-    public MainWindow()
+    public MainWindow() : this(WindowEnvironment.Live())
     {
+    }
+
+    internal MainWindow(WindowEnvironment environment)
+    {
+        _preferences = environment.Preferences;
         ViewModel = new LibraryViewModel(
-            RecordingStore.DefaultLibraryPath(),
+            environment.LibraryPath,
             _preferences,
             new WindowsRecycleBin(),
             new MediaFoundationMetadataReader());
-        var models = new ModelSetup(new ModelDownloader(ModelCatalog.DefaultDirectory(), _http));
+        var models = new ModelSetup(new ModelDownloader(environment.ModelsDirectory, _http));
         Settings = new SettingsViewModel(_preferences, models);
-        _captures = new WasapiCaptureService(ViewModel.RecordingStore, CaptureStaging.Live());
+        _captures = environment.Captures(ViewModel.RecordingStore);
         Recorder = new RecorderViewModel(_captures);
         Playback = new PlaybackController(DispatcherQueue.GetForCurrentThread(), ViewModel.RecordingStore);
         _engines = new EngineHost(ViewModel, models, _preferences);
@@ -450,4 +455,18 @@ public sealed partial class MainWindow : Window
     {
         if (sender is FrameworkElement { Tag: double start }) Playback.Seek(start, play: true);
     }
+}
+
+/// <summary>Where the window keeps its Library and Settings, and how it records.</summary>
+internal sealed record WindowEnvironment(
+    string LibraryPath,
+    PreferencesStore Preferences,
+    string ModelsDirectory,
+    Func<RecordingStore, ICaptureService> Captures)
+{
+    public static WindowEnvironment Live() => new(
+        RecordingStore.DefaultLibraryPath(),
+        PreferencesStore.Live(),
+        ModelCatalog.DefaultDirectory(),
+        store => new WasapiCaptureService(store, CaptureStaging.Live()));
 }
