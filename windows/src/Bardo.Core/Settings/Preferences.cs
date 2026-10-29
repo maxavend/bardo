@@ -33,6 +33,9 @@ public sealed record Preferences
     /// <summary>The microphone to record from; none means the one Windows uses for calls.</summary>
     public string? MicrophoneDeviceId { get; init; }
 
+    /// <summary>Whether first-run setup was finished or set aside; it is offered only once.</summary>
+    public bool HasFinishedSetup { get; init; }
+
     [System.Text.Json.Serialization.JsonIgnore]
     public AudioEncoding Encoding => new(AudioQuality, AudioFormat);
 

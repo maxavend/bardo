@@ -146,6 +146,9 @@ public sealed class SettingsViewModel : ObservableModel, IDisposable
 
     public void CancelDownload() => _download?.Cancel();
 
+    /// <summary>Shows download progress without downloading, for design reviews.</summary>
+    public void PreviewDownload(double progress) => SetDownload(progress, error: null);
+
     public void Dispose()
     {
         _download?.Cancel();

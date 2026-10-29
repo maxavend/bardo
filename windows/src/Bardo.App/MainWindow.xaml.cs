@@ -48,6 +48,7 @@ public sealed partial class MainWindow : Window
             new MediaFoundationMetadataReader());
         var models = new ModelSetup(new ModelDownloader(environment.ModelsDirectory, _http));
         Settings = new SettingsViewModel(_preferences, models);
+        Onboarding = new OnboardingViewModel(_preferences, Settings);
         _captures = environment.Captures(ViewModel.RecordingStore);
         Recorder = new RecorderViewModel(_captures);
         Playback = new PlaybackController(DispatcherQueue.GetForCurrentThread(), ViewModel.RecordingStore);
@@ -101,6 +102,8 @@ public sealed partial class MainWindow : Window
     public LibraryViewModel ViewModel { get; }
 
     public SettingsViewModel Settings { get; }
+
+    public OnboardingViewModel Onboarding { get; }
 
     public RecorderViewModel Recorder { get; }
 

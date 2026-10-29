@@ -118,4 +118,30 @@
   <data name="SpeakerActionsButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Más opciones</value></data>
   <data name="RenameSpeakerMenu" xml:space="preserve"><value>Cambiar nombre</value></data>
   <data name="MergeSpeakerMenu" xml:space="preserve"><value>Unir con</value></data>
+  <data name="OnboardingChoosingTitle" xml:space="preserve"><value>Elige cómo transcribir</value></data>
+  <data name="OnboardingChoosingDetail" xml:space="preserve"><value>Bardo descarga su modelo una sola vez. Después transcribe sin conexión, en este PC.</value></data>
+  <data name="OnboardingDownloadingTitle" xml:space="preserve"><value>Preparando la transcripción</value></data>
+  <data name="OnboardingDownloadingDetail" xml:space="preserve"><value>Solo ocurre una vez. Después, Bardo transcribe sin conexión.</value></data>
+  <data name="OnboardingPausedTitle" xml:space="preserve"><value>Descarga en pausa</value></data>
+  <data name="OnboardingPausedDetail" xml:space="preserve"><value>Lo descargado se guarda. Reanuda cuando quieras.</value></data>
+  <data name="OnboardingFailedTitle" xml:space="preserve"><value>No se pudo completar la descarga</value></data>
+  <data name="OnboardingFailedDetail" xml:space="preserve"><value>Comprueba tu conexión a internet e inténtalo de nuevo.</value></data>
+  <data name="OnboardingReadyTitle" xml:space="preserve"><value>Bardo está listo</value></data>
+  <data name="OnboardingReadyDetail" xml:space="preserve"><value>Ya puedes transcribir sin conexión.</value></data>
+  <data name="OnboardingRecommendedTitle.Text" xml:space="preserve"><value>Recomendado</value></data>
+  <data name="OnboardingRecommendedModel.Text" xml:space="preserve"><value>Whisper Turbo</value></data>
+  <data name="OnboardingRecommendedDetail.Text" xml:space="preserve"><value>Muy preciso y rápido, también con nombres y siglas.</value></data>
+  <data name="OnboardingPreciseTitle.Text" xml:space="preserve"><value>Preciso</value></data>
+  <data name="OnboardingPreciseModel.Text" xml:space="preserve"><value>Whisper Large</value></data>
+  <data name="OnboardingPreciseDetail.Text" xml:space="preserve"><value>El más exacto con nombres, acentos y voces que se cruzan. Tarda varias veces más.</value></data>
+  <data name="OnboardingProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Progreso de la descarga</value></data>
+  <data name="OnboardingDownloadButton.Content" xml:space="preserve"><value>Descargar</value></data>
+  <data name="OnboardingResumeButton.Content" xml:space="preserve"><value>Reanudar</value></data>
+  <data name="OnboardingRetryButton.Content" xml:space="preserve"><value>Intentar de nuevo</value></data>
+  <data name="OnboardingStartButton.Content" xml:space="preserve"><value>Empezar</value></data>
+  <data name="OnboardingUseMeanwhileButton.Content" xml:space="preserve"><value>Usar Bardo mientras tanto</value></data>
+  <data name="OnboardingPauseButton.Content" xml:space="preserve"><value>Pausar</value></data>
+  <data name="OnboardingSkipButton.Content" xml:space="preserve"><value>Continuar sin transcribir</value></data>
+  <data name="OnboardingSkipButtonPaused.Content" xml:space="preserve"><value>Continuar sin transcribir</value></data>
+  <data name="OnboardingPrivacy.Text" xml:space="preserve"><value>Incluye la identificación de participantes. El audio y las transcripciones se quedan en este PC.</value></data>
 </root>

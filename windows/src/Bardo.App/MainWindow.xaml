@@ -42,9 +42,16 @@
             </TitleBar.Content>
         </TitleBar>
 
+        <app:OnboardingView
+            x:Name="OnboardingContent"
+            Grid.Row="1"
+            ViewModel="{x:Bind Onboarding}"
+            Visibility="{x:Bind app:Bind.Show(Onboarding.IsOpen), Mode=OneWay}" />
+
         <NavigationView
             x:Name="Navigation"
             Grid.Row="1"
+            Visibility="{x:Bind app:Bind.Hide(Onboarding.IsOpen), Mode=OneWay}"
             IsBackButtonVisible="Collapsed"
             IsPaneToggleButtonVisible="False"
             IsSettingsVisible="True"

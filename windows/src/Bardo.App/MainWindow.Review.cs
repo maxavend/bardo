@@ -47,6 +47,13 @@ public sealed partial class MainWindow
             root.RequestedTheme = theme;
             var suffix = theme == ElementTheme.Dark ? "oscuro" : "claro";
 
+            // First launch: choosing, then downloading.
+            Onboarding.Preview(OnboardingState.Choosing);
+            await Capture(folder, $"00-bienvenida-{suffix}");
+            Onboarding.Preview(OnboardingState.Downloading, 0.42);
+            await Capture(folder, $"00-bienvenida-descargando-{suffix}");
+            Onboarding.Close();
+
             // A conversation with two participants, part played.
             ViewModel.Select(ViewModel.Rows[0].Id);
             ParticipantsExpander.IsExpanded = true;

@@ -1,5 +1,6 @@
 using Bardo.App.Controls;
 using Bardo.Library;
+using Bardo.Settings;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.ApplicationModel.Resources;
@@ -18,6 +19,11 @@ internal static class Bind
     public static Visibility ShowEither(bool first, bool second) => Show(first || second);
 
     public static bool Not(bool value) => !value;
+
+    /// <summary>First-run setup's title or detail for its state, such as OnboardingDownloadingTitle.</summary>
+    public static string OnboardingText(OnboardingState state, string part) => Localized.Get($"Onboarding{state}{part}");
+
+    public static string Percent(double fraction) => fraction.ToString("P0", System.Globalization.CultureInfo.CurrentCulture);
 
     /// <summary>Shown when <paramref name="value"/> holds, unless something covers it.</summary>
     public static Visibility ShowUnless(bool value, bool covered) => Show(value && !covered);
