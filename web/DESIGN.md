@@ -221,13 +221,15 @@ Calm, solid, Mac-like pills.
 - **Transitions:** background, border, colour and translate over 200ms with `ease-out-expo` (`cubic-bezier(0.16, 1, 0.3, 1)`).
 
 ### Download CTA
-The page's one conversion block: the primary button "Descargar para Mac", then a faint caption line "Gratis. {requirements}. Versión {version}." On phones show “Bardo es una app para Mac.” and “Comparte el enlace y ábrelo allí para descargarla.” above a full-width primary “Compartir enlace” button (or “Copiar enlace” when native sharing is absent). Keep mobile requirements concise; the desktop requirements and release version come from `lib/site.ts`.
+The page's one conversion block: the primary button for the visitor's computer, then a faint caption line "Gratis. {requirements}. Versión {version}." The HTML shows the Mac's ("Descargar para Mac"); a native element asks the browser what the computer is and, when Windows installers exist, swaps to "Descargar para Windows" with an x64 (Intel or AMD) or ARM (Snapdragon) caption. Edge and Chrome tell ARM apart; other Windows browsers get x64, which Windows on ARM also runs. Below it, a text link "Otras descargas" leads to the computer ledger on Descargar. Until a release carries Windows installers (`windowsRelease` in `lib/site.ts`), a Windows visitor keeps the Mac button and reads "Bardo para Windows llega pronto." On phones show “Bardo es una app para Mac.” and “Comparte el enlace y ábrelo allí para descargarla.” above a full-width primary “Compartir enlace” button (or “Copiar enlace” when native sharing is absent). Keep mobile requirements concise; the desktop requirements and release version come from `lib/site.ts`.
 
 ### Live Waveform (signature)
 The hero's picture is the app's live recording waveform with the Streaming Conversation under it, no card and no interface around them, drawn by the rules in `LiveRecorderView.swift` from generated levels: the Mac's audio rises above one shared line coloured by whoever speaks in the conversation under it (Valentina orange, Diego green; Tú is the blue microphone below), with the odd brief aside over the speaker and silence between passages, the microphone falls below it in blue (2px bars every 4px, height = level², a 3px gap each side of the line), older audio fades over the leading 35% into the page, the centre line is one gradient that eases toward the loudest voice's colour and back to the grey hairline in silence, and a thin red playhead fading at both ends marks where audio enters. It runs continuously, stops off screen and while hidden, and stays still under Reduce Motion.
 
 ### Ledger Lists
 The house pattern for facts: ruled rows, a bold title on the left, a faint note beneath, an optional right-aligned tabular value. Used for transcription choices, download sizes, install steps, privacy terms and release notes.
+
+On Descargar, "Elige tu equipo" is a ledger of the computers Bardo runs on (Mac, Windows, Windows en ARM): requirement note, file name in faint mono, and a 44px outline "Descargar" pill on the right (full width on phones), or "Pronto" in faint text while a platform has no release. The visitor's own row carries "Este equipo" in soft text. Download sizes gain Mac and Windows value columns (7rem and 6rem, headed in faint text) once Windows ships.
 
 ### Speaker Legend
 A row of 10px round dots in the speaker hues followed by the speaker's name in soft 14px text, placed beside the capture it describes.
@@ -304,7 +306,7 @@ On phones, do not reserve classic scrollbar tracks: `scrollbar-width: none` and 
 
 
 ### Mobile navigation and hero
-Below 40rem, navigation keeps a 44px brand target and a 44px icon-only summary labelled “Navegación” for assistive technology. Its native details disclosure contains 48px links to Novedades, Privacidad and Descargar para Mac; Escape returns focus to the summary, clicking outside closes it, and navigation closes it. The desktop link row remains available from 40rem upward. Keep the dropdown inside the viewport without adding a framework or animation dependency.
+Below 40rem, navigation keeps a 44px brand target and a 44px icon-only summary labelled “Navegación” for assistive technology. Its native details disclosure contains 48px links to Novedades, Privacidad and Descargar; Escape returns focus to the summary, clicking outside closes it, and navigation closes it. The desktop link row remains available from 40rem upward. Keep the dropdown inside the viewport without adding a framework or animation dependency.
 
 The phone hero uses 32px top / 24px bottom padding, 20px between the heading, lead and CTA, and 24px before the demo. The lead is 16px with relaxed line height; the heading scales from 38 to 44px. The waveform is 112px tall and the transcript viewport 144px so the demonstration supports the first screen without dominating it.
 

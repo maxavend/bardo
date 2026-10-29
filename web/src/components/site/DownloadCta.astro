@@ -2,27 +2,67 @@
 import { DownloadIcon } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
 import MacOnly from "@/components/site/MacOnly.astro"
-import { links, release, requirements } from "@/lib/site"
+import { links, release, requirements, url, windowsRelease } from "@/lib/site"
 import { cn } from "@/lib/utils"
 
 interface Props {
   align?: "start" | "center"
   class?: string
+  /** Hide the link to the other downloads, as on the page that lists them. */
+  hideOthers?: boolean
 }
 
-const { align = "start", class: className } = Astro.props
+const { align = "start", class: className, hideOthers = false } = Astro.props
+
+// One choice per computer; the page shows the Mac's until the browser says otherwise,
+// so it reads right without JavaScript too.
+const choices = [
+  { platform: "mac", label: "Descargar para Mac", href: links.dmg, caption: `Gratis. ${requirements}. Versión ${release.version}.` },
+  ...(links.windows
+    ? [
+        { platform: "windows-x64", label: "Descargar para Windows", href: links.windows.x64, caption: `Gratis. Windows 11 en un PC x64 (Intel o AMD). Versión ${windowsRelease}.` },
+        { platform: "windows-arm64", label: "Descargar para Windows", href: links.windows.arm64, caption: `Gratis. Windows 11 en un PC ARM (Snapdragon). Versión ${windowsRelease}.` },
+      ]
+    : []),
+]
 ---
 
-<div class={cn("flex flex-col gap-3 max-sm:w-full", align === "center" ? "items-center text-center" : "items-start", className)}>
-  <a class={cn(buttonVariants(), "max-sm:hidden")} href={links.dmg}>
-    <DownloadIcon data-icon="inline-start" aria-hidden="true" />
-    Descargar para Mac
-  </a>
+<bardo-download class={cn("flex flex-col gap-3 max-sm:w-full", align === "center" ? "items-center text-center" : "items-start", className)}>
+  {
+    choices.map(choice => (
+      <div data-platform={choice.platform} hidden={choice.platform !== "mac"} class={cn("flex flex-col gap-3 max-sm:hidden", align === "center" ? "items-center" : "items-start")}>
+        <a class={buttonVariants()} href={choice.href}>
+          <DownloadIcon data-icon="inline-start" aria-hidden="true" />
+          {choice.label}
+        </a>
+        <p class="text-sm text-faint">{choice.caption}</p>
+      </div>
+    ))
+  }
+  {!links.windows && <p data-windows-soon hidden class="text-sm text-faint max-sm:hidden">Bardo para Windows llega pronto.</p>}
+  {!hideOthers && <a class="text-link text-sm max-sm:hidden" href={url("descargar/#equipos")}>Otras descargas</a>}
   <div class="w-full sm:hidden">
     <MacOnly align={align} />
   </div>
-  <p class="text-sm text-faint max-sm:hidden">
-    Gratis. {requirements}. Versión {release.version}.
-  </p>
-  <p class="text-sm text-faint sm:hidden">Gratis · Apple silicon · macOS 15 o posterior</p>
-</div>
+  <p class="text-sm text-faint sm:hidden">{links.windows ? "Gratis · Mac y Windows 11" : "Gratis · Apple silicon · macOS 15 o posterior"}</p>
+</bardo-download>
+
+<script>
+  import { detectPlatform } from "@/scripts/platform"
+
+  class DownloadElement extends HTMLElement {
+    async connectedCallback() {
+      const platform = await detectPlatform(navigator)
+      const choices = [...this.querySelectorAll<HTMLElement>("[data-platform]")]
+      // Show this computer's download when there is one; otherwise keep the Mac's.
+      if (!choices.some(choice => choice.dataset.platform === platform)) {
+        const soon = this.querySelector<HTMLElement>("[data-windows-soon]")
+        if (soon && platform.startsWith("windows")) soon.hidden = false
+        return
+      }
+      for (const choice of choices) choice.hidden = choice.dataset.platform !== platform
+    }
+  }
+
+  if (!customElements.get("bardo-download")) customElements.define("bardo-download", DownloadElement)
+</script>

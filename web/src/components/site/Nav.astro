@@ -64,7 +64,7 @@ const items: { page: Page; label: string; href: string }[] = [
             <a class="flex min-h-12 items-center rounded-lg px-4 text-base text-soft no-underline hover:bg-ground-3 hover:text-foreground aria-[current=page]:bg-ground-3 aria-[current=page]:text-foreground" href={item.href} aria-current={current === item.page ? "page" : undefined}>{item.label}</a>
           </li>
         ))}
-        <li><a class="flex min-h-12 items-center rounded-lg px-4 text-base font-semibold text-foreground no-underline hover:bg-ground-3 aria-[current=page]:bg-ground-3" href={url("descargar/")} aria-current={current === "descargar" ? "page" : undefined}>Descargar para Mac</a></li>
+        <li><a class="flex min-h-12 items-center rounded-lg px-4 text-base font-semibold text-foreground no-underline hover:bg-ground-3 aria-[current=page]:bg-ground-3" href={url("descargar/")} aria-current={current === "descargar" ? "page" : undefined}>Descargar</a></li>
       </ul>
     </details>
   </nav>

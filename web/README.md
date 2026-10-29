@@ -22,6 +22,16 @@ npm run preview
 
 Los componentes existentes están en `src/components/ui`; para añadir otro puede usarse `npx shadcn@latest add nombre`. La CLI no es una dependencia del sitio.
 
+## Windows
+
+`windowsRelease` en `src/lib/site.ts` es la primera versión que trae instaladores de Windows (`Bardo-<versión>-Setup-x64.exe` y `-arm64.exe`, que adjunta el flujo Release), o `null` mientras no hay ninguna. Con `null`, el sitio ofrece solo Mac y muestra Windows como «Pronto». Para revisar cómo se verá, sin publicarlo:
+
+```sh
+PUBLIC_WINDOWS_RELEASE=1.2.0 npm run dev
+```
+
+El botón de descarga pregunta al navegador qué equipo es (`src/scripts/platform.ts`, con pruebas en `scripts/platform.test.mjs`): Edge y Chrome distinguen Windows ARM de x64; los demás navegadores de Windows reciben x64, que Windows en ARM también ejecuta.
+
 ## Rendimiento y accesibilidad
 
 - Fuentes WOFF2 locales de subconjunto latino, con precarga y `font-display: swap`.

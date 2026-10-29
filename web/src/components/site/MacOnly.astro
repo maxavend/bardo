@@ -1,6 +1,7 @@
 ---
 import { CheckIcon, ShareIcon } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
+import { windowsRelease } from "@/lib/site"
 import { cn } from "@/lib/utils"
 
 interface Props {
@@ -12,7 +13,7 @@ const { align = "start" } = Astro.props
 
 <bardo-mac-link class={cn("flex w-full min-w-0 flex-col gap-3", align === "center" ? "items-center" : "items-start")}>
   <div class="flex flex-col gap-1">
-    <p class="font-medium text-foreground">Bardo es una app para Mac.</p>
+    <p class="font-medium text-foreground">{windowsRelease ? "Bardo es una app para Mac y Windows." : "Bardo es una app para Mac."}</p>
     <p class="text-sm leading-relaxed text-soft">Comparte el enlace y ábrelo allí para descargarla.</p>
   </div>
   <button type="button" class={cn(buttonVariants(), "w-full")}>
@@ -25,7 +26,7 @@ const { align = "start" } = Astro.props
     Copia este enlace para abrirlo en tu Mac:
     <input class="mt-2 w-full min-w-0 rounded-md border bg-background px-3 py-2 text-foreground" type="url" readonly aria-label="Enlace de Bardo" />
   </label>
-  <noscript><p class="max-w-72 text-sm text-soft">Abre esta misma dirección en tu Mac para descargar Bardo.</p></noscript>
+  <noscript><p class="max-w-72 text-sm text-soft">Abre esta misma dirección en tu computador para descargar Bardo.</p></noscript>
 </bardo-mac-link>
 
 <script>
