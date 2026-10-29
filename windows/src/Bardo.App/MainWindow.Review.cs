@@ -49,9 +49,10 @@ public sealed partial class MainWindow
         var root = (FrameworkElement)Content;
         AppWindow.Move(new PointInt32(0, 0));
         await Settle();
-        // Logical 1280 x 800, as large as the screen's scale makes it in pixels.
+        // Logical 1260 x 700, as large as the screen's scale makes it in pixels: on the
+        // CI machine, 1920 x 1080 at 150 %, about 1890 x 1050.
         var scale = root.XamlRoot?.RasterizationScale ?? 1;
-        AppWindow.Resize(new SizeInt32((int)(1280 * scale), (int)(800 * scale)));
+        AppWindow.Resize(new SizeInt32((int)(1260 * scale), (int)(700 * scale)));
         await LoadAsync();
         await Settle();
         await File.WriteAllTextAsync(Path.Combine(folder, "display.txt"),

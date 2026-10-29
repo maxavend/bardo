@@ -2,9 +2,9 @@
 # sharp enough for portfolio slides. Picks the largest mode the display offers, up to the
 # requested size, then the largest Windows scale up to the requested one. Prints what it got.
 param(
-    [int] $Width = 2880,
-    [int] $Height = 1800,
-    [int] $Scale = 200
+    [int] $Width = 1920,
+    [int] $Height = 1080,
+    [int] $Scale = 150
 )
 
 Add-Type -TypeDefinition @"
