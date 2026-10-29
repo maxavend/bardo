@@ -86,8 +86,8 @@
   <data name="ModelTitle.Text" xml:space="preserve"><value>Model</value></data>
   <data name="ModelDetail.Text" xml:space="preserve"><value>Precise is slower and a little more accurate.</value></data>
   <data name="ModelBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Transcription model</value></data>
-  <data name="ModelBalanced.Content" xml:space="preserve"><value>Balanced (Whisper Turbo)</value></data>
-  <data name="ModelPrecise.Content" xml:space="preserve"><value>Precise (Whisper Large)</value></data>
+  <data name="ModelBalanced.Content" xml:space="preserve"><value>Balanced</value></data>
+  <data name="ModelPrecise.Content" xml:space="preserve"><value>Precise</value></data>
   <data name="PerTrackTitle.Text" xml:space="preserve"><value>Transcribe calls per track</value></data>
   <data name="PerTrackDetail.Text" xml:space="preserve"><value>Your microphone and the system audio apart, without overlapping voices.</value></data>
   <data name="PerTrackSwitch.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Transcribe calls per track</value></data>
@@ -128,11 +128,10 @@
   <data name="OnboardingFailedDetail" xml:space="preserve"><value>Check your internet connection and try again.</value></data>
   <data name="OnboardingReadyTitle" xml:space="preserve"><value>Bardo is ready</value></data>
   <data name="OnboardingReadyDetail" xml:space="preserve"><value>You can transcribe offline now.</value></data>
-  <data name="OnboardingRecommendedTitle.Text" xml:space="preserve"><value>Recommended</value></data>
-  <data name="OnboardingRecommendedModel.Text" xml:space="preserve"><value>Whisper Turbo</value></data>
+  <data name="OnboardingRecommendedTitle.Text" xml:space="preserve"><value>Balanced</value></data>
+  <data name="OnboardingRecommendedBadge.Text" xml:space="preserve"><value>Recommended</value></data>
   <data name="OnboardingRecommendedDetail.Text" xml:space="preserve"><value>Very accurate and fast, names and acronyms included.</value></data>
   <data name="OnboardingPreciseTitle.Text" xml:space="preserve"><value>Precise</value></data>
-  <data name="OnboardingPreciseModel.Text" xml:space="preserve"><value>Whisper Large</value></data>
   <data name="OnboardingPreciseDetail.Text" xml:space="preserve"><value>The most accurate with names, accents and overlapping voices. Takes several times longer.</value></data>
   <data name="OnboardingProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Download progress</value></data>
   <data name="OnboardingDownloadButton.Content" xml:space="preserve"><value>Download</value></data>

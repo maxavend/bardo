@@ -61,7 +61,7 @@
                                     Background="{ThemeResource AccentFillColorDefaultBrush}"
                                     CornerRadius="{ThemeResource ControlCornerRadius}">
                                     <TextBlock
-                                        x:Uid="OnboardingRecommendedModel"
+                                        x:Uid="OnboardingRecommendedBadge"
                                         Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
                                         Style="{StaticResource CaptionTextBlockStyle}" />
                                 </Border>
@@ -85,18 +85,7 @@
                         GroupName="Model"
                         IsChecked="{x:Bind ViewModel.IsPreciseChosen, Mode=OneWay}">
                         <StackPanel Spacing="2">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock x:Uid="OnboardingPreciseTitle" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                <Border
-                                    Padding="6,1"
-                                    VerticalAlignment="Center"
-                                    Background="{ThemeResource ControlFillColorSecondaryBrush}"
-                                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="{ThemeResource ControlCornerRadius}">
-                                    <TextBlock x:Uid="OnboardingPreciseModel" Style="{StaticResource CaptionTextBlockStyle}" />
-                                </Border>
-                            </StackPanel>
+                            <TextBlock x:Uid="OnboardingPreciseTitle" Style="{StaticResource BodyStrongTextBlockStyle}" />
                             <TextBlock
                                 x:Uid="OnboardingPreciseDetail"
                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
