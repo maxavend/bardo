@@ -16,7 +16,13 @@ The app itself builds only on Windows. Open `windows/Bardo.Windows.slnx` in Visu
 dotnet run --project windows/src/Bardo.App -p:Platform=x64
 ```
 
-Every CI run also publishes a self-contained build, `Bardo-win-x64` and `Bardo-win-arm64`, as workflow artifacts: unzip and open `Bardo.exe`.
+Every CI run also publishes a self-contained build and its installer for x64 and ARM64 as workflow artifacts (`Bardo-win-*`, `Bardo-Setup-win-*`). Pushing a `v*` tag attaches `Bardo-<version>-Setup-x64.exe` and `Bardo-<version>-Setup-arm64.exe`, with their `.sha256`, to the release, next to the DMG.
+
+The installer ([`installer/Bardo.iss`](installer/Bardo.iss), Inno Setup 6) installs for the current person under `%LOCALAPPDATA%\Programs\Bardo`, without administrator rights, adds Bardo to Start and to Settings › Apps, and leaves the Library in place when uninstalled. To build one on Windows:
+
+```bash
+pwsh windows/installer/build-installer.ps1 -Arch x64
+```
 
 It reads the Library in `%LOCALAPPDATA%\Bardo\Library`. To see conversations recorded on a Mac, copy the contents of `~/Library/Application Support/Bardo/Library` there.
 

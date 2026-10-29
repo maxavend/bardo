@@ -110,3 +110,48 @@ jobs:
             xcode-test.log
           if-no-files-found: warn
           retention-days: 30
+
+  windows:
+    name: Build and attach the Windows installers
+    # After the macOS job, which creates the draft release they join.
+    needs: release
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: windows/global.json
+
+      - name: Check that the tag matches the app version
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path project.yml -Pattern "MARKETING_VERSION:\s*(\S+)").Matches[0].Groups[1].Value
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match MARKETING_VERSION $version" }
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Run unit tests
+        run: dotnet test windows/tests/Bardo.Core.Tests --configuration Release
+
+      - name: Build the installer
+        shell: pwsh
+        run: ./windows/installer/build-installer.ps1 -Arch ${{ matrix.arch }} -Output installer
+
+      - name: Attach the installer to the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.ref_name }}" `
+            "installer/Bardo-$env:VERSION-Setup-${{ matrix.arch }}.exe" `
+            "installer/Bardo-$env:VERSION-Setup-${{ matrix.arch }}.exe.sha256" --clobber

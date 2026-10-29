@@ -78,6 +78,12 @@ jobs:
         with:
           global-json-file: windows/global.json
 
+      - name: Read the version
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path project.yml -Pattern "MARKETING_VERSION:\s*(\S+)").Matches[0].Groups[1].Value
+          "VERSION=$version" >> $env:GITHUB_ENV
+
       # Self-contained, so it opens on any Windows 11 PC without installing .NET or the
       # Windows App SDK first.
       - name: Publish
@@ -87,6 +93,7 @@ jobs:
           --runtime ${{ matrix.rid }}
           --self-contained
           -p:Platform=${{ matrix.platform }}
+          -p:Version=${{ env.VERSION }}
           --output publish/Bardo-${{ matrix.rid }}
 
       - name: Check the app was produced
@@ -126,6 +133,22 @@ jobs:
         with:
           name: Bardo-${{ matrix.rid }}
           path: publish/Bardo-${{ matrix.rid }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build the installer
+        shell: pwsh
+        run: >
+          ./windows/installer/build-installer.ps1
+          -Arch ${{ matrix.platform == 'ARM64' && 'arm64' || 'x64' }}
+          -Published publish/Bardo-${{ matrix.rid }}
+          -Output installer
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bardo-Setup-${{ matrix.rid }}
+          path: installer
           if-no-files-found: error
           retention-days: 14
 
