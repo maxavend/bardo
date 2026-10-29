@@ -38,8 +38,12 @@ public sealed class RecordingRow(Recording recording, DateTimeOffset now, bool i
 }
 
 /// <summary>One stretch of speech: who spoke, when, and what they said.</summary>
-public sealed class TranscriptBlockRow(TranscriptTextFormatter.Block block)
+public sealed class TranscriptBlockRow(TranscriptTextFormatter.Block block, int speakerIndex = -1)
 {
+    /// <summary>The speaker's place in the transcript, which picks their colour; -1 for no one.</summary>
+    public int SpeakerIndex { get; } = speakerIndex;
+    public bool HasSpeaker => SpeakerIndex >= 0;
+
     public string Heading { get; } = block.Speaker ?? Range(block);
     public string Time { get; } = block.Speaker is null ? "" : Range(block);
     public string Text { get; } = block.Text;
@@ -197,6 +201,9 @@ public sealed class LibraryViewModel : ObservableModel, IDisposable
     public bool HasSelection => Selected is not null;
 
     public bool HasNoSelection => Selected is null && Rows.Count > 0;
+
+    /// <summary>Nothing listed, so nothing to show beside the list either.</summary>
+    public bool ShowsEmptyDetail => IsFilterEmpty || IsLibraryEmpty;
 
     public bool HasTranscript => Selected is not null && Blocks.Count > 0;
 
@@ -508,6 +515,7 @@ public sealed class LibraryViewModel : ObservableModel, IDisposable
         OnPropertyChanged(nameof(IsLibraryEmpty));
         OnPropertyChanged(nameof(IsFilterEmpty));
         OnPropertyChanged(nameof(HasNoSelection));
+        OnPropertyChanged(nameof(ShowsEmptyDetail));
     }
 
     private void ShowSelection()
@@ -518,7 +526,14 @@ public sealed class LibraryViewModel : ObservableModel, IDisposable
         {
             var localName = LocalSpeakerName.Current;
             var formatter = new TranscriptTextFormatter(recording.Title, localName: localName);
-            foreach (var block in formatter.Blocks(transcript)) Blocks.Add(new TranscriptBlockRow(block));
+            var indices = transcript.Speakers
+                .Select((speaker, index) => (Name: transcript.DisplayName(speaker, localName), index))
+                .GroupBy(pair => pair.Name)
+                .ToDictionary(group => group.Key, group => group.First().index);
+            foreach (var block in formatter.Blocks(transcript))
+            {
+                Blocks.Add(new TranscriptBlockRow(block, block.Speaker is { } name && indices.TryGetValue(name, out var index) ? index : -1));
+            }
             foreach (var (speaker, index) in transcript.Speakers.Select((speaker, index) => (speaker, index)))
             {
                 Speakers.Add(new SpeakerRow(speaker, transcript.DisplayName(speaker, localName), speaker.Name.NonEmptyTrimmed() is not null, index));

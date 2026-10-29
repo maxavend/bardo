@@ -275,7 +275,7 @@
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 Spacing="8"
-                                Visibility="{x:Bind app:Bind.ShowEither(ViewModel.IsFilterEmpty, ViewModel.IsLibraryEmpty), Mode=OneWay}">
+                                Visibility="{x:Bind app:Bind.ShowUnless(ViewModel.ShowsEmptyDetail, Recorder.IsRecording), Mode=OneWay}">
                                 <FontIcon
                                     HorizontalAlignment="Center"
                                     FontSize="32"
@@ -298,9 +298,10 @@
                                 Style="{StaticResource SubtitleTextBlockStyle}"
                                 TextAlignment="Center"
                                 TextWrapping="WrapWholeWords"
-                                Visibility="{x:Bind app:Bind.Show(ViewModel.HasNoSelection), Mode=OneWay}" />
+                                Visibility="{x:Bind app:Bind.ShowUnless(ViewModel.HasNoSelection, Recorder.IsRecording), Mode=OneWay}" />
 
-                            <Grid Visibility="{x:Bind app:Bind.Show(ViewModel.HasSelection), Mode=OneWay}">
+                            <!--  Hidden while recording: the recorder takes the whole pane.  -->
+                            <Grid Visibility="{x:Bind app:Bind.ShowUnless(ViewModel.HasSelection, Recorder.IsRecording), Mode=OneWay}">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="*" />
                                     <RowDefinition Height="Auto" />
@@ -473,6 +474,13 @@
                                                 <DataTemplate x:DataType="library:TranscriptBlockRow">
                                                     <StackPanel Padding="0,20,0,0" Spacing="4">
                                                         <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <!--  The participant's colour, as in the waveform.  -->
+                                                            <Ellipse
+                                                                Width="8"
+                                                                Height="8"
+                                                                VerticalAlignment="Center"
+                                                                Fill="{x:Bind app:Bind.SpeakerBrush(SpeakerIndex)}"
+                                                                Visibility="{x:Bind app:Bind.Show(HasSpeaker)}" />
                                                             <HyperlinkButton
                                                                 Padding="0"
                                                                 Click="OnPlayFromBlock"

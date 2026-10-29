@@ -48,8 +48,8 @@
   <data name="ParticipantsHeader.Text" xml:space="preserve"><value>Participants</value></data>
   <data name="RenameSpeakerButton.Content" xml:space="preserve"><value>Rename</value></data>
   <data name="MergeSpeakerButton.Content" xml:space="preserve"><value>Merge with</value></data>
-  <data name="SkipBackButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Back 15 seconds</value></data>
-  <data name="SkipBackButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Back 15 seconds</value></data>
+  <data name="SkipBackButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Back 10 seconds</value></data>
+  <data name="SkipBackButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Back 10 seconds</value></data>
   <data name="PlayButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Play or pause</value></data>
   <data name="PlayButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Play or pause (Ctrl+P)</value></data>
   <data name="PausedText.Text" xml:space="preserve"><value>Paused</value></data>

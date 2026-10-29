@@ -19,6 +19,9 @@ internal static class Bind
 
     public static bool Not(bool value) => !value;
 
+    /// <summary>Shown when <paramref name="value"/> holds, unless something covers it.</summary>
+    public static Visibility ShowUnless(bool value, bool covered) => Show(value && !covered);
+
     public static Microsoft.UI.Xaml.Media.SolidColorBrush SpeakerBrush(int index) => new(SpeakerPalette.For(index));
 
     public static Microsoft.UI.Xaml.Media.SolidColorBrush SourceBrush(bool isSystemAudio) => new(SpeakerPalette.For(isSystemAudio ? 1 : 0));

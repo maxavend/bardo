@@ -22,12 +22,12 @@
     </UserControl.Resources>
 
     <ScrollViewer>
-        <!--  Aligned with the pane, as in Windows Settings, and no wider than reads well.  -->
-        <StackPanel
-            MaxWidth="1000"
-            Padding="36,20,36,48"
-            HorizontalAlignment="Left"
-            Spacing="4">
+        <!--  Aligned with the pane and as wide as it allows up to 1000, as in Windows Settings.  -->
+        <Grid Padding="36,20,36,48">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="1000" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="4">
             <TextBlock x:Uid="SettingsTitle" Style="{StaticResource TitleTextBlockStyle}" />
 
             <TextBlock x:Uid="SettingsYou" Style="{StaticResource SettingsGroupStyle}" />
@@ -235,6 +235,7 @@
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{StaticResource CaptionTextBlockStyle}"
                 TextWrapping="WrapWholeWords" />
-        </StackPanel>
+            </StackPanel>
+        </Grid>
     </ScrollViewer>
 </UserControl>

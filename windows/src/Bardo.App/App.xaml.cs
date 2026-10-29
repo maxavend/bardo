@@ -15,6 +15,10 @@ public partial class App : Application
     {
         if (MainWindow.DesignReviewFolder(Environment.GetCommandLineArgs()) is { } folder)
         {
+            // In Spanish, whatever language the build machine has.
+            Microsoft.Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = "es";
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("es-CL");
+            System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo("es-CL");
             _window = new MainWindow(await MainWindow.DesignReviewEnvironmentAsync());
             _window.Activate();
             await _window.RunDesignReviewAsync(folder);

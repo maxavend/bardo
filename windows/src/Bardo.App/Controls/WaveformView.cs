@@ -63,6 +63,8 @@ public sealed partial class WaveformView : Grid
     private float[] _levels = [];
     private int[] _speakers = [];
     private float[] _secondary = [];
+    private float[] _drawnLevels = [];
+    private float[] _drawnSecondary = [];
     private IReadOnlyList<double> _markFractions = [];
     private double _progress = 1;
     private bool _isLive;
@@ -143,10 +145,23 @@ public sealed partial class WaveformView : Grid
         var width = (float)ActualWidth;
         var height = (float)ActualHeight;
         _shapes.Size = new Vector2(width, height);
-        var count = Math.Max(0, (int)((width + BarGap) / (BarWidth + BarGap)));
-        if (_isLive) count = Math.Min(count, RecorderViewModel.LiveBars);
-        var levels = _isLive ? Tail(_levels, count) : Waveform.Bars(_levels, count);
-        var secondary = _isLive ? Tail(_secondary, count) : Array.Empty<float>();
+        var slots = Math.Max(0, (int)((width + BarGap) / (BarWidth + BarGap)));
+        int count;
+        if (_isLive)
+        {
+            // The whole window, twelve seconds, spans the width; a recording that has just
+            // started fills it from the right, so marks stay over the moment they mark.
+            var heard = Math.Min(_levels.Length, RecorderViewModel.LiveBars);
+            count = (int)Math.Round(slots * (double)heard / RecorderViewModel.LiveBars);
+            _drawnLevels = Waveform.Bars(_levels, count);
+            _drawnSecondary = _secondary.Length > 0 ? Waveform.Bars(_secondary, count) : [];
+        }
+        else
+        {
+            count = slots;
+            _drawnLevels = Waveform.Bars(_levels, count);
+            _drawnSecondary = [];
+        }
 
         while (_bars.Count < count)
         {
@@ -167,7 +182,7 @@ public sealed partial class WaveformView : Grid
         var drawable = height - (_isLive ? MarkDiameter * 2 : 0);
         for (var index = 0; index < count; index++)
         {
-            var level = index < levels.Length ? Math.Max(levels[index], index < secondary.Length ? secondary[index] : 0) : 0;
+            var level = Math.Max(At(_drawnLevels, index), At(_drawnSecondary, index));
             var barHeight = Math.Max(BarWidth, level * drawable * 0.92f);
             var (shape, geometry) = _bars[index];
             geometry.Size = new Vector2(BarWidth, barHeight);
@@ -182,15 +197,12 @@ public sealed partial class WaveformView : Grid
         var count = _bars.Count;
         var speakers = _isLive ? Array.Empty<int>() : SpeakersFor(count);
         var transcribed = _speakers.Any(speaker => speaker >= 0);
-        var levels = _isLive ? Tail(_levels, count) : Array.Empty<float>();
-        var secondary = _isLive ? Tail(_secondary, count) : Array.Empty<float>();
         for (var index = 0; index < count; index++)
         {
             Color color;
             if (_isLive)
             {
-                var systemLouder = index < secondary.Length && index < levels.Length && secondary[index] > levels[index];
-                color = SpeakerPalette.For(systemLouder ? 1 : 0);
+                color = SpeakerPalette.For(At(_drawnSecondary, index) > At(_drawnLevels, index) ? 1 : 0);
             }
             else
             {
@@ -202,6 +214,8 @@ public sealed partial class WaveformView : Grid
             _bars[index].Shape.FillBrush = Brush(color);
         }
     }
+
+    private static float At(float[] values, int index) => index < values.Length ? values[index] : 0;
 
     private void DrawMarks(float width)
     {
@@ -249,8 +263,6 @@ public sealed partial class WaveformView : Grid
         if (!_brushes.TryGetValue(color, out var brush)) _brushes[color] = brush = _compositor.CreateColorBrush(color);
         return brush;
     }
-
-    private static float[] Tail(float[] values, int count) => values.Length <= count ? values : values[^count..];
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {

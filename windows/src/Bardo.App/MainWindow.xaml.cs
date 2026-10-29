@@ -449,7 +449,7 @@ public sealed partial class MainWindow : Window
 
     private void OnTogglePlay(object sender, RoutedEventArgs e) => Playback.TogglePlay();
 
-    private void OnSkipBack(object sender, RoutedEventArgs e) => Playback.SkipBy(-15);
+    private void OnSkipBack(object sender, RoutedEventArgs e) => Playback.SkipBy(-10);
 
     private void OnPlayFromBlock(object sender, RoutedEventArgs e)
     {
