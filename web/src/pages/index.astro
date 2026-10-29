@@ -1,0 +1,220 @@
+---
+import Layout from "@/layouts/main.astro"
+import DownloadCta from "@/components/site/DownloadCta.astro"
+import Feature from "@/components/site/Feature.astro"
+import { HeroDemo } from "@/components/site/HeroDemo"
+import HeroShader from "@/components/site/HeroShader.astro"
+import { links, url } from "@/lib/site"
+
+const returns = [
+  { title: "Cada voz, con su nombre", text: "Escucha una muestra de cada voz, ponle nombre o junta a quien aparezca dos veces." },
+  { title: "Encuentra cualquier frase", text: "Una búsqueda recorre toda la biblioteca y resalta cada coincidencia." },
+  { title: "Escúchala con subtítulos", text: "La onda se colorea por voz, cada palabra se enciende al sonar y los silencios se saltan." },
+]
+
+const privacy = [
+  { title: "Se guarda en tu Mac", text: "El audio, el texto y cada nombre quedan en una carpeta que solo tu usuario puede abrir." },
+  {
+    title: "Funciona sin conexión",
+    text: "Internet solo se usa una vez, para descargar los modelos: desde 11 MB, según la opción que elijas.",
+  },
+  { title: "Código abierto", text: "Lo que hace Bardo con tu audio se puede leer, línea por línea." },
+]
+---
+
+<Layout
+  title="Bardo, transcripción privada para Mac"
+  description="Bardo graba o importa conversaciones y las transcribe en tu Mac, con quién dijo qué, sin enviar nada a la nube."
+  current="inicio"
+>
+  <!-- Chapter one, "Escribe": what is said becomes text, on the base ground. -->
+  <section class="relative isolate overflow-x-clip" aria-labelledby="hero-title">
+    <HeroShader />
+    <div class="shell grid min-h-[calc(100dvh-68px)] grid-cols-[minmax(0,5fr)_minmax(0,7fr)] items-center gap-16 py-16 max-lg:min-h-0 max-lg:grid-cols-1 max-lg:gap-12 max-sm:pt-8 max-sm:pb-6 max-sm:gap-6">
+      <div class="flex flex-col items-start gap-7 max-sm:gap-5" data-hero-reveal="copy">
+        <h1 id="hero-title" class="max-w-[11ch] text-display font-heading font-semibold max-sm:text-[clamp(2.375rem,11vw,2.75rem)]">Lo que se dice, por escrito.</h1>
+        <p class="max-w-[30ch] text-lead text-soft max-sm:text-base max-sm:leading-relaxed">
+          Graba o importa una conversación y Bardo la transcribe en tu Mac, sin enviar nada a la nube.
+        </p>
+        <DownloadCta class="pt-2" />
+      </div>
+      <div class="min-w-0" data-hero-reveal="scene">
+        <HeroDemo client:visible />
+      </div>
+    </div>
+  </section>
+
+  <section class="shell py-16 max-lg:py-12 max-sm:py-6" aria-labelledby="live-title">
+    <div class="mb-10 max-sm:mb-6 flex flex-col gap-5" data-reveal>
+      <h2 id="live-title" class="max-w-[16ch] text-headline font-heading font-semibold">El texto llega mientras hablan.</h2>
+      <p class="max-w-[48ch] text-lead text-soft">
+        Cada frase aparece en cuanto Bardo la escucha, y al terminar la reunión ya está lista para leer.
+      </p>
+    </div>
+    <div class="t-skel image-skel" data-image-reveal data-state="loading" data-reveal data-reveal-delay="1">
+      <div class="t-skel-skeleton is-pulsing" aria-hidden="true"><div class="image-skel-shimmer"></div></div>
+      <picture class="t-skel-content block">
+        <source media="(max-width: 40rem)" srcset={url("assets/capturas/transcripcion-en-vivo-panel-960.webp")} width="960" height="949" />
+        <img
+          class="h-auto w-full shadow-float rounded-capture"
+          src={url("assets/capturas/03-transcribiendo-en-vivo.webp")}
+          width="2400"
+          height="938"
+          alt="Bardo escribe la retro de un sprint frase a frase mientras la reunión se graba"
+          loading="lazy" decoding="async"
+        />
+      </picture>
+    </div>
+  </section>
+
+  <Feature
+    id="read-title"
+    title="Se lee como un documento."
+    text="La transcripción se ordena por hablante, en párrafos cómodos, con los momentos que marques con ⌥⌘N. Toca cualquier palabra y suena desde ahí."
+  >
+    <div class="t-skel image-skel" data-image-reveal data-state="loading" data-reveal data-reveal-delay="1">
+      <div class="t-skel-skeleton is-pulsing" aria-hidden="true"><div class="image-skel-shimmer"></div></div>
+      <picture class="t-skel-content block">
+        <source media="(max-width: 40rem)" srcset={url("assets/capturas/transcripcion-completa-960.webp")} width="960" height="806" />
+        <img
+          class="h-auto w-full shadow-float rounded-capture"
+          src={url("assets/capturas/portada-transcripcion.webp")}
+          width="1560"
+          height="1310"
+          alt="Una revisión de diseño transcrita: cada intervención con su hablante y su minuto, y el momento «Bajar a 3 datos»"
+          loading="lazy" decoding="async"
+        />
+      </picture>
+    </div>
+  </Feature>
+
+  <!-- Chapter two, "Vuelve a ella": one composition of the app, the ways back into a conversation. -->
+  <section class="overflow-x-clip py-16 max-lg:py-12 max-sm:py-6" aria-labelledby="return-title">
+    <div class="shell">
+      <div class="mb-12 flex flex-col items-center gap-5 text-center max-sm:mb-6" data-reveal>
+        <h2 id="return-title" class="max-w-[18ch] text-headline font-heading font-semibold">Vuelve a cualquier conversación.</h2>
+        <p class="max-w-[46ch] text-lead text-soft">Sin escucharla entera: cada voz tiene su nombre y cada frase se puede buscar.</p>
+      </div>
+
+      <div class="relative mx-auto max-w-[1180px] pb-[15%] max-lg:pb-0" data-reveal data-reveal-delay="1">
+        <div class="t-skel image-skel image-skel-player mx-auto w-[78%] max-lg:w-full" data-image-reveal data-state="loading">
+          <div class="t-skel-skeleton is-pulsing" aria-hidden="true"><div class="image-skel-shimmer"></div></div>
+          <picture class="t-skel-content block">
+            <source media="(max-width: 40rem)" srcset={url("assets/capturas/reproductor-completo-960.webp")} width="960" height="600" />
+            <img
+              class="h-auto w-full shadow-float rounded-capture"
+              src={url("assets/capturas/reproductor.webp")}
+              width="2400"
+              height="1500"
+              alt="El reproductor de Bardo: la onda de una reunión coloreada por hablante y la frase que suena, resaltada palabra por palabra"
+              loading="lazy" decoding="async"
+            />
+          </picture>
+        </div>
+        <div class="t-skel image-skel image-skel-participants absolute bottom-0 left-0 w-[36%] max-lg:relative max-lg:mt-6 max-lg:w-[80%] max-sm:mx-auto max-sm:w-[92%]" data-image-reveal data-state="loading">
+          <div class="t-skel-skeleton is-pulsing" aria-hidden="true"><div class="image-skel-shimmer"></div></div>
+          <img
+            class="t-skel-content h-auto w-full shadow-float rounded-capture"
+            src={url("assets/capturas/participantes.webp")}
+            width="1030"
+            height="686"
+            alt="La hoja Participantes: Tú, Participante 1 y Participante 2, cada uno con una muestra, un nombre y la opción Fusionar"
+            loading="lazy" decoding="async"
+          />
+        </div>
+        <div
+          class="absolute top-[14%] right-0 flex w-[27%] flex-col gap-3 max-lg:relative max-lg:top-0 max-lg:mt-6 max-lg:ml-auto max-lg:w-[60%] max-sm:mx-auto max-sm:w-[84%] max-sm:max-w-80"
+        >
+          <div class="t-skel image-skel" data-image-reveal data-state="loading">
+            <div class="t-skel-skeleton is-pulsing" aria-hidden="true"><div class="image-skel-shimmer"></div></div>
+            <img class="t-skel-content h-auto w-full shadow-float rounded-capture" src={url("assets/capturas/busqueda-campo.webp")} width="646" height="68" alt="El campo de búsqueda con la palabra «horario»" loading="lazy" decoding="async" />
+          </div>
+          <div class="t-skel image-skel" data-image-reveal data-state="loading">
+            <div class="t-skel-skeleton is-pulsing" aria-hidden="true"><div class="image-skel-shimmer"></div></div>
+            <img class="t-skel-content h-auto w-full shadow-float rounded-capture" src={url("assets/capturas/busqueda-lista.webp")} width="612" height="784" alt="Cuatro conversaciones que mencionan «horario», cada una con la frase donde aparece" loading="lazy" decoding="async" />
+          </div>
+        </div>
+      </div>
+
+      <ul class="mt-16 grid grid-cols-3 gap-12 max-lg:mt-12 max-lg:grid-cols-1 max-lg:gap-8 max-sm:mt-8 max-sm:gap-6">
+        {
+          returns.map((item) => (
+            <li class="flex flex-col gap-2 border-t pt-6" data-reveal data-reveal-delay={String(Math.min(2, returns.indexOf(item)))}>
+              <h3 class="text-title">{item.title}</h3>
+              <p class="text-soft">{item.text}</p>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </section>
+
+  <!-- Chapter three, "Privado": the reason Bardo exists, at full width on the bard's colour. -->
+  <section class="mt-12 bg-bard-field py-28 max-lg:mt-8 max-lg:py-20 max-sm:mt-4 max-sm:py-12" aria-labelledby="privacy-title">
+    <div class="shell flex flex-col items-center text-center" data-reveal>
+      <h2 id="privacy-title" class="max-w-[12ch] text-display font-heading font-semibold">Nada sale de tu Mac.</h2>
+      <p class="mt-6 max-sm:mt-4 max-w-[40ch] text-lead text-soft">
+        Bardo transcribe y reconoce cada voz en el propio Mac, sin servidores de por medio.
+      </p>
+      <ul class="mt-16 grid w-full grid-cols-3 gap-12 text-left max-lg:grid-cols-1 max-lg:gap-8 max-sm:mt-8 max-sm:gap-6">
+        {
+          privacy.map((item) => (
+            <li class="flex flex-col gap-3 border-t border-text/15 pt-6" data-reveal data-reveal-delay={String(Math.min(2, privacy.indexOf(item)))}>
+              <h3 class="text-title">{item.title}</h3>
+              <p class="text-lead text-soft">{item.text}</p>
+            </li>
+          ))
+        }
+      </ul>
+      <a class="text-link mt-12 max-sm:mt-8" href={url("privacidad/")}>Qué guarda Bardo y dónde</a>
+    </div>
+  </section>
+
+  <!-- Bardo for Windows: the same reading view in a whole Windows 11 window, once a release carries the installers. -->
+  {
+    links.windows && (
+      <section class="shell mt-12 py-16 max-lg:mt-8 max-lg:py-12 max-sm:mt-4 max-sm:py-6" aria-labelledby="windows-title">
+        <div class="mb-10 flex items-end justify-between gap-16 max-lg:flex-col max-lg:items-start max-lg:gap-8 max-sm:mb-6 max-sm:gap-5" data-reveal>
+          <div class="flex flex-col gap-5">
+            <h2 id="windows-title" class="max-w-[16ch] text-headline font-heading font-semibold">También en Windows.</h2>
+            <p class="max-w-[44ch] text-lead text-soft">La misma app, hecha para Windows 11. Graba, transcribe y reconoce cada voz en el propio PC.</p>
+          </div>
+          <DownloadCta windowsOnly class="shrink-0 max-w-[30ch]" />
+        </div>
+        <div class="t-skel image-skel" data-image-reveal data-state="loading" data-reveal data-reveal-delay="1">
+          <div class="t-skel-skeleton is-pulsing" aria-hidden="true"><div class="image-skel-shimmer"></div></div>
+          <picture class="t-skel-content block">
+            <source media="(max-width: 40rem)" srcset={url("assets/capturas/windows-lectura-panel-960.webp")} width="960" height="846" />
+            <img
+              class="h-auto w-full shadow-float rounded-capture"
+              src={url("assets/capturas/windows-lectura.webp")}
+              width="1868"
+              height="1037"
+              alt="Bardo en Windows 11: la revisión de diseño transcrita por hablante, con el momento «Bajar a 3 datos» y el reproductor"
+              loading="lazy" decoding="async"
+            />
+          </picture>
+        </div>
+      </section>
+    )
+  }
+
+  <section class="shell flex flex-col items-center pt-24 text-center max-lg:pt-16 max-sm:pt-10" aria-labelledby="close-title">
+    <div class="flex max-w-full flex-col items-center" data-reveal>
+      <!-- Offset the feather's lighter visual weight to center the head optically. -->
+      <div class="t-skel image-skel image-skel-mascot size-40 -translate-x-3 max-sm:size-36" data-image-reveal data-state="loading">
+        <div class="t-skel-skeleton is-pulsing" aria-hidden="true"><div class="image-skel-shimmer"></div></div>
+        <img class="t-skel-content size-full drop-shadow-[0_8px_16px_oklch(0%_0_0/0.3)]" src={url("assets/marca/bardo-mascota-ai-v2-512.webp")} width="512" height="512" alt="" loading="lazy" decoding="async" />
+      </div>
+      <h2 id="close-title" class="font-heading text-[clamp(3.5rem,5vw,4rem)] leading-none font-semibold tracking-[-0.01em]">Bardo</h2>
+      <p class="mt-3 text-base text-soft sm:text-lg">{links.windows ? "Transcripción privada para Mac y Windows." : "Transcripción privada para Mac."}</p>
+    </div>
+    <DownloadCta align="center" class="mt-8 max-w-[52ch] max-sm:mt-6" />
+    <a class="text-link mt-5 text-sm" href={url("descargar/")} data-reveal>Cómo instalarlo</a>
+  </section>
+</Layout>
+
+<script>
+  import "@/scripts/scroll-reveal"
+  import "@/scripts/image-reveal"
+</script>

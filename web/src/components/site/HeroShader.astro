@@ -1,0 +1,29 @@
+<bardo-hero-shader class="pointer-events-none absolute inset-0 -z-10 block" aria-hidden="true">
+  <canvas class="absolute inset-0 size-full"></canvas>
+</bardo-hero-shader>
+
+<style>
+  bardo-hero-shader {
+    background: radial-gradient(ellipse at 65% 45%, #35203e 0%, #201626 45%, #121016 90%);
+  }
+</style>
+
+<script>
+  import { mountHeroShader } from "./hero-shader"
+
+  class HeroShaderElement extends HTMLElement {
+    private cleanup?: () => void
+
+    connectedCallback() {
+      const canvas = this.querySelector("canvas")
+      if (canvas && !this.cleanup) this.cleanup = mountHeroShader(canvas)
+    }
+
+    disconnectedCallback() {
+      this.cleanup?.()
+      this.cleanup = undefined
+    }
+  }
+
+  if (!customElements.get("bardo-hero-shader")) customElements.define("bardo-hero-shader", HeroShaderElement)
+</script>

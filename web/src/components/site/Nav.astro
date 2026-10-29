@@ -1,0 +1,143 @@
+---
+import { buttonVariants } from "@/components/ui/button"
+import { MenuIcon, XIcon } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { url, type Page } from "@/lib/site"
+
+interface Props {
+  current: Page
+}
+
+const { current } = Astro.props
+
+const items: { page: Page; label: string; href: string }[] = [
+  { page: "novedades", label: "Novedades", href: url("novedades/") },
+  { page: "privacidad", label: "Privacidad", href: url("privacidad/") },
+]
+---
+
+<!-- A floating bar that stays while the page scrolls under it, like a macOS toolbar. -->
+<header class="sticky top-0 z-40 px-(--gutter) pt-3">
+  <nav
+    class="mx-auto flex h-14 max-w-[60rem] items-center justify-between gap-4 rounded-full border border-line/70 bg-ground-2/75 py-2 pr-2 pl-3 max-sm:py-1 max-sm:pr-1 max-sm:pl-1 shadow-[0_8px_24px_-12px_oklch(0%_0_0/0.6)] backdrop-blur-xl backdrop-saturate-150"
+    aria-label="Principal"
+  >
+    <a
+      class="inline-flex h-10 shrink-0 items-center gap-2 rounded-full pr-3.5 pl-2 max-sm:h-11 max-sm:gap-1.5 max-sm:pr-2 max-sm:pl-1 no-underline transition-colors duration-200 hover:bg-ground-3"
+      href={url()}
+      aria-label="Bardo, inicio"
+      aria-current={current === "inicio" ? "page" : undefined}
+    >
+      <img class="h-10 w-auto max-sm:h-9 drop-shadow-[0_2px_4px_oklch(0%_0_0/0.4)]" src={url("assets/marca/bardo-mascota-ai-v2-128.webp")} width="128" height="128" alt="" />
+      <span class="font-heading text-2xl font-semibold tracking-[-0.01em] text-foreground">Bardo</span>
+    </a>
+    <div class="flex items-center gap-1 max-sm:hidden">
+      <ul class="flex items-center gap-1">
+        {
+          items.map((item) => (
+            <li>
+              <a
+                class="inline-flex h-10 items-center rounded-full px-4 text-sm font-medium whitespace-nowrap text-soft no-underline transition-colors duration-200 hover:bg-ground-3 hover:text-foreground aria-[current=page]:bg-ground-3 aria-[current=page]:text-foreground"
+                href={item.href}
+                aria-current={current === item.page ? "page" : undefined}
+              >
+                {item.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+      <a
+        class={cn(buttonVariants({ size: "sm" }), "ml-1 h-10 max-sm:hidden")}
+        href={url("descargar/")}
+        aria-current={current === "descargar" ? "page" : undefined}>Descargar</a
+      >
+    </div>
+    <details data-mobile-nav class="group relative sm:hidden">
+      <summary aria-label="Navegación" class="flex size-11 cursor-pointer list-none items-center justify-center rounded-full text-foreground hover:bg-ground-3 [&::-webkit-details-marker]:hidden">
+        <MenuIcon className="size-5 group-open:hidden" aria-hidden="true" />
+        <XIcon className="hidden size-5 group-open:block" aria-hidden="true" />
+      </summary>
+      <ul data-mobile-panel data-origin="top-right" class="absolute top-[calc(100%+0.75rem)] right-0 flex w-56 max-w-[calc(100vw-4rem)] flex-col gap-1 rounded-2xl border border-line bg-ground-2 p-2 shadow-float">
+        {items.map(item => (
+          <li>
+            <a class="flex min-h-12 items-center rounded-lg px-4 text-base text-soft no-underline hover:bg-ground-3 hover:text-foreground aria-[current=page]:bg-ground-3 aria-[current=page]:text-foreground" href={item.href} aria-current={current === item.page ? "page" : undefined}>{item.label}</a>
+          </li>
+        ))}
+        <li><a class="flex min-h-12 items-center rounded-lg px-4 text-base font-semibold text-foreground no-underline hover:bg-ground-3 aria-[current=page]:bg-ground-3" href={url("descargar/")} aria-current={current === "descargar" ? "page" : undefined}>Descargar</a></li>
+      </ul>
+    </details>
+  </nav>
+</header>
+
+<script>
+  for (const menu of document.querySelectorAll<HTMLDetailsElement>("details[data-mobile-nav]")) {
+    const trigger = menu.querySelector("summary")!
+    const dropdown = menu.querySelector<HTMLElement>("[data-mobile-panel]")!
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const desktop = window.matchMedia("(min-width: 40rem)")
+    let expanded = menu.open
+    let closeTimer = 0
+    let openFrame = 0
+
+    // Add motion only after enhancement: the native disclosure still works without JS.
+    dropdown.classList.add("t-dropdown")
+    dropdown.classList.toggle("is-open", expanded)
+    dropdown.inert = !expanded
+    trigger.setAttribute("aria-expanded", String(expanded))
+
+    const finishClose = () => {
+      dropdown.classList.remove("is-closing")
+      menu.open = false
+    }
+    const closeDropdown = (immediate = false) => {
+      if (!expanded) return
+      expanded = false
+      cancelAnimationFrame(openFrame)
+      window.clearTimeout(closeTimer)
+      trigger.setAttribute("aria-expanded", "false")
+      dropdown.inert = true
+      dropdown.classList.remove("is-open")
+      dropdown.classList.add("is-closing")
+      const closeMs = parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue("--dropdown-close-dur")
+      ) || 150
+      if (immediate || motion.matches) finishClose()
+      else closeTimer = window.setTimeout(finishClose, closeMs)
+    }
+    const openDropdown = () => {
+      window.clearTimeout(closeTimer)
+      cancelAnimationFrame(openFrame)
+      expanded = true
+      menu.open = true
+      dropdown.inert = false
+      trigger.setAttribute("aria-expanded", "true")
+      dropdown.classList.remove("is-closing")
+      if (motion.matches) dropdown.classList.add("is-open")
+      else {
+        // Let the newly displayed details content paint at its resting scale first.
+        openFrame = requestAnimationFrame(() => {
+          openFrame = requestAnimationFrame(() => dropdown.classList.add("is-open"))
+        })
+      }
+    }
+    trigger.addEventListener("click", event => {
+      event.preventDefault()
+      if (expanded) closeDropdown()
+      else openDropdown()
+    })
+    document.addEventListener("click", event => {
+      if (event.target instanceof Node && !menu.contains(event.target)) closeDropdown()
+    })
+    menu.addEventListener("click", event => {
+      if (event.target instanceof Element && event.target.closest("a")) closeDropdown(true)
+    })
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && expanded) {
+        closeDropdown()
+        trigger.focus()
+      }
+    })
+    desktop.addEventListener("change", () => { if (desktop.matches) closeDropdown(true) })
+  }
+</script>

@@ -1,0 +1,262 @@
+---
+import { DownloadIcon } from "lucide-react"
+import Layout from "@/layouts/main.astro"
+import DownloadCta from "@/components/site/DownloadCta.astro"
+import { buttonVariants } from "@/components/ui/button"
+import { links, release, url, windowsRelease } from "@/lib/site"
+import { cn } from "@/lib/utils"
+
+// Every computer Bardo runs on, so anyone can pick another one than the page guessed.
+const computers = [
+  {
+    platform: "mac",
+    name: "Mac",
+    detail: "Apple silicon (M1 o posterior), macOS 15 o posterior",
+    file: `Bardo-${release.version}.dmg`,
+    href: links.dmg,
+  },
+  {
+    platform: "windows-x64",
+    name: "Windows",
+    detail: "PC x64, con procesador Intel o AMD, y Windows 11",
+    file: windowsRelease ? `Bardo-${windowsRelease}-Setup-x64.exe` : null,
+    href: links.windows?.x64 ?? null,
+  },
+  {
+    platform: "windows-arm64",
+    name: "Windows en ARM",
+    detail: "PC ARM, con procesador Snapdragon, y Windows 11",
+    file: windowsRelease ? `Bardo-${windowsRelease}-Setup-arm64.exe` : null,
+    href: links.windows?.arm64 ?? null,
+  },
+]
+
+const macSteps = [
+  { title: "Arrastra Bardo a Aplicaciones", text: "Abre el archivo <code>.dmg</code> y suelta el ícono de Bardo en la carpeta Aplicaciones." },
+  { title: "Ábrelo una vez", text: "macOS avisa porque Bardo aún no está notarizado por Apple, y no lo abre." },
+  {
+    title: "Permite que se abra",
+    text: "En Ajustes del Sistema &rsaquo; Privacidad y seguridad, elige «Abrir de todos modos». Solo hace falta la primera vez.",
+  },
+]
+
+const windowsSteps = [
+  { title: "Abre el instalador", text: "Se instala solo para tu cuenta, sin pedir permisos de administrador." },
+  { title: "Deja que se ejecute", text: "Windows avisa porque Bardo aún no está firmado. Elige «Más información» y luego «Ejecutar de todas formas»." },
+  { title: "Búscalo en Inicio", text: "Bardo queda en el menú Inicio, y se desinstala desde Configuración &rsaquo; Aplicaciones sin borrar tus grabaciones." },
+]
+
+const ways = [
+  { name: "Rápido", text: "Reconocimiento de Apple, incluido en macOS 26 o posterior", mac: "Sin descarga", windows: "Solo en Mac" },
+  { name: "Equilibrado", text: "Whisper Large v3 Turbo, muy preciso y rápido", mac: "646 MB", windows: "620 MB" },
+  { name: "Preciso", text: "Whisper Large v3, el más exacto y más lento", mac: "3,1 GB", windows: "1,1 GB" },
+]
+---
+
+<Layout
+  title="Descargar Bardo"
+  description={windowsRelease
+    ? "Descarga Bardo para Mac o Windows: elige tu equipo, instálalo y ábrelo la primera vez."
+    : "Descarga Bardo para Mac con Apple silicon y macOS 15 o posterior: cómo instalarlo y abrirlo la primera vez."}
+  current="descargar"
+>
+  <section class="shell pt-20 pb-16 max-lg:pt-12 max-sm:pt-8 max-sm:pb-8" aria-labelledby="page-title">
+    <div class="flex items-center gap-12 max-lg:flex-col max-lg:items-start max-lg:gap-6">
+      <img class="size-40 shrink-0 max-lg:size-24" src={url("assets/marca/icono-bardo.webp")} width="320" height="320" alt="Ícono de Bardo" />
+      <div class="flex flex-col items-start gap-6">
+        <h1 id="page-title" class="text-display font-heading font-semibold">Descargar Bardo</h1>
+        <p class="max-w-[44ch] text-lead text-soft">
+          {windowsRelease ? "Para Mac y Windows. Se instala como cualquier app, con un paso más la primera vez." : "Se instala como cualquier app de Mac, con un paso más la primera vez."}
+        </p>
+        <DownloadCta hideOthers />
+        <a class="text-link text-sm" href={links.releases}>Todas las versiones</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="equipos" class="shell py-16 max-sm:py-6 scroll-mt-24" aria-labelledby="computers-title">
+    <div class="grid grid-cols-[minmax(0,4fr)_minmax(0,7fr)] gap-16 max-lg:grid-cols-1 max-lg:gap-6">
+      <div class="flex flex-col gap-5">
+        <h2 id="computers-title" class="max-w-[14ch] text-headline font-heading font-semibold">Elige tu equipo.</h2>
+        <p class="max-w-[36ch] text-lead text-soft">La página propone el tuyo. Si vas a instalarlo en otro, descárgalo desde aquí.</p>
+      </div>
+      <bardo-computers>
+        <ul class="border-t">
+          {
+            computers.map(computer => (
+              <li data-platform={computer.platform} class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-6 border-b py-5 max-sm:grid-cols-1 max-sm:gap-3">
+                <div class="flex flex-col gap-1">
+                  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <h3 class="text-title">{computer.name}</h3>
+                    <span data-this-computer hidden class="text-sm font-medium text-soft">Este equipo</span>
+                  </div>
+                  <p class="text-sm text-faint">{computer.detail}</p>
+                  {computer.file && <p class="font-mono text-xs text-faint">{computer.file}</p>}
+                </div>
+                {
+                  computer.href ? (
+                    <a class={cn(buttonVariants({ variant: "outline", size: "sm" }), "max-sm:w-full")} href={computer.href} aria-label={`Descargar para ${computer.name}`}>
+                      <DownloadIcon data-icon="inline-start" aria-hidden="true" />
+                      Descargar
+                    </a>
+                  ) : (
+                    <p class="text-sm font-medium text-faint">Pronto</p>
+                  )
+                }
+              </li>
+            ))
+          }
+        </ul>
+        <p class="mt-5 text-sm text-faint">
+          ¿No sabes cuál es tu PC? En Windows, abre Configuración &rsaquo; Sistema &rsaquo; Información: «Tipo de sistema» dice x64 o ARM.
+        </p>
+      </bardo-computers>
+    </div>
+  </section>
+
+  <section class="shell py-16 max-sm:py-6" aria-labelledby="install-title">
+    <h2 id="install-title" class="mb-10 text-headline font-heading font-semibold">Instalar en tres pasos.</h2>
+    <div class={cn("grid gap-16 max-lg:gap-10", windowsRelease && "grid-cols-2 max-lg:grid-cols-1")}>
+      {
+        [
+          { name: "En Mac", steps: macSteps },
+          ...(windowsRelease ? [{ name: "En Windows", steps: windowsSteps }] : []),
+        ].map(group => (
+          <div class="flex flex-col gap-6">
+            {windowsRelease && <h3 class="text-title">{group.name}</h3>}
+            <ol class={cn("grid gap-8 max-lg:gap-0", windowsRelease ? "grid-cols-1 gap-0" : "grid-cols-3 max-lg:grid-cols-1")}>
+              {group.steps.map((step, i) => (
+                <li class={cn("flex gap-3 border-t pt-6 max-lg:pb-8", windowsRelease ? "flex-row items-baseline gap-5 pb-6" : "flex-col")}>
+                  <span class="text-headline text-faint tabular-nums" aria-hidden="true">
+                    {i + 1}
+                  </span>
+                  <div class="flex flex-col gap-3">
+                    <h4 class="text-title">{step.title}</h4>
+                    <p class="max-w-[36ch] text-soft" set:html={step.text} />
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="shell py-16 max-sm:py-6" aria-labelledby="mac-title">
+    <div class="grid grid-cols-[minmax(0,4fr)_minmax(0,7fr)] gap-16 max-lg:grid-cols-1 max-lg:gap-6">
+      <h2 id="mac-title" class="max-w-[14ch] text-headline font-heading font-semibold">{windowsRelease ? "¿Funciona en tu equipo?" : "¿Funciona en tu Mac?"}</h2>
+      <div class="flex flex-col gap-4 text-lead text-soft">
+        <p>
+          Necesitas un Mac con Apple silicon y macOS 15 o posterior. Para saberlo, abre el menú Apple &rsaquo; Acerca de este Mac:
+          junto a «Chip» debe decir Apple M1 o posterior.
+        </p>
+        <p>Bardo no funciona en Mac con procesador Intel.</p>
+        {
+          windowsRelease && (
+            <p>
+              En Windows, necesitas Windows 11 en un PC x64 o ARM. Para saberlo, abre Configuración &rsaquo; Sistema &rsaquo; Información.
+            </p>
+          )
+        }
+      </div>
+    </div>
+  </section>
+
+  <section class="shell py-16 max-sm:py-6" aria-labelledby="first-title">
+    <div class="grid grid-cols-[minmax(0,6fr)_minmax(0,5fr)] items-center gap-16 max-lg:grid-cols-1 max-lg:gap-10 max-sm:gap-6">
+      <img
+        class="mx-auto h-auto w-full max-w-[620px] shadow-float rounded-capture"
+        src={url("assets/capturas/elegir-transcripcion.webp")}
+        width="1020"
+        height="1080"
+        alt="Bardo pregunta cómo transcribir: Rápido, Equilibrado o Preciso"
+        loading="lazy" decoding="async"
+      />
+      <div class="flex flex-col gap-6">
+        <h2 id="first-title" class="max-w-[14ch] text-headline font-heading font-semibold">Lo que se descarga al empezar.</h2>
+        <ul class="border-t">
+          {
+            windowsRelease && (
+              <li aria-hidden="true" class="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-6 border-b py-3 text-sm text-faint max-sm:gap-3">
+                <span />
+                <span class="text-right">Mac</span>
+                <span class="text-right">Windows</span>
+              </li>
+            )
+          }
+          {
+            ways.map((way) => (
+              <li class={cn("grid items-baseline gap-6 border-b py-4", windowsRelease ? "grid-cols-[minmax(0,1fr)_7rem_6rem] max-sm:gap-3" : "grid-cols-[minmax(0,1fr)_auto]")}>
+                <div class="flex flex-col gap-0.5">
+                  <h3 class="text-base font-semibold">{way.name}</h3>
+                  <p class="text-sm text-faint">{way.text}</p>
+                </div>
+                <p class="text-right font-medium whitespace-nowrap tabular-nums">
+                  {windowsRelease && <span class="sr-only">Mac: </span>}
+                  {way.mac}
+                </p>
+                {
+                  windowsRelease && (
+                    <p class={cn("text-right whitespace-nowrap tabular-nums", way.windows === "Solo en Mac" ? "text-sm text-faint" : "font-medium")}>
+                      <span class="sr-only">Windows: </span>
+                      {way.windows}
+                    </p>
+                  )
+                }
+              </li>
+            ))
+          }
+        </ul>
+        <p class="text-sm text-faint">
+          {windowsRelease
+            ? "Además, para reconocer a cada hablante: 11 MB en Mac, ya incluidos en Windows. Después, Bardo transcribe sin conexión. Puedes cambiar de opción cuando quieras, en Ajustes o Configuración."
+            : "Además, 11 MB para reconocer a cada hablante. Después, Bardo transcribe sin conexión. Puedes cambiar de opción cuando quieras, en Ajustes."}
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="shell pt-16 max-sm:pt-8" aria-labelledby="verify-title">
+    <div class="grid grid-cols-[minmax(0,4fr)_minmax(0,7fr)] items-center gap-16 rounded-[28px] border bg-ground-2 p-12 max-lg:grid-cols-1 max-lg:gap-6 max-sm:p-6">
+      <div class="flex flex-col gap-3">
+        <h2 id="verify-title" class="text-title">Comprueba la descarga</h2>
+        <p class="text-sm text-faint">Opcional, para quien quiera verificar que el archivo es el original.</p>
+      </div>
+      <div class="flex flex-col gap-3">
+        <pre class="overflow-x-auto rounded-xl bg-ground p-5 font-mono text-sm text-foreground"><code>shasum -a 256 Bardo-{release.version}.dmg</code></pre>
+        {
+          windowsRelease && (
+            <pre class="overflow-x-auto rounded-xl bg-ground p-5 font-mono text-sm text-foreground"><code>Get-FileHash Bardo-{windowsRelease}-Setup-x64.exe</code></pre>
+          )
+        }
+        <p class="text-sm text-soft">
+          El resultado debe coincidir con el archivo <code>.sha256</code> de la <a class="text-link" href={links.macRelease}>versión {release.version}</a>.
+          {links.windows && windowsRelease === release.version && " En Windows, usa PowerShell; el resultado sale en mayúsculas."}
+          {
+            links.windows && windowsRelease !== release.version && (
+              <>
+                {" En Windows, con el de la "}<a class="text-link" href={links.windows.release}>versión {windowsRelease}</a>, en PowerShell; el resultado sale en mayúsculas.
+              </>
+            )
+          }
+        </p>
+      </div>
+    </div>
+  </section>
+</Layout>
+
+<script>
+  import { detectPlatform } from "@/scripts/platform"
+
+  // Marks the row of the computer this page is open on.
+  class ComputersElement extends HTMLElement {
+    async connectedCallback() {
+      const platform = await detectPlatform(navigator)
+      const row = this.querySelector<HTMLElement>(`[data-platform="${platform}"]`)
+      row?.querySelector<HTMLElement>("[data-this-computer]")?.removeAttribute("hidden")
+    }
+  }
+
+  if (!customElements.get("bardo-computers")) customElements.define("bardo-computers", ComputersElement)
+</script>

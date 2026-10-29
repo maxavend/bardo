@@ -1,0 +1,54 @@
+---
+import Layout from "@/layouts/main.astro"
+import DownloadCta from "@/components/site/DownloadCta.astro"
+import { links, url } from "@/lib/site"
+
+const rows = [
+  { term: "Lo que guarda", detail: "El audio, el texto, tus correcciones y el nombre de cada participante." },
+  { term: "Dónde", detail: "En <code>~/Library/Application Support/Bardo</code>, en carpetas que solo tu usuario puede abrir." },
+  { term: "Qué usa internet", detail: "Solo la descarga de los modelos de voz y de hablantes, si faltan. Después, todo funciona sin conexión." },
+  { term: "Qué permisos pide", detail: "El micrófono y, para grabar lo que suena en el Mac, el audio del sistema." },
+  {
+    term: "Cómo comprobarlo",
+    detail: `El código es abierto, con licencia MIT. Puedes leerlo en <a class="text-link" href="${links.repo}">GitHub</a>.`,
+  },
+]
+---
+
+<Layout
+  title="Privacidad en Bardo"
+  description="Qué guarda Bardo, dónde lo guarda y qué usa internet: el audio y el texto nunca salen de tu Mac."
+  current="privacidad"
+>
+  <section class="shell pt-20 pb-12 max-lg:pt-12 max-sm:pt-8 max-sm:pb-8" aria-labelledby="page-title">
+    <div class="flex flex-col gap-6">
+      <h1 id="page-title" class="max-w-[14ch] text-display font-heading font-semibold">Tu audio no sale de tu Mac.</h1>
+      <p class="max-w-[44ch] text-lead text-soft">Bardo transcribe y reconoce cada voz en el propio Mac. Esto es lo que guarda y dónde.</p>
+    </div>
+  </section>
+
+  <section class="shell" aria-label="Qué guarda Bardo">
+    <dl class="border-t">
+      {
+        rows.map((row) => (
+          <div class="grid grid-cols-[minmax(0,4fr)_minmax(0,7fr)] gap-16 border-b py-8 max-lg:grid-cols-1 max-lg:gap-2">
+            <dt class="text-title">{row.term}</dt>
+            <dd class="max-w-[52ch] text-lead text-soft" set:html={row.detail} />
+          </div>
+        ))
+      }
+    </dl>
+  </section>
+  <section class="shell pt-24 max-lg:pt-16 max-sm:pt-10" aria-labelledby="next-title">
+    <div class="flex flex-wrap items-center justify-between gap-8 rounded-[28px] border bg-ground-2 p-12 max-sm:p-6">
+      <div class="flex items-center gap-4">
+        <img class="h-16 w-auto" src={url("assets/marca/bardo-mascota-ai-v2-128.webp")} width="128" height="128" alt="" loading="lazy" decoding="async" />
+        <div class="flex flex-col">
+          <h2 id="next-title" class="text-title">Pruébalo en tu Mac</h2>
+          <p class="text-sm text-soft">Gratis y de código abierto.</p>
+        </div>
+      </div>
+      <DownloadCta />
+    </div>
+  </section>
+</Layout>

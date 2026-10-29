@@ -1,0 +1,438 @@
+@import "tailwindcss";
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
+
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Grenze";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("@fontsource/grenze/files/grenze-latin-600-normal.woff2") format("woff2");
+}
+
+/*
+ * Bardo's world: the app's own graphite, the way the Mac draws it in dark mode.
+ * Colour only ever means something: the bard's purple is the brand and the focus,
+ * and the three speaker hues appear only where speakers do.
+ */
+:root {
+  color-scheme: dark;
+
+  /* #121016, the ground of the owner's portfolio covers and slides */
+  --ground: oklch(17.8% 0.013 300);
+  --ground-2: oklch(20.8% 0.013 300);
+  --ground-3: oklch(25.5% 0.014 300);
+  --line: oklch(32% 0.013 300);
+  --line-strong: oklch(46% 0.01 290);
+  --text: oklch(97% 0.004 290);
+  --text-soft: oklch(80% 0.008 290);
+  --text-faint: oklch(67% 0.01 290);
+
+
+  --bard: oklch(66% 0.16 302);
+  /* the privacy chapter: the bard's purple, deep enough to hold text */
+  --bard-field: oklch(23% 0.055 302);
+  --voice-you: oklch(66% 0.17 252);
+  --voice-2: oklch(74% 0.15 60);
+  --voice-3: oklch(75% 0.17 148);
+  /* the recorder's playhead: the system red */
+  --rec: oklch(66% 0.21 25);
+
+  --shadow-float: 0 24px 48px -12px oklch(0% 0 0 / 0.55), 0 2px 6px oklch(0% 0 0 / 0.35);
+
+  /* shadcn roles */
+  --background: var(--ground);
+  --foreground: var(--text);
+  --card: var(--ground-2);
+  --card-foreground: var(--text);
+  --popover: var(--ground-3);
+  --popover-foreground: var(--text);
+  --primary: var(--text);
+  --primary-foreground: var(--ground);
+  --secondary: var(--ground-3);
+  --secondary-foreground: var(--text);
+  --muted: var(--ground-2);
+  --muted-foreground: var(--text-faint);
+  --accent: var(--ground-3);
+  --accent-foreground: var(--text);
+  --destructive: oklch(70% 0.17 25);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--bard);
+  --radius: 0.75rem;
+
+  --gutter: 64px;
+  --capture-radius: 12px;
+
+  --dropdown-open-dur: 250ms;
+  --dropdown-close-dur: 150ms;
+  --dropdown-pre-scale: 0.97;
+  --dropdown-closing-scale: 0.99;
+  --dropdown-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --pulse-dur: 1000ms;
+  --pulse-count: 1;
+  --pulse-min: 0.5;
+  --reveal-dur: 400ms;
+  --reveal-blur: 2px;
+  --reveal-ease: ease-in-out;
+}
+
+@media (max-width: 64rem) {
+  :root { --gutter: 32px; }
+}
+@media (max-width: 40rem) {
+  :root { --gutter: 20px; --capture-radius: 4px; }
+  /* Phone backgrounds span the viewport. Do not reserve desktop scrollbar tracks. */
+  html { scrollbar-width: none; }
+  html::-webkit-scrollbar { display: none; }
+}
+
+@theme {
+  --text-display: clamp(2.75rem, 4.4vw + 1rem, 5.5rem);
+  --text-display--line-height: 1.04;
+  --text-display--letter-spacing: -0.015em;
+  --text-headline: clamp(2rem, 2.6vw + 1rem, 3.5rem);
+  --text-headline--line-height: 1.1;
+  --text-headline--letter-spacing: -0.01em;
+  --text-title: 1.375rem;
+  --text-title--line-height: 1.2;
+  --text-title--letter-spacing: -0.02em;
+  --text-lead: clamp(1.125rem, 0.4vw + 1rem, 1.3125rem);
+  --text-lead--line-height: 1.5;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Grenze", ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-ground: var(--ground);
+  --color-ground-2: var(--ground-2);
+  --color-ground-3: var(--ground-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-soft: var(--text-soft);
+  --color-faint: var(--text-faint);
+  --color-bard: var(--bard);
+  --color-bard-field: var(--bard-field);
+  --color-voice-you: var(--voice-you);
+  --color-voice-2: var(--voice-2);
+  --color-voice-3: var(--voice-3);
+  --color-rec: var(--rec);
+
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-window: 14px;
+  --radius-capture: var(--capture-radius);
+  --shadow-float: var(--shadow-float);
+}
+
+/* The one container: capped, centred, gutters grow past it. */
+@utility shell {
+  width: 100%;
+  max-width: 1360px;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* Text links: underlined, the underline brightens on hover. */
+@utility text-link {
+  color: var(--text);
+  text-decoration-line: underline;
+  text-decoration-color: var(--line-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  transition: text-decoration-color 200ms var(--ease-out-expo);
+  &:hover {
+    text-decoration-color: var(--text);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    overflow-x: clip;
+  }
+  html {
+    @apply font-sans;
+    scroll-padding-top: 5rem;
+    scrollbar-color: var(--line-strong) var(--ground);
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-size: 1rem;
+    line-height: 1.55;
+    caret-color: var(--bard);
+  }
+  h1,
+  h2,
+  h3 {
+    font-weight: 700;
+    text-wrap: balance;
+    overflow-wrap: break-word;
+    min-width: 0;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--bard) 45%, transparent);
+    color: var(--text);
+  }
+  :focus-visible {
+    outline: 2px solid var(--bard);
+    outline-offset: 3px;
+  }
+  a:active {
+    opacity: 0.8;
+  }
+  code:not(pre code) {
+    @apply rounded-sm bg-ground-3 px-1 font-mono text-[0.88em] text-text;
+  }
+}
+
+.t-dropdown {
+  transform-origin: top left;
+  transform: scale(var(--dropdown-pre-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-open-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-open-dur) var(--dropdown-ease);
+  will-change: transform, opacity;
+}
+.t-dropdown[data-origin="top-right"]     { transform-origin: top right; }
+.t-dropdown[data-origin="top-center"]    { transform-origin: top center; }
+.t-dropdown[data-origin="bottom-left"]   { transform-origin: bottom left; }
+.t-dropdown[data-origin="bottom-center"] { transform-origin: bottom center; }
+.t-dropdown[data-origin="bottom-right"]  { transform-origin: bottom right; }
+
+.t-dropdown.is-open {
+  transform: scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+.t-dropdown.is-closing {
+  transform: scale(var(--dropdown-closing-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-close-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-close-dur) var(--dropdown-ease);
+}
+
+/* Hero enters on page load; later sections reveal as they enter the viewport. */
+@keyframes hero-enter {
+  from { opacity: 0; transform: translateY(18px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+[data-hero-reveal] { opacity: 1; transform: none; }
+
+.hero-enter-ready [data-hero-reveal] {
+  animation: hero-enter 760ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.hero-enter-ready [data-hero-reveal="scene"] { animation-delay: 120ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-hero-reveal] {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Scroll reveals are progressively enhanced: content stays visible without JS. */
+[data-reveal] {
+  opacity: 1;
+  transform: none;
+}
+
+.reveal-ready [data-reveal]:not([data-revealed]) {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+.reveal-ready [data-reveal] {
+  transition:
+    opacity 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.reveal-ready [data-reveal-delay="1"] { transition-delay: 90ms; }
+.reveal-ready [data-reveal-delay="2"] { transition-delay: 180ms; }
+.reveal-ready [data-reveal-delay="3"] { transition-delay: 270ms; }
+.reveal-ready [data-reveal-delay="4"] { transition-delay: 360ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal-ready [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+.reveal-ready [data-reveal][data-revealed] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* A same-size skeleton holds each screenshot's space while its image loads. */
+.t-skel { position: relative; }
+.t-skel-skeleton,
+.t-skel-content {
+  position: absolute;
+  inset: 0;
+}
+
+.t-skel-skeleton {
+  z-index: 1;
+  opacity: 1;
+  filter: blur(0);
+  transition:
+    opacity var(--reveal-dur) var(--reveal-ease),
+    filter var(--reveal-dur) var(--reveal-ease);
+}
+.t-skel-content {
+  z-index: 2;
+  opacity: 0;
+  filter: blur(var(--reveal-blur));
+  transition:
+    opacity var(--reveal-dur) var(--reveal-ease),
+    filter var(--reveal-dur) var(--reveal-ease);
+}
+.t-skel.is-revealed .t-skel-skeleton {
+  opacity: 0;
+  filter: blur(var(--reveal-blur));
+}
+.t-skel.is-revealed .t-skel-content {
+  opacity: 1;
+  filter: blur(0);
+}
+.t-skel.is-resetting .t-skel-skeleton,
+.t-skel.is-resetting .t-skel-content {
+  transition: none !important;
+}
+.t-skel-skeleton.is-pulsing > * {
+  animation: t-skel-pulse var(--pulse-dur) ease-in-out var(--pulse-count);
+}
+@keyframes t-skel-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: var(--pulse-min); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-skel-skeleton, .t-skel-content {
+    transition: none !important;
+  }
+  .t-skel-skeleton.is-pulsing > * { animation: none !important; }
+}
+
+/* Progressive enhancement keeps image content visible when JS is unavailable. */
+.t-skel.image-skel { overflow: hidden; border-radius: var(--capture-radius); }
+.t-skel.image-skel .t-skel-skeleton { display: none; }
+.t-skel.image-skel .t-skel-content {
+  position: relative;
+  inset: auto;
+  display: block;
+  opacity: 1;
+  filter: none;
+}
+.image-reveal-ready .t-skel.image-skel .t-skel-skeleton {
+  display: block;
+  overflow: hidden;
+  background: linear-gradient(135deg, oklch(25% 0.035 300), oklch(21% 0.025 300));
+}
+.image-reveal-ready .t-skel.image-skel .t-skel-content {
+  opacity: 0;
+  filter: blur(var(--reveal-blur));
+}
+.image-reveal-ready .t-skel.image-skel.is-revealed .t-skel-content {
+  opacity: 1;
+  filter: blur(0);
+}
+.image-reveal-ready .t-skel.image-skel.is-revealed .t-skel-skeleton { opacity: 0; }
+.image-skel-shimmer {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(105deg, transparent 30%, oklch(100% 0 0 / 0.055) 48%, transparent 66%);
+  background-size: 220% 100%;
+  animation: image-skel-shimmer 1800ms linear infinite;
+}
+@keyframes image-skel-shimmer {
+  to { background-position-x: -220%; }
+}
+.image-skel-mascot { overflow: visible !important; }
+.image-skel-mascot .t-skel-skeleton { border-radius: 50%; }
+.image-skel-player { border-radius: var(--capture-radius); }
+
+@media (prefers-reduced-motion: reduce) {
+  .image-skel-shimmer { animation: none !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-dropdown { transition: none !important; }
+}
+
+/* Opacity-only reveals avoid repeated blur rasterization on mobile. */
+.t-stream-w {
+  opacity: 0;
+  transition: opacity 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.t-stream-w.is-in {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-stream-w {
+    transition: none !important;
+    filter: none !important;
+    opacity: 1 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
