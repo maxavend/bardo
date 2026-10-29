@@ -15,6 +15,7 @@ struct RecordingDetailView: View {
     let searchQuery: String
     @Binding var isInfoPresented: Bool
     @Binding var isFullPlayerPresented: Bool
+    let onToggleArchived: (Recording) -> Void
     let onMoveToTrash: (Recording) -> Void
     @State private var editor: TranscriptEditorState?
     @State private var pendingReplacementAction: TranscriptReplacementAction?
@@ -279,6 +280,16 @@ struct RecordingDetailView: View {
             exportMenu
 
             Divider()
+
+            Button {
+                onToggleArchived(recording)
+            } label: {
+                if recording.isArchived {
+                    Label("Desarchivar", systemImage: "tray.and.arrow.up")
+                } else {
+                    Label("Archivar", systemImage: "archivebox")
+                }
+            }
 
             Button(role: .destructive) {
                 isDeleteConfirmationPresented = true

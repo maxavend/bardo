@@ -33,6 +33,7 @@ extension FocusedValues {
 struct BardoCommands: Commands {
     @FocusedBinding(\.libraryInspector) private var isInfoPresented
     @FocusedValue(\.captureCommands) private var capture
+    @FocusedValue(\.librarySelection) private var selection
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -65,6 +66,21 @@ struct BardoCommands: Commands {
 
         // Bardo has no Help book; keep the menu's search field without a dead item.
         CommandGroup(replacing: .help) {}
+
+        // The selected conversations, one or several, as Mail's Message menu.
+        CommandMenu("Conversación") {
+            Button(selection?.addsToFavorites == false ? "Quitar de Favoritas" : "Agregar a Favoritas") {
+                selection?.toggleFavorite()
+            }
+            .disabled(selection == nil)
+
+            // ⌃⌘A archives in Mail too.
+            Button(selection?.archives == false ? "Desarchivar" : "Archivar") {
+                selection?.toggleArchived()
+            }
+            .keyboardShortcut("a", modifiers: [.command, .control])
+            .disabled(selection == nil)
+        }
 
         CommandMenu("Grabación") {
             // One item that alternates, like Play and Pause. ⌥⌘Space belongs to Finder's

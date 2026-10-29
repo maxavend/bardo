@@ -24,6 +24,8 @@ struct LibraryView: View {
     @State private var isFileImporterPresented = false
     @State private var isIssuesReviewPresented = false
     @State private var searchText = ""
+    /// Conversations waiting for confirmation before they go to the Trash.
+    @State private var trashCandidates: Set<Recording.ID> = []
     @FocusState private var isSearchFocused: Bool
     #if DEBUG
     @Environment(\.openSettings) private var openSettings
@@ -87,6 +89,24 @@ struct LibraryView: View {
             }
         }
         .focusedSceneValue(\.libraryInspector, model.selectedRecording == nil ? nil : $isInfoPresented)
+        .focusedSceneValue(\.librarySelection, selectionCommands)
+        .confirmationDialog(
+            trashConfirmationTitle,
+            isPresented: Binding(
+                get: { !trashCandidates.isEmpty },
+                set: { if !$0 { trashCandidates = [] } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Mover a la Papelera", role: .destructive) {
+                moveToTrash(trashCandidates)
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text(trashCandidates.count == 1
+                ? "El audio y la transcripción se moverán a la Papelera de macOS, donde podrás recuperarlos."
+                : "Sus audios y transcripciones se moverán a la Papelera de macOS, donde podrás recuperarlos.")
+        }
         .task {
             await model.reload()
             selectFirstRecordingIfNeeded()
@@ -167,6 +187,15 @@ struct LibraryView: View {
                 if let index = Int(step.value), list.indices.contains(index) { model.selection = list[index].id }
             case "deselect":
                 model.selection = nil
+            case "select":
+                // Several conversations, as with ⌘-click: `select:0,1,2`.
+                let list = sectionRecordings
+                model.selectedIDs = Set(step.value.split(separator: ",").compactMap { Int($0) }
+                    .filter(list.indices.contains).map { list[$0].id })
+            case "archive":
+                toggleArchived(model.selectedIDs)
+            case "trashSelection":
+                trashCandidates = model.selectedIDs
             case "search":
                 searchText = step.value
             case "inspector":
@@ -188,7 +217,7 @@ struct LibraryView: View {
             case "import":
                 Task { await model.importAudio(from: [URL(fileURLWithPath: step.value)]) }
             case "trash":
-                if let recording = model.selectedRecording { moveToTrash(recording) }
+                if let recording = model.selectedRecording { moveToTrash([recording.id]) }
             default:
                 break
             }
@@ -215,7 +244,8 @@ struct LibraryView: View {
                 favorites: favorites,
                 onNewRecording: onNewRecording,
                 onImport: { isFileImporterPresented = true },
-                onMoveToTrash: moveToTrash
+                onToggleArchived: toggleArchived,
+                onRequestTrash: { trashCandidates = $0 }
             )
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -262,7 +292,7 @@ struct LibraryView: View {
     /// Like Voice Memos, the recording in progress takes the detail column until another
     /// conversation is chosen.
     private var showsLiveRecorder: Bool {
-        liveRecorder != nil && model.selection == nil
+        liveRecorder != nil && model.selectedIDs.isEmpty
     }
 
     @ViewBuilder
@@ -277,7 +307,15 @@ struct LibraryView: View {
                 searchQuery: searchQuery,
                 isInfoPresented: $isInfoPresented,
                 isFullPlayerPresented: $isFullPlayerPresented,
-                onMoveToTrash: moveToTrash
+                onToggleArchived: { toggleArchived([$0.id]) },
+                onMoveToTrash: { moveToTrash([$0.id]) }
+            )
+        } else if model.selectedIDs.count > 1 {
+            MultipleSelectionView(
+                count: model.selectedIDs.count,
+                archives: LibrarySelection.archives(selectedRecordings),
+                onToggleArchived: { toggleArchived(model.selectedIDs) },
+                onMoveToTrash: { trashCandidates = model.selectedIDs }
             )
         } else if model.recordings.isEmpty {
             // The list's empty state already invites the first recording; one call to
@@ -297,39 +335,123 @@ struct LibraryView: View {
         sort.sorted(model.recordings.filter { selectedSection.contains($0, favorites: favorites) })
     }
 
+    /// The selected conversations, in Library order.
+    private var selectedRecordings: [Recording] {
+        model.recordings.filter { model.selectedIDs.contains($0.id) }
+    }
+
     /// Like Mail and Notes, keep something readable in the detail column: when the
     /// selection is not part of the current filter, select its first conversation.
     private func selectFirstRecordingIfNeeded() {
         // While recording, an empty selection shows the recorder.
         guard searchQuery.isEmpty, liveRecorder == nil else { return }
-        let visible = sectionRecordings
-        if let selection = model.selection, visible.contains(where: { $0.id == selection }) {
+        let visible = Set(sectionRecordings.map(\.id))
+        let kept = model.selectedIDs.intersection(visible)
+        if !kept.isEmpty {
+            if kept != model.selectedIDs { model.selectedIDs = kept }
             return
         }
-        model.selection = visible.first?.id
+        model.selection = sectionRecordings.first?.id
+    }
+
+    /// When conversations leave the list on screen, the next one takes the selection,
+    /// as in Mail. Search results keep them, archived or not.
+    private func selectNeighbor(ofLeaving ids: Set<Recording.ID>, list: [Recording.ID]) {
+        guard !model.selectedIDs.isDisjoint(with: ids) else { return }
+        model.selection = LibrarySelection.neighbor(of: ids, in: list)
+    }
+
+    /// One path for the list, the menus and ⌃⌘A: archives the conversations, or moves
+    /// them back to the Library when all of them are archived.
+    private func toggleArchived(_ ids: Set<Recording.ID>) {
+        let recordings = model.recordings.filter { ids.contains($0.id) }
+        guard !recordings.isEmpty else { return }
+        let archive = LibrarySelection.archives(recordings)
+        if searchQuery.isEmpty {
+            let list = sectionRecordings.map(\.id)
+            let leaving = Set(recordings.map(\.id)).filter { id in
+                list.contains(id) && (archive ? selectedSection != .archived : selectedSection == .archived)
+            }
+            selectNeighbor(ofLeaving: leaving, list: list)
+        }
+        Task { await model.setArchived(ids, archive) }
     }
 
     /// One path for the list, the "More" menu and ⌘⌫: the next conversation takes the
     /// selection, as in Mail, and the favourite goes with the conversation.
-    private func moveToTrash(_ recording: Recording) {
-        if model.selection == recording.id {
-            let list = sectionRecordings
-            if let index = list.firstIndex(where: { $0.id == recording.id }) {
-                let neighbor = index + 1 < list.count ? list[index + 1] : (index > 0 ? list[index - 1] : nil)
-                model.selection = neighbor?.id
-            }
-        }
+    private func moveToTrash(_ ids: Set<Recording.ID>) {
+        let list = searchQuery.isEmpty ? sectionRecordings.map(\.id) : searchResultIDs
+        selectNeighbor(ofLeaving: ids, list: list)
         Task {
-            await model.deleteRecording(recording.id)
-            if !model.recordings.contains(where: { $0.id == recording.id }) {
-                favorites.remove(recording.id)
+            if ids.count == 1, let id = ids.first {
+                await model.deleteRecording(id)
+            } else {
+                await model.deleteRecordings(ids)
             }
+            let remaining = Set(model.recordings.map(\.id))
+            favorites.set(ids.subtracting(remaining), favorite: false)
         }
     }
+
+    /// Search results, newest first, as the list shows them.
+    private var searchResultIDs: [Recording.ID] {
+        let matching = Set(model.searchDocuments.filter { $0.match(query: searchQuery) != nil }.map(\.id))
+        return BardoLibrarySort.newest.sorted(model.recordings.filter { matching.contains($0.id) }).map(\.id)
+    }
+
+    private var trashConfirmationTitle: String {
+        if trashCandidates.count == 1,
+           let recording = model.recordings.first(where: { trashCandidates.contains($0.id) }) {
+            return "¿Mover «\(LibraryFormatting.recordingTitle(recording))» a la Papelera?"
+        }
+        return "¿Mover \(trashCandidates.count) conversaciones a la Papelera?"
+    }
+
+    /// What the menu bar can do with the selected conversations.
+    private var selectionCommands: LibrarySelectionCommands? {
+        let recordings = selectedRecordings
+        guard !recordings.isEmpty else { return nil }
+        let ids = Set(recordings.map(\.id))
+        let addsToFavorites = LibrarySelection.addsToFavorites(ids, favorites: favorites)
+        return LibrarySelectionCommands(
+            archives: LibrarySelection.archives(recordings),
+            addsToFavorites: addsToFavorites,
+            toggleArchived: { toggleArchived(ids) },
+            toggleFavorite: { favorites.set(ids, favorite: addsToFavorites) }
+        )
+    }
+}
+
+/// The detail column while several conversations are selected, as in Mail and Finder.
+private struct MultipleSelectionView: View {
+    let count: Int
+    let archives: Bool
+    let onToggleArchived: () -> Void
+    let onMoveToTrash: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("\(count) conversaciones seleccionadas", systemImage: "rectangle.stack")
+        } actions: {
+            Button(archives ? "Archivar" : "Desarchivar", action: onToggleArchived)
+            Button("Mover a la Papelera…", role: .destructive, action: onMoveToTrash)
+        }
+    }
+}
+
+/// What the focused window's menu bar items do with its selected conversations.
+struct LibrarySelectionCommands {
+    /// Archivar, or Desarchivar when every selected conversation is archived.
+    var archives: Bool
+    var addsToFavorites: Bool
+    var toggleArchived: () -> Void
+    var toggleFavorite: () -> Void
 }
 
 extension FocusedValues {
     /// Whether the focused Library window shows a conversation's details; `nil` when
     /// there is nothing to show.
     @Entry var libraryInspector: Binding<Bool>?
+    /// The selected conversations' actions; `nil` when nothing is selected.
+    @Entry var librarySelection: LibrarySelectionCommands?
 }
