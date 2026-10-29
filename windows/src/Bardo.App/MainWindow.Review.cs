@@ -92,13 +92,16 @@ public sealed partial class MainWindow
             ClosePopups();
             ViewModel.ListenToEveryone();
 
-            // A participant's actions: rename, or merge with someone heard twice.
-            if (SpeakerActions(ViewModel.Speakers[1].Id) is { } speakerActions)
+            // Naming a participant, the dialog their "…" menu opens. The menu itself can draw
+            // outside the window, where the capture cannot see it.
+            var naming = RenameSpeakerAsync(ViewModel.Speakers[1].Id);
+            await Capture(folder, $"11-participante-{suffix}");
+            foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(Content.XamlRoot))
             {
-                OnSpeakerActions(speakerActions, new RoutedEventArgs());
-                await Capture(folder, $"11-participante-{suffix}");
-                ClosePopups();
+                if (popup.Child is ContentDialog dialog) dialog.Hide();
             }
+            await Task.WhenAny(naming, Task.Delay(TimeSpan.FromSeconds(2)));
+            ClosePopups();
 
             // A waveform still being read: placeholder bars until it is ready.
             PlaybackWaveform.ShowLoading();
@@ -181,20 +184,6 @@ public sealed partial class MainWindow
     private void ClosePopups()
     {
         foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(Content.XamlRoot)) popup.IsOpen = false;
-    }
-
-    /// <summary>The "…" button beside a participant in the Participants list.</summary>
-    private Button? SpeakerActions(Guid id) =>
-        Descendants(ParticipantsExpander).OfType<Button>().FirstOrDefault(button => button.Tag is Guid tag && tag == id);
-
-    private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
-    {
-        for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); index++)
-        {
-            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, index);
-            yield return child;
-            foreach (var descendant in Descendants(child)) yield return descendant;
-        }
     }
 
     private static Task Settle() => Task.Delay(TimeSpan.FromMilliseconds(900));
