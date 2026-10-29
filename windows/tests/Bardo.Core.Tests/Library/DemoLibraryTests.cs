@@ -81,3 +81,28 @@ public sealed class PortfolioScriptTests
         CollectionAssert.AreEquivalent(new[] { Bardo.Resources.Strings.LocalSpeaker, "Javiera" }, model.Speakers.Select(speaker => speaker.DisplayName).ToArray());
     }
 }
+
+[TestClass]
+public sealed class TranscriptMarksTests
+{
+    [TestMethod]
+    public async Task SectionsHeadTheirTurnAndMomentsFollowTheirs()
+    {
+        using var root = new TemporaryDirectory("BardoTranscriptMarks");
+        var library = Path.Combine(root.Path, "Library");
+        var script = DemoLibrary.FromScript(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "portfolio-conversations.json")));
+        await DemoLibrary.SeedAsync(library, script);
+        using var model = new LibraryViewModel(library, new PreferencesStore(root.Path));
+        await model.LoadAsync();
+
+        model.Select(model.Rows.Single(row => row.Title == "Revisión de diseño: onboarding v2").Id);
+
+        Assert.AreEqual("Contexto", model.Blocks[0].Section);
+        Assert.AreEqual("0:00", model.Blocks[0].SectionTime);
+        var marked = model.Blocks.Single(block => block.HasMoments);
+        Assert.AreEqual("Bajar a 3 datos", marked.Moments[0].Title);
+        Assert.AreEqual("Nombre, comuna y tipo de cuidado; validar con Diego", marked.Moments[0].Note);
+        Assert.IsTrue(model.Blocks.Any(block => block.Section == "Propuesta de pantallas"));
+        Assert.AreEqual(2, model.Blocks.Count(block => block.HasSection));
+    }
+}

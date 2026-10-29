@@ -38,8 +38,28 @@ public sealed class RecordingRow(Recording recording, DateTimeOffset now, bool i
 }
 
 /// <summary>One stretch of speech: who spoke, when, and what they said.</summary>
-public sealed class TranscriptBlockRow(TranscriptTextFormatter.Block block, int speakerIndex = -1)
+/// <summary>A moment marked in a conversation, as the transcript shows it after its turn.</summary>
+public sealed record MomentRow(string Time, string Title, string? Note)
 {
+    public bool HasNote => Note is not null;
+}
+
+public sealed class TranscriptBlockRow(
+    TranscriptTextFormatter.Block block,
+    int speakerIndex = -1,
+    IReadOnlyList<RecordingSection>? sectionsBefore = null,
+    IReadOnlyList<RecordingMoment>? momentsAfter = null)
+{
+    /// <summary>The section that starts with this turn, which heads it; empty for none.</summary>
+    public string Section { get; } = string.Join(" · ", (sectionsBefore ?? []).Select(section => section.Title));
+    public string SectionTime { get; } = sectionsBefore is { Count: > 0 } sections ? DurationFormatting.Duration(sections[0].Start) : "";
+    public bool HasSection => Section.Length > 0;
+
+    /// <summary>Moments marked during this turn, shown after it.</summary>
+    public IReadOnlyList<MomentRow> Moments { get; } =
+        [.. (momentsAfter ?? []).Select(moment => new MomentRow(DurationFormatting.Duration(moment.Time), moment.Title, moment.Note))];
+    public bool HasMoments => Moments.Count > 0;
+
     /// <summary>The speaker's place in the transcript, which picks their colour; -1 for no one.</summary>
     public int SpeakerIndex { get; } = speakerIndex;
     public bool HasSpeaker => SpeakerIndex >= 0;
@@ -530,9 +550,21 @@ public sealed class LibraryViewModel : ObservableModel, IDisposable
                 .Select((speaker, index) => (Name: transcript.DisplayName(speaker, localName), index))
                 .GroupBy(pair => pair.Name)
                 .ToDictionary(group => group.Key, group => group.First().index);
-            foreach (var block in formatter.Blocks(transcript))
+            var blocks = formatter.Blocks(transcript);
+            // Sections head the turn they start; moments follow the turn they were marked in,
+            // as on macOS and in the copied text.
+            var placement = new TranscriptNotePlacement(recording.Notes, [.. blocks.Select(block => block.Start)]);
+            for (var position = 0; position < blocks.Count; position++)
             {
-                Blocks.Add(new TranscriptBlockRow(block, block.Speaker is { } name && indices.TryGetValue(name, out var index) ? index : -1));
+                var block = blocks[position];
+                IReadOnlyList<RecordingMoment> moments = position == 0
+                    ? [.. placement.LeadingMoments, .. placement.MomentsAfter(0)]
+                    : placement.MomentsAfter(position);
+                Blocks.Add(new TranscriptBlockRow(
+                    block,
+                    block.Speaker is { } name && indices.TryGetValue(name, out var index) ? index : -1,
+                    placement.SectionsBefore(position),
+                    moments));
             }
             foreach (var (speaker, index) in transcript.Speakers.Select((speaker, index) => (speaker, index)))
             {

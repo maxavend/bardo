@@ -211,7 +211,8 @@ public static class DemoLibrary
         foreach (var mark in conversation.Marks ?? [])
         {
             if (mark.Turn >= turns.Count) continue;
-            var time = turns[mark.Turn].Start;
+            // A mark on the first turn opens the recording, as on macOS.
+            var time = mark.Turn == 0 ? 0 : turns[mark.Turn].Start;
             notes = mark.IsSection ? notes.AddingSection(time, mark.Title).Notes : notes.AddingMoment(time, mark.Title, mark.Note).Notes;
         }
         var sources = conversation.Kind switch

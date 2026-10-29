@@ -107,6 +107,7 @@
                         </InfoBar.ActionButton>
                     </InfoBar>
                     <InfoBar
+                        x:Name="SetupBar"
                         x:Uid="SetupBar"
                         IsClosable="True"
                         IsOpen="{x:Bind Settings.IsTranscriptionMissing, Mode=OneWay}"
@@ -460,6 +461,20 @@
                                             <ItemsRepeater.ItemTemplate>
                                                 <DataTemplate x:DataType="library:TranscriptBlockRow">
                                                     <StackPanel Padding="0,20,0,0" Spacing="4">
+                                                        <!--  The section this turn starts  -->
+                                                        <StackPanel
+                                                            Margin="0,12,0,8"
+                                                            Orientation="Horizontal"
+                                                            Spacing="10"
+                                                            Visibility="{x:Bind app:Bind.Show(HasSection)}">
+                                                            <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="{x:Bind Section}" TextWrapping="WrapWholeWords" />
+                                                            <TextBlock
+                                                                Margin="0,0,0,3"
+                                                                VerticalAlignment="Bottom"
+                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                                Text="{x:Bind SectionTime}" />
+                                                        </StackPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                                             <!--  The participant's colour, as in the waveform.  -->
                                                             <Ellipse
@@ -485,6 +500,52 @@
                                                             Style="{StaticResource BodyTextBlockStyle}"
                                                             Text="{x:Bind Text}"
                                                             TextWrapping="Wrap" />
+                                                        <!--  Moments marked during this turn  -->
+                                                        <ItemsRepeater
+                                                            Margin="0,8,0,0"
+                                                            ItemsSource="{x:Bind Moments}"
+                                                            Visibility="{x:Bind app:Bind.Show(HasMoments)}">
+                                                            <ItemsRepeater.Layout>
+                                                                <StackLayout Spacing="6" />
+                                                            </ItemsRepeater.Layout>
+                                                            <ItemsRepeater.ItemTemplate>
+                                                                <DataTemplate x:DataType="library:MomentRow">
+                                                                    <Grid
+                                                                        Padding="14,10"
+                                                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                                        BorderThickness="1"
+                                                                        ColumnSpacing="12"
+                                                                        CornerRadius="{ThemeResource OverlayCornerRadius}">
+                                                                        <Grid.ColumnDefinitions>
+                                                                            <ColumnDefinition Width="Auto" />
+                                                                            <ColumnDefinition Width="*" />
+                                                                        </Grid.ColumnDefinitions>
+                                                                        <FontIcon
+                                                                            VerticalAlignment="Top"
+                                                                            Margin="0,2,0,0"
+                                                                            FontSize="16"
+                                                                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                                                            Glyph="&#xE7C1;" />
+                                                                        <StackPanel Grid.Column="1" Spacing="2">
+                                                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind Title}" TextWrapping="WrapWholeWords" />
+                                                                                <TextBlock
+                                                                                    VerticalAlignment="Center"
+                                                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                                                                    Text="{x:Bind Time}" />
+                                                                            </StackPanel>
+                                                                            <TextBlock
+                                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                                Text="{x:Bind Note}"
+                                                                                TextWrapping="WrapWholeWords"
+                                                                                Visibility="{x:Bind app:Bind.Show(HasNote)}" />
+                                                                        </StackPanel>
+                                                                    </Grid>
+                                                                </DataTemplate>
+                                                            </ItemsRepeater.ItemTemplate>
+                                                        </ItemsRepeater>
                                                     </StackPanel>
                                                 </DataTemplate>
                                             </ItemsRepeater.ItemTemplate>

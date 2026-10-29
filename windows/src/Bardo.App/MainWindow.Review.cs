@@ -70,6 +70,11 @@ public sealed partial class MainWindow
             await Capture(folder, $"00-bienvenida-descargando-{suffix}");
             Onboarding.Close();
 
+            // From here on, as a set-up app: models installed, nothing left to download.
+            SetupBar.IsOpen = false;
+            ViewModel.Transcriber ??= new ReviewEngine();
+            ViewModel.SpeakerIdentifier ??= new ReviewEngine();
+
             // A conversation with several participants, part played.
             ViewModel.Select(Row(row => row.Recording.Notes.Sections.Count > 0).Id);
             ParticipantsExpander.IsExpanded = true;
@@ -77,6 +82,11 @@ public sealed partial class MainWindow
             await Settle();
             Playback.Seek(Playback.Duration * 0.42);
             await Capture(folder, $"01-conversacion-{suffix}");
+
+            // The same conversation to read: its sections and moment among the turns.
+            ParticipantsExpander.IsExpanded = false;
+            await Capture(folder, $"08-lectura-{suffix}");
+            ParticipantsExpander.IsExpanded = true;
 
             // A call transcribed per track: you and the others.
             ViewModel.Select(Row(row => row.Recording.Sources.Count == 2 && row.Recording.ProcessingState == Bardo.Domain.ProcessingState.Completed && row.Recording.Notes.IsEmpty).Id);
@@ -122,6 +132,16 @@ public sealed partial class MainWindow
         await Capture(folder, "07-ventana-pequena");
 
         Close();
+    }
+
+    /// <summary>Stands in for Whisper and sherpa-onnx, so the review shows a set-up app. It never runs.</summary>
+    private sealed class ReviewEngine : ITranscriber, ISpeakerIdentifier
+    {
+        public Task<Bardo.Domain.Transcript> TranscribeAsync(Bardo.Domain.Recording recording, IProgress<WorkProgress> progress, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The design review does not transcribe.");
+
+        public Task<Bardo.Domain.Transcript> IdentifySpeakersAsync(Bardo.Domain.Recording recording, Bardo.Domain.Transcript transcript, IProgress<WorkProgress> progress, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The design review does not identify speakers.");
     }
 
     private RecordingRow Row(Func<RecordingRow, bool> matches) => ViewModel.Rows.FirstOrDefault(matches) ?? ViewModel.Rows[0];
