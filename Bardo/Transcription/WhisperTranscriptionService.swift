@@ -597,6 +597,11 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             throw RecordingTranscriptionError.invalidDuration
         }
 
+        // Measured while the model loads: how loud each track is, to drop text written
+        // over silence and to recognise the microphone's echo of the call.
+        let loudnessTask = Task.detached(priority: .userInitiated) { Self.loudness(of: plan) }
+        defer { loudnessTask.cancel() }
+
         progress(.init(stage: .preparingModel, fractionCompleted: 0))
         Self.logger.notice("Transcription started: \(duration, format: .fixed(precision: 1)) s of audio")
         let chosen = engineChoice()
@@ -648,6 +653,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             loadedEngine?.segmentDiscoveryCallback = previousSegmentDiscoveryCallback
         }
 
+        let loudness = await loudnessTask.value
         var results: [TranscriptionResult] = []
         var segmentsBySource: [TranscriptSource?: [TranscriptSegment]] = [:]
         var isAcousticEcho: @Sendable (TranscriptSegment) -> Bool = { _ in false }
@@ -660,10 +666,11 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             // the conversation's language: a quiet echo is otherwise easily taken for
             // English and translated.
             var passOptions = options
+            let isHeard = Self.heardCheck(for: loudness[index])
             let isEcho: @Sendable (TranscriptSegment) -> Bool
             if pass.source == .microphone {
                 let heardOnSystem = segmentsBySource[.system] ?? []
-                isAcousticEcho = await Self.acousticEchoCheck(for: plan)
+                isAcousticEcho = Self.acousticEchoCheck(for: plan, loudness: loudness)
                 let acoustic = isAcousticEcho
                 isEcho = { TrackTranscriptMerger.isEcho($0, of: heardOnSystem) || acoustic($0) }
                 if let language = Self.dominantLanguage(of: heardOnSystem) {
@@ -676,14 +683,14 @@ actor WhisperTranscriptionService: RecordingTranscribing {
 
             if useApple, #available(macOS 26.0, *) {
                 let heard = try await AppleSpeechTranscriber.transcribe(pass) { converted in
-                    let kept = converted.filter { !isEcho($0) }
+                    let kept = converted.filter { isHeard($0) && !isEcho($0) }
                     guard !kept.isEmpty else { return }
                     let snapshot = liveBuffer.merge(kept)
                     liveUpdate(snapshot)
                     progress(.init(stage: .transcribing, fractionCompleted: snapshot.fractionCompleted))
                 }
                 try checkCancellation(cancellation)
-                segmentsBySource[pass.source] = heard
+                segmentsBySource[pass.source] = heard.filter(isHeard)
                 continue
             }
             guard let whisper = loadedEngine else { throw RecordingTranscriptionError.emptyTranscription }
@@ -691,7 +698,7 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             whisper.segmentDiscoveryCallback = { discoveredSegments in
                 let converted = discoveredSegments
                     .compactMap { Self.segment(from: $0, in: pass) }
-                    .filter { !isEcho($0) }
+                    .filter { isHeard($0) && !isEcho($0) }
                 guard !converted.isEmpty else { return }
                 let snapshot = liveBuffer.merge(converted)
                 liveUpdate(snapshot)
@@ -718,8 +725,12 @@ actor WhisperTranscriptionService: RecordingTranscribing {
             )
             try checkCancellation(cancellation)
             results += passResults
-            segmentsBySource[pass.source] = passResults.flatMap { result in
+            let recognized = passResults.flatMap { result in
                 result.segments.compactMap { Self.segment(from: $0, in: pass) }
+            }
+            segmentsBySource[pass.source] = recognized.filter(isHeard)
+            if recognized.count > segmentsBySource[pass.source]?.count ?? 0 {
+                Self.logger.notice("Dropped \(recognized.count - (segmentsBySource[pass.source]?.count ?? 0)) segments written over silence")
             }
         }
         progress(.init(stage: .transcribing, fractionCompleted: 1))
@@ -784,22 +795,32 @@ actor WhisperTranscriptionService: RecordingTranscribing {
 
     /// Compares the microphone's loudness with the Mac's audio; without readable audio
     /// only the words are compared.
-    private nonisolated static func acousticEchoCheck(for plan: TranscriptionPlan) async -> @Sendable (TranscriptSegment) -> Bool {
-        guard let system = plan.passes.first(where: { $0.source == .system }),
-              let microphone = plan.passes.first(where: { $0.source == .microphone }) else {
-            return { _ in false }
+    /// How loud each pass is, by its index in the plan; nil where its audio cannot be read.
+    nonisolated static func loudness(of plan: TranscriptionPlan) -> [TrackLoudness?] {
+        plan.passes.map { pass in
+            guard !Task.isCancelled else { return nil }
+            do {
+                return try TrackLoudness.measure(url: pass.url, duration: pass.duration, offset: pass.offset)
+            } catch {
+                logger.notice("Loudness unavailable for a track; keeping all of its text")
+                return nil
+            }
         }
-        let measured = await Task.detached(priority: .userInitiated) { () -> (TrackLoudness, TrackLoudness)? in
-            guard let systemLoudness = try? TrackLoudness.measure(url: system.url, duration: system.duration, offset: system.offset),
-                  let microphoneLoudness = try? TrackLoudness.measure(url: microphone.url, duration: microphone.duration, offset: microphone.offset)
-            else { return nil }
-            return (microphoneLoudness, systemLoudness)
-        }.value
-        guard let (microphoneLoudness, systemLoudness) = measured else {
+    }
+
+    /// Keeps text where the track actually sounds; without levels, keeps everything.
+    private nonisolated static func heardCheck(for loudness: TrackLoudness?) -> @Sendable (TranscriptSegment) -> Bool {
+        guard let loudness else { return { _ in true } }
+        return { !TrackSilenceDetector.isSilent($0, in: loudness) }
+    }
+
+    private nonisolated static func acousticEchoCheck(for plan: TranscriptionPlan, loudness: [TrackLoudness?]) -> @Sendable (TranscriptSegment) -> Bool {
+        guard let system = plan.passes.firstIndex(where: { $0.source == .system }).flatMap({ loudness[$0] }),
+              let microphone = plan.passes.firstIndex(where: { $0.source == .microphone }).flatMap({ loudness[$0] }) else {
             logger.notice("Echo check by sound unavailable; comparing words only")
             return { _ in false }
         }
-        return { TrackEchoDetector.isEcho($0, microphone: microphoneLoudness, system: systemLoudness) }
+        return { TrackEchoDetector.isEcho($0, microphone: microphone, system: system) }
     }
 
     /// The language most of the text is in, as a Whisper language code.

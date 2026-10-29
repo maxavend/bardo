@@ -201,6 +201,10 @@ struct TranscriptContentView: View {
             } label: {
                 HStack(spacing: 8) {
                     ParticipantAvatars(transcript: transcript)
+                        // The capsule's side padding is wider than its height leaves above
+                        // the avatars; pulled in, they sit the same distance from the edge
+                        // all round, following its curve.
+                        .padding(.leading, -8)
                     Text(String.localizedStringWithFormat(String(localized: "%lld Participants"), count))
                 }
             }

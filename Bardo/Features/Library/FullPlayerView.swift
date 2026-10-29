@@ -87,7 +87,12 @@ struct FullPlayerView: View {
                             get: { recording.skipsSilences },
                             set: { skips in Task { await model.setSkipsSilences(recording.id, skips) } }
                         ),
-                        silences: silences
+                        silences: silences,
+                        transcript: transcript,
+                        listened: Binding(
+                            get: { model.listenedSpeakers[recording.id] },
+                            set: { speakers in Task { await model.setListenedSpeakers(speakers, for: recording.id) } }
+                        )
                     )
                     .task { silences = await model.longSilences(of: recording.id) }
                 }
@@ -204,6 +209,9 @@ private struct PlayerOptions: View {
     @Binding var skipsSilences: Bool
     /// The pauses that would be skipped, once found.
     let silences: [ClosedRange<TimeInterval>]?
+    let transcript: Transcript?
+    /// The participants being listened to; nil for everyone.
+    @Binding var listened: Set<Speaker.ID>?
 
     var body: some View {
         Form {
@@ -211,11 +219,46 @@ private struct PlayerOptions: View {
                 Text("Omitir silencios")
                 Text(summary)
             }
+            if let transcript, transcript.speakers.count > 1 {
+                Section {
+                    ForEach(transcript.speakers) { speaker in
+                        Toggle(isOn: isListened(speaker, in: transcript)) {
+                            Label {
+                                Text(transcript.displayName(for: speaker))
+                            } icon: {
+                                Circle()
+                                    .fill(SpeakerPalette.color(for: speaker.id, in: transcript).gradient)
+                                    .frame(width: 10, height: 10)
+                            }
+                        }
+                        // Someone is always heard.
+                        .disabled(listened == [speaker.id])
+                    }
+                } header: {
+                    Text("Escuchar a")
+                } footer: {
+                    if listened != nil {
+                        Text("Se salta lo que dicen los demás.")
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 320)
         .fixedSize(horizontal: false, vertical: true)
     }
+    private func isListened(_ speaker: Speaker, in transcript: Transcript) -> Binding<Bool> {
+        let everyone = Set(transcript.speakers.map(\.id))
+        return Binding(
+            get: { listened?.contains(speaker.id) ?? true },
+            set: { isOn in
+                var speakers = listened ?? everyone
+                if isOn { speakers.insert(speaker.id) } else { speakers.remove(speaker.id) }
+                listened = speakers.isSuperset(of: everyone) ? nil : speakers
+            }
+        )
+    }
+
     /// What skipping would do in this recording, so its effect is known.
     private var summary: String {
         guard let silences else { return "Buscando las pausas de esta grabación…" }

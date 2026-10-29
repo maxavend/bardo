@@ -10,7 +10,17 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var importErrorMessage: String?
     @Published private(set) var recordingActionErrorMessage: String?
     @Published private(set) var recordingActionFeedback: String?
-    @Published private(set) var transcript: Transcript?
+    @Published private(set) var transcript: Transcript? {
+        didSet {
+            // Merging or identifying participants changes whose turns are whose.
+            if oldValue?.speakers != transcript?.speakers, !listenedSpeakers.isEmpty {
+                Task { await applySkipping() }
+            }
+        }
+    }
+    /// Whom playback lets through, per recording, while Bardo is open; everyone when
+    /// a recording has no entry.
+    @Published private(set) var listenedSpeakers: [Recording.ID: Set<Speaker.ID>] = [:]
     @Published private(set) var transcriptErrorMessage: String?
     @Published private(set) var transcriptEditErrorMessage: String?
     @Published private(set) var transcriptionProgress: TranscriptionProgressSnapshot?
@@ -184,7 +194,7 @@ final class LibraryViewModel: ObservableObject {
     func setSkipsSilences(_ recordingID: Recording.ID, _ skips: Bool) async {
         do {
             try await updateRecording(recordingID) { $0.skipsSilences = skips }
-            await applySilenceSkipping()
+            await applySkipping()
         } catch {
             recordingActionErrorMessage = error.localizedDescription
         }
@@ -369,21 +379,46 @@ final class LibraryViewModel: ObservableObject {
         // Loading the audio that is already playing is a no-op, so reloads (an import,
         // a finished recording) never interrupt playback.
         _ = await preparePlayback(playback, for: recording)
-        await applySilenceSkipping()
+        // Read the waveform now, so it is ready when the player or the empty transcript
+        // shows it.
+        AudioWaveformOverviewModel.preload(
+            playback.loadedTracks,
+            resolution: RecordingWaveform.resolution(for: playback.duration > 0 ? playback.duration : recording.duration ?? 0)
+        )
+        await applySkipping()
     }
 
     /// Long silences of each recording, found once and kept for the session.
     private var silentRanges: [Recording.ID: [ClosedRange<TimeInterval>]] = [:]
 
-    /// Has the player jump over long silences when the selected recording asks for it.
-    func applySilenceSkipping() async {
-        guard let recording = selectedRecording, recording.skipsSilences else {
+    /// Plays only what `speakers` say in a recording; nil lets everyone through again.
+    func setListenedSpeakers(_ speakers: Set<Speaker.ID>?, for recordingID: Recording.ID) async {
+        listenedSpeakers[recordingID] = speakers
+        await applySkipping()
+    }
+
+    /// Has the player jump over what the selected recording asks to skip: the turns of
+    /// participants left out of listening, and long silences.
+    func applySkipping() async {
+        guard let recording = selectedRecording else {
             playback.skippedRanges = []
             return
         }
-        let ranges = await longSilences(of: recording.id)
-        guard selection == recording.id, selectedRecording?.skipsSilences == true else { return }
-        playback.skippedRanges = ranges
+        var ranges: [ClosedRange<TimeInterval>] = []
+        if let transcript, transcript.recordingID == recording.id,
+           let listened = listenedSpeakers[recording.id] {
+            // Participants merged away since they were chosen no longer count.
+            let speakers = listened.intersection(transcript.speakers.map(\.id))
+            if !speakers.isEmpty {
+                let duration = max(playback.duration, recording.duration ?? 0)
+                ranges += SpeakerPlaybackFilter.skippedRanges(of: transcript, keeping: speakers, duration: duration)
+            }
+        }
+        if recording.skipsSilences {
+            ranges += await longSilences(of: recording.id)
+        }
+        guard selection == recording.id else { return }
+        playback.skippedRanges = SpeakerPlaybackFilter.merged(ranges)
     }
 
     /// The long silences of the selected recording, found once its audio is loaded and

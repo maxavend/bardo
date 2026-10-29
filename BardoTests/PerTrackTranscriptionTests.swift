@@ -355,3 +355,42 @@ final class TrackEchoDetectorTests: XCTestCase {
         ))
     }
 }
+
+final class TrackSilenceDetectorTests: XCTestCase {
+    /// Ten seconds of a muted microphone: digital silence.
+    private let silence = Array(repeating: Float(-6), count: 500)
+
+    func testTextOverDigitalSilenceIsDropped() {
+        let segment = TranscriptSegment(startTime: 2, endTime: 4.8, text: "Thank you.")
+        XCTAssertTrue(TrackSilenceDetector.isSilent(segment, in: TrackLoudness(offset: 0, levels: silence)))
+    }
+
+    func testAQuietVoiceIsKept() {
+        // Peaks around −50 dBFS, as a soft voice far from the microphone.
+        let quiet: [Float] = (0..<500).map { Float(-3.6 + 0.9 * max(0, sin(Double($0) * 0.4))) }
+        let segment = TranscriptSegment(startTime: 2, endTime: 4.8, text: "sí, claro")
+        XCTAssertFalse(TrackSilenceDetector.isSilent(segment, in: TrackLoudness(offset: 0, levels: quiet)))
+    }
+
+    func testOneWordBesideTheTimestampsIsKept() {
+        // Whisper placed the text a little early; the word sounds just after its end.
+        var levels = silence
+        levels[246] = -1.5
+        let segment = TranscriptSegment(startTime: 3, endTime: 4.8, text: "vale")
+        XCTAssertFalse(TrackSilenceDetector.isSilent(segment, in: TrackLoudness(offset: 0, levels: levels)))
+    }
+
+    func testTextBeyondTheMeasuredAudioIsKept() {
+        let segment = TranscriptSegment(startTime: 30, endTime: 32, text: "hola")
+        XCTAssertFalse(TrackSilenceDetector.isSilent(segment, in: TrackLoudness(offset: 0, levels: silence)))
+    }
+
+    func testATrackPlacedLaterOnTheTimelineIsReadAtItsOffset() {
+        // The Mac's audio starts 1.3 s into the recording and is silent at first.
+        var levels = silence
+        for index in 300..<500 { levels[index] = -1.5 }
+        let loudness = TrackLoudness(offset: 1.3, levels: levels)
+        XCTAssertTrue(TrackSilenceDetector.isSilent(TranscriptSegment(startTime: 2, endTime: 4, text: "Gracias."), in: loudness))
+        XCTAssertFalse(TrackSilenceDetector.isSilent(TranscriptSegment(startTime: 7.5, endTime: 9, text: "Gracias."), in: loudness))
+    }
+}
