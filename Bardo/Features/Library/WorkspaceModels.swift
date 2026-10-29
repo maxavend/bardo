@@ -2,12 +2,14 @@ import Foundation
 import SwiftUI
 
 /// The Library filters shown in the sidebar. Each one is a view of the same
-/// conversations, so a conversation can appear in several of them.
+/// conversations, so a conversation can appear in several of them; an archived one
+/// appears only in Archivadas.
 enum BardoLibrarySection: String, CaseIterable, Identifiable, Hashable {
     case all
     case recorded
     case imported
     case favorites
+    case archived
 
     var id: String { rawValue }
 
@@ -17,6 +19,7 @@ enum BardoLibrarySection: String, CaseIterable, Identifiable, Hashable {
         case .recorded: "Grabadas"
         case .imported: "Importadas"
         case .favorites: "Favoritas"
+        case .archived: "Archivadas"
         }
     }
 
@@ -26,17 +29,47 @@ enum BardoLibrarySection: String, CaseIterable, Identifiable, Hashable {
         case .recorded: "mic"
         case .imported: "square.and.arrow.down"
         case .favorites: "star"
+        case .archived: "archivebox"
         }
     }
 
     @MainActor
     func contains(_ recording: Recording, favorites: BardoFavoritesStore) -> Bool {
         switch self {
+        case .archived: recording.isArchived
+        case _ where recording.isArchived: false
         case .all: true
         case .recorded: !recording.sources.contains(.importedFile)
         case .imported: recording.sources.contains(.importedFile)
         case .favorites: favorites.contains(recording.id)
         }
+    }
+}
+
+/// What an action on several selected conversations does, decided the same way for
+/// the list, the detail column and the menu bar.
+enum LibrarySelection {
+    /// Archivar while any of them is still in the Library; Desarchivar once all are
+    /// archived.
+    static func archives(_ recordings: [Recording]) -> Bool {
+        recordings.contains { !$0.isArchived }
+    }
+
+    /// Agregar a Favoritas while any of them is not a favourite yet.
+    @MainActor
+    static func addsToFavorites(_ ids: Set<Recording.ID>, favorites: BardoFavoritesStore) -> Bool {
+        ids.contains { !favorites.contains($0) }
+    }
+
+    /// The conversation that takes the selection when `removed` leave `list`, as in
+    /// Mail: the one after them, or the one before when they were last.
+    static func neighbor(of removed: Set<Recording.ID>, in list: [Recording.ID]) -> Recording.ID? {
+        guard let first = list.firstIndex(where: removed.contains),
+              let last = list.lastIndex(where: removed.contains) else { return nil }
+        if let after = list[(last + 1)...].first(where: { !removed.contains($0) }) {
+            return after
+        }
+        return list[..<first].last { !removed.contains($0) }
     }
 }
 
@@ -106,6 +139,14 @@ final class BardoFavoritesStore: ObservableObject {
 
     func remove(_ id: Recording.ID) {
         guard ids.remove(id) != nil else { return }
+        persist()
+    }
+
+    /// Adds or removes several conversations at once.
+    func set(_ recordingIDs: Set<Recording.ID>, favorite: Bool) {
+        let updated = favorite ? ids.union(recordingIDs) : ids.subtracting(recordingIDs)
+        guard updated != ids else { return }
+        ids = updated
         persist()
     }
 

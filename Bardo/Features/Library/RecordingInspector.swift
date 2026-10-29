@@ -12,6 +12,24 @@ struct RecordingInspector: View {
     @State private var isConfirmingCompression = false
 
     var body: some View {
+        ScrollViewReader { proxy in
+            form
+            #if DEBUG
+            .onDesignReviewCommand { step in
+                guard step.action == "details" else { return }
+                showsTechnicalDetails = true
+                Task {
+                    try? await Task.sleep(for: .seconds(0.3))
+                    proxy.scrollTo(Self.technicalDetailsID, anchor: .bottom)
+                }
+            }
+            #endif
+        }
+    }
+
+    private static let technicalDetailsID = "technicalDetails"
+
+    private var form: some View {
         Form {
             Section("Conversación") {
                 LabeledContent("Creada") {
@@ -57,35 +75,38 @@ struct RecordingInspector: View {
                         LabeledContent("Participantes", value: "\(transcript.speakers.count)")
                     }
                 }
-
-                if transcript.metadata.processingDuration != nil
-                    || transcript.diarizationMetadata?.processingDuration != nil {
-                    Section("Procesamiento") {
-                        if let duration = transcript.metadata.processingDuration {
-                            LabeledContent(
-                                "Transcripción",
-                                value: LibraryFormatting.processingDuration(duration)
-                            )
-                        }
-                        if let duration = transcript.diarizationMetadata?.processingDuration {
-                            LabeledContent(
-                                "Hablantes",
-                                value: LibraryFormatting.processingDuration(duration)
-                            )
-                        }
-                    }
-                }
             }
 
-            if !recording.audioAssets.isEmpty {
+            if processing != nil || !recording.audioAssets.isEmpty {
                 Section {
                     DisclosureGroup("Detalles técnicos", isExpanded: $showsTechnicalDetails) {
+                        if let processing {
+                            VStack(alignment: .leading, spacing: 6) {
+                                detailHeading("Procesamiento")
+                                if let model = processing.model {
+                                    LabeledContent("Modelo", value: model)
+                                }
+                                if let duration = processing.transcription {
+                                    LabeledContent(
+                                        "Transcripción",
+                                        value: LibraryFormatting.processingDuration(duration)
+                                    )
+                                }
+                                if let duration = processing.speakers {
+                                    LabeledContent(
+                                        "Hablantes",
+                                        value: LibraryFormatting.processingDuration(duration)
+                                    )
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
                         ForEach(Array(recording.audioAssets.enumerated()), id: \.element.id) { index, asset in
                             VStack(alignment: .leading, spacing: 6) {
                                 if recording.audioAssets.count > 1 {
-                                    Text("Pista \(index + 1)")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
+                                    detailHeading("Pista \(index + 1)")
+                                } else if processing != nil {
+                                    detailHeading("Audio")
                                 }
                                 LabeledContent("Formato", value: asset.fileExtension.uppercased())
                                 LabeledContent("Códec", value: asset.metadata.codec)
@@ -96,9 +117,28 @@ struct RecordingInspector: View {
                         }
                     }
                 }
+                .id(Self.technicalDetailsID)
             }
         }
         .formStyle(.grouped)
+    }
+
+    // MARK: Technical details
+
+    /// How the transcript was made: the model and how long each step took.
+    private var processing: (model: String?, transcription: TimeInterval?, speakers: TimeInterval?)? {
+        guard let transcript, transcript.recordingID == recording.id else { return nil }
+        let model = LibraryFormatting.transcriptionModel(transcript.metadata)
+        let transcription = transcript.metadata.processingDuration
+        let speakers = transcript.diarizationMetadata?.processingDuration
+        guard model != nil || transcription != nil || speakers != nil else { return nil }
+        return (model, transcription, speakers)
+    }
+
+    private func detailHeading(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
     }
 
     // MARK: Compression

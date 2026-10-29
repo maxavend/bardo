@@ -114,6 +114,11 @@ enum LibraryFormatting {
         return "\(seconds) s"
     }
 
+    /// The model that made a transcript, or `nil` for one saved without it.
+    static func transcriptionModel(_ metadata: TranscriptMetadata) -> String? {
+        TranscriptionEngine(metadata: metadata)?.modelName
+    }
+
     static func sampleRate(_ sampleRate: Double) -> String {
         if sampleRate >= 1_000 {
             return String(format: "%.1f kHz", sampleRate / 1_000)
