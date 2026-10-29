@@ -25,7 +25,7 @@
         <TitleBar
             x:Name="AppTitleBar"
             Title="Bardo"
-            IsPaneToggleButtonVisible="True"
+            IsPaneToggleButtonVisible="{x:Bind app:Bind.Not(Onboarding.IsOpen), Mode=OneWay}"
             PaneToggleRequested="OnPaneToggleRequested">
             <TitleBar.IconSource>
                 <ImageIconSource ImageSource="ms-appx:///Assets/AppIcon.png" />
@@ -38,7 +38,8 @@
                     MaxWidth="400"
                     VerticalAlignment="Center"
                     QueryIcon="Find"
-                    TextChanged="OnSearchTextChanged" />
+                    TextChanged="OnSearchTextChanged"
+                    Visibility="{x:Bind app:Bind.Hide(Onboarding.IsOpen), Mode=OneWay}" />
             </TitleBar.Content>
         </TitleBar>
 
