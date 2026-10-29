@@ -411,6 +411,8 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog
         {
             XamlRoot = Content.XamlRoot,
+            // A dialog opens at the window's root, outside the content's theme.
+            RequestedTheme = ((FrameworkElement)Content).ActualTheme,
             Title = Localized.Format("RecycleDialogTitle", row.Title),
             Content = Localized.Get("RecycleDialogBody"),
             PrimaryButtonText = Localized.Get("RecycleDialogConfirm"),
@@ -456,6 +458,8 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog
         {
             XamlRoot = Content.XamlRoot,
+            // A dialog opens at the window's root, outside the content's theme.
+            RequestedTheme = ((FrameworkElement)Content).ActualTheme,
             Title = title,
             Content = box,
             PrimaryButtonText = Localized.Get("Save"),
