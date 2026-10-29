@@ -51,3 +51,33 @@ public sealed class DemoLibraryTests
         Assert.IsGreaterThan(0.5f, recorder.Live.System.Max());
     }
 }
+
+[TestClass]
+public sealed class PortfolioScriptTests
+{
+    [TestMethod]
+    public async Task ThePortfolioWeekOpensAsOnTheMac()
+    {
+        using var root = new TemporaryDirectory("BardoPortfolioScript");
+        var library = Path.Combine(root.Path, "Library");
+        var script = DemoLibrary.FromScript(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "portfolio-conversations.json")));
+        var seeded = await DemoLibrary.SeedAsync(library, script);
+        var preferences = new PreferencesStore(root.Path);
+        preferences.Update(current => DemoLibrary.Favorites(script, seeded).Aggregate(current, (prefs, id) => prefs.TogglingFavorite(id)));
+        using var model = new LibraryViewModel(library, preferences);
+
+        await model.LoadAsync();
+
+        Assert.HasCount(8, model.Rows);
+        Assert.AreEqual(0, model.IssueCount);
+        model.Select(model.Rows.Single(row => row.Title == "Revisión de diseño: onboarding v2").Id);
+        CollectionAssert.AreEquivalent(new[] { "Tú", "Valentina", "Diego" }, model.Speakers.Select(speaker => speaker.DisplayName).ToArray());
+        Assert.IsTrue(model.IsSelectedFavorite);
+        CollectionAssert.AreEqual(new[] { "Contexto", "Propuesta", "Próximos pasos" }, model.Selected!.Recording.Notes.Sections.Select(section => section.Title).ToArray());
+
+        model.Select(model.Rows.Single(row => row.Title == "Retro del sprint 14").Id);
+        Assert.IsTrue(model.HasNoTranscript, "Pending, as in the script");
+        model.Select(model.Rows.Single(row => row.Title == "Llamada con Javiera: síntesis de entrevistas").Id);
+        CollectionAssert.AreEquivalent(new[] { "Tú", "Javiera" }, model.Speakers.Select(speaker => speaker.DisplayName).ToArray());
+    }
+}

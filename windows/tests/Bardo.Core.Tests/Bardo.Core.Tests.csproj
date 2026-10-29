@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\tools\portfolio\conversations.json" Link="Fixtures\portfolio-conversations.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

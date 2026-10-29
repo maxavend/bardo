@@ -32,6 +32,8 @@
     <Manifest Include="$(ApplicationManifest)" />
     <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\AppIcon.png" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The portfolio's made-up week, which the design review opens. -->
+    <Content Include="..\..\..\tools\portfolio\conversations.json" Link="Assets\portfolio-conversations.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

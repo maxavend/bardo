@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text.Json;
 using Bardo.Capture;
 using Bardo.Domain;
 using Bardo.Persistence;
@@ -6,17 +7,106 @@ using Bardo.Serialization;
 
 namespace Bardo.Library;
 
+/// <summary>How a demo conversation was captured, as the portfolio script names it.</summary>
+public enum DemoKind
+{
+    /// <summary>A call: the microphone and the computer's audio, transcribed per track.</summary>
+    Meeting,
+    Microphone,
+    System,
+    Imported,
+}
+
+/// <summary>A moment or section marked at the start of one of a conversation's turns.</summary>
+public sealed record DemoMark(int Turn, string Title, bool IsSection, string? Note = null);
+
 /// <summary>
-/// A made-up Library for design reviews and screenshots: four conversations with invented
-/// people, speech-like audio and transcripts, so nothing private is ever shown.
+/// One made-up conversation: who says what, in order, and how far it got. Speakers are
+/// keys such as "tu" for the person recording; <paramref name="Names"/> gives the ones
+/// that were named.
+/// </summary>
+public sealed record DemoConversation(
+    string Title,
+    DateTimeOffset CreatedAt,
+    DemoKind Kind,
+    ProcessingState State,
+    bool Diarize,
+    bool Favorite,
+    IReadOnlyDictionary<string, string> Names,
+    IReadOnlyList<(string Speaker, string Text)> Turns,
+    IReadOnlyList<DemoMark>? Marks = null,
+    string? FileName = null);
+
+/// <summary>
+/// A made-up Library for design reviews, screenshots and portfolio slides: invented people
+/// and conversations with speech-like audio and transcripts, so nothing private is ever
+/// shown. It can follow the portfolio script the macOS captures use
+/// (<c>tools/portfolio/conversations.json</c>), so both platforms tell the same story.
 /// </summary>
 public static class DemoLibrary
 {
     public const int SampleRate = 16_000;
 
-    private sealed record Turn(int Voice, double Start, double End, string Text);
+    /// <summary>The person recording, in the script's turns.</summary>
+    public const string LocalSpeaker = "tu";
 
-    public static async Task<IReadOnlyList<Recording>> SeedAsync(string libraryPath, DateTimeOffset now)
+    private sealed record Turn(string Speaker, double Start, double End, string Text);
+
+    /// <summary>Four short conversations, enough to show every state of the window.</summary>
+    public static Task<IReadOnlyList<Recording>> SeedAsync(string libraryPath, DateTimeOffset now) =>
+        SeedAsync(libraryPath, BuiltIn(now));
+
+    /// <summary>
+    /// The portfolio script. With <paramref name="today"/>, its week moves so the script's
+    /// own "today" falls on that day and list dates read the same as in its captures.
+    /// </summary>
+    public static IReadOnlyList<DemoConversation> FromScript(string json, DateTimeOffset? today = null)
+    {
+        using var document = JsonDocument.Parse(json);
+        var shift = today is { } day && document.RootElement.TryGetProperty("today", out var scripted)
+            ? day.Date - DateTime.Parse(scripted.GetString()!, System.Globalization.CultureInfo.InvariantCulture).Date
+            : TimeSpan.Zero;
+        var conversations = new List<DemoConversation>();
+        foreach (var item in document.RootElement.GetProperty("conversations").EnumerateArray())
+        {
+            var names = item.TryGetProperty("names", out var named) && named.ValueKind == JsonValueKind.Object
+                ? named.EnumerateObject().ToDictionary(property => property.Name, property => property.Value.GetString() ?? "")
+                : [];
+            var turns = item.GetProperty("turns").EnumerateArray()
+                .Select(turn => (turn[0].GetString() ?? "", turn[1].GetString() ?? ""))
+                .ToList();
+            var id = item.GetProperty("id").GetString();
+            conversations.Add(new DemoConversation(
+                item.GetProperty("title").GetString() ?? "",
+                DateTimeOffset.Parse(item.GetProperty("createdAt").GetString()!, System.Globalization.CultureInfo.InvariantCulture) + shift,
+                item.GetProperty("kind").GetString() switch
+                {
+                    "meeting" => DemoKind.Meeting,
+                    "microphone" => DemoKind.Microphone,
+                    "system" => DemoKind.System,
+                    _ => DemoKind.Imported,
+                },
+                item.GetProperty("state").GetString() switch
+                {
+                    "pending" => ProcessingState.Pending,
+                    "failed" => ProcessingState.Failed,
+                    _ => ProcessingState.Completed,
+                },
+                item.TryGetProperty("diarize", out var diarize) && diarize.GetBoolean(),
+                item.TryGetProperty("favorite", out var favorite) && favorite.GetBoolean(),
+                names,
+                turns,
+                // The design review is the conversation the slides read: give it its sections and moments.
+                id == "revision-onboarding"
+                    ? [new(0, "Contexto", true), new(5, "Propuesta", true), new(9, "Decisión", false, "Probar con cinco usuarias"), new(13, "Próximos pasos", true)]
+                    : null,
+                item.TryGetProperty("fileName", out var file) ? file.GetString() : null));
+        }
+        return conversations;
+    }
+
+    /// <summary>Writes the conversations to the Library and returns them, with the favourites among them.</summary>
+    public static async Task<IReadOnlyList<Recording>> SeedAsync(string libraryPath, IReadOnlyList<DemoConversation> conversations)
     {
         var staging = Path.Combine(Path.GetTempPath(), $"BardoDemo-{Guid.NewGuid()}");
         Directory.CreateDirectory(staging);
@@ -25,65 +115,10 @@ public static class DemoLibrary
         var seeded = new List<Recording>();
         try
         {
-            // A design review in a room: one microphone, two people told apart.
-            var reviewTurns = new Turn[]
+            foreach (var conversation in conversations)
             {
-                new(0, 0.5, 9.5, "Partamos por la ventana principal. La barra lateral ya usa la navegación de Windows."),
-                new(1, 10.2, 21.0, "Bien. La búsqueda quedó en la barra de título, como en Outlook, y se abre con Control F."),
-                new(0, 22.0, 33.5, "Lo que falta es la onda. En el Mac se nota quién habla en cada momento."),
-                new(1, 34.5, 47.0, "Podemos colorearla por participante, con el color de énfasis para la primera persona."),
-                new(0, 48.0, 58.5, "Perfecto. Y en la grabación, que avance de derecha a izquierda como la Grabadora de sonido."),
-                new(1, 59.5, 72.0, "De acuerdo. Lo dejo listo para la próxima revisión y lo probamos en el PC."),
-            };
-            var review = await AddAsync(
-                recordings, transcripts, staging,
-                "Revisión del diseño para Windows", now.AddHours(-2), [AudioSource.Microphone],
-                [(AudioAssetRole.MicrophoneOriginal, Synthesize(74, reviewTurns, track: null))],
-                reviewTurns, speakerNames: ["Valentina", "Diego"], perTrack: false,
-                notes: RecordingNotes.Empty
-                    .AddingSection(0, "Contexto").Notes
-                    .AddingSection(34, "Propuesta").Notes
-                    .AddingMoment(58, "Decisión", "Colorear por participante").Notes).ConfigureAwait(false);
-            seeded.Add(review);
-
-            // A call: the microphone and the computer's audio, transcribed per track.
-            var callTurns = new Turn[]
-            {
-                new(0, 0.5, 6.5, "Hola a todos, ¿me escuchan bien?"),
-                new(1, 7.2, 15.0, "Sí, perfecto. Revisemos rápido los pendientes de la semana."),
-                new(0, 16.0, 24.5, "Yo terminé la importación de audio y la papelera de reciclaje."),
-                new(1, 25.5, 36.0, "Genial. Entonces queda la reproducción y probar la grabación del sistema."),
-                new(0, 37.0, 43.0, "Lo pruebo mañana en el PC y les cuento."),
-            };
-            var microphone = Synthesize(45, callTurns, track: 0);
-            var system = Synthesize(45, callTurns, track: 1);
-            var mix = microphone.Zip(system, (left, right) => Math.Clamp(left + right, -1f, 1f)).ToArray();
-            seeded.Add(await AddAsync(
-                recordings, transcripts, staging,
-                "Llamada con el equipo", now.AddDays(-1).AddHours(-3), [AudioSource.Microphone, AudioSource.SystemAudio],
-                [(AudioAssetRole.MicrophoneOriginal, microphone), (AudioAssetRole.SystemOriginal, system), (AudioAssetRole.ConversationMix, mix)],
-                callTurns, speakerNames: [], perTrack: true, notes: RecordingNotes.Empty).ConfigureAwait(false));
-
-            // An imported interview, transcribed but not yet told apart.
-            var interviewTurns = new Turn[]
-            {
-                new(1, 0.5, 12.0, "Gracias por la invitación. Empecé a trabajar en audio hace casi diez años."),
-                new(1, 13.0, 26.0, "Lo que más me interesa es que las herramientas funcionen sin conexión y cuiden la privacidad."),
-                new(1, 27.0, 38.0, "Por eso me gusta que todo se procese en el propio equipo."),
-            };
-            seeded.Add(await AddAsync(
-                recordings, transcripts, staging,
-                "Entrevista con Ana", now.AddDays(-4), [AudioSource.ImportedFile],
-                [(AudioAssetRole.ImportedOriginal, Synthesize(40, interviewTurns, track: null))],
-                interviewTurns, speakerNames: null, perTrack: false, notes: RecordingNotes.Empty).ConfigureAwait(false));
-
-            // A voice memo, not transcribed yet.
-            var memoTurns = new Turn[] { new(0, 0.5, 14.0, "") };
-            seeded.Add(await AddAsync(
-                recordings, transcripts, staging,
-                "Idea para el onboarding", now.AddDays(-15), [AudioSource.Microphone],
-                [(AudioAssetRole.MicrophoneOriginal, Synthesize(15, memoTurns, track: null))],
-                memoTurns, speakerNames: null, perTrack: false, notes: RecordingNotes.Empty, transcribed: false).ConfigureAwait(false));
+                seeded.Add(await AddAsync(recordings, transcripts, staging, conversation).ConfigureAwait(false));
+            }
         }
         finally
         {
@@ -92,53 +127,151 @@ public static class DemoLibrary
         return seeded;
     }
 
-    private static async Task<Recording> AddAsync(
-        RecordingStore recordings,
-        TranscriptStore transcripts,
-        string staging,
-        string title,
-        DateTimeOffset createdAt,
-        IReadOnlyList<AudioSource> sources,
-        IReadOnlyList<(AudioAssetRole Role, float[] Samples)> tracks,
-        IReadOnlyList<Turn> turns,
-        IReadOnlyList<string>? speakerNames,
-        bool perTrack,
-        RecordingNotes notes,
-        bool transcribed = true)
+    /// <summary>The recordings among <paramref name="seeded"/> marked as favourites.</summary>
+    public static IEnumerable<Guid> Favorites(IReadOnlyList<DemoConversation> conversations, IReadOnlyList<Recording> seeded) =>
+        conversations.Zip(seeded).Where(pair => pair.First.Favorite).Select(pair => pair.Second.Id);
+
+    private static IReadOnlyList<DemoConversation> BuiltIn(DateTimeOffset now) =>
+    [
+        new("Revisión del diseño para Windows", now.AddHours(-2), DemoKind.Microphone, ProcessingState.Completed, Diarize: true, Favorite: false,
+            new Dictionary<string, string> { ["valentina"] = "Valentina", ["diego"] = "Diego" },
+            [
+                ("valentina", "Partamos por la ventana principal. La barra lateral ya usa la navegación de Windows."),
+                ("diego", "Bien. La búsqueda quedó en la barra de título, como en Outlook, y se abre con Control F."),
+                ("valentina", "Lo que falta es la onda. En el Mac se nota quién habla en cada momento."),
+                ("diego", "Podemos colorearla por participante, con el color de énfasis para la primera persona."),
+                ("valentina", "Perfecto. Y en la grabación, que avance de derecha a izquierda como la Grabadora de sonido."),
+                ("diego", "De acuerdo. Lo dejo listo para la próxima revisión y lo probamos en el PC."),
+            ],
+            [new(0, "Contexto", true), new(3, "Propuesta", true), new(4, "Decisión", false, "Colorear por participante")]),
+        new("Llamada con el equipo", now.AddDays(-1).AddHours(-3), DemoKind.Meeting, ProcessingState.Completed, Diarize: false, Favorite: false,
+            new Dictionary<string, string>(),
+            [
+                (LocalSpeaker, "Hola a todos, ¿me escuchan bien?"),
+                ("equipo", "Sí, perfecto. Revisemos rápido los pendientes de la semana."),
+                (LocalSpeaker, "Yo terminé la importación de audio y la papelera de reciclaje."),
+                ("equipo", "Genial. Entonces queda la reproducción y probar la grabación del sistema."),
+                (LocalSpeaker, "Lo pruebo mañana en el PC y les cuento."),
+            ]),
+        new("Entrevista con Ana", now.AddDays(-4), DemoKind.Imported, ProcessingState.Completed, Diarize: false, Favorite: false,
+            new Dictionary<string, string>(),
+            [
+                ("ana", "Gracias por la invitación. Empecé a trabajar en audio hace casi diez años."),
+                ("ana", "Lo que más me interesa es que las herramientas funcionen sin conexión y cuiden la privacidad."),
+                ("ana", "Por eso me gusta que todo se procese en el propio equipo."),
+            ]),
+        new("Idea para el onboarding", now.AddDays(-15), DemoKind.Microphone, ProcessingState.Pending, Diarize: false, Favorite: true,
+            new Dictionary<string, string>(),
+            [(LocalSpeaker, "Una idea rápida para la primera pantalla: mostrar primero lo que Bardo hace sin conexión.")]),
+    ];
+
+    private static async Task<Recording> AddAsync(RecordingStore recordings, TranscriptStore transcripts, string staging, DemoConversation conversation)
     {
+        var turns = Timed(conversation.Turns);
+        var duration = turns.Count > 0 ? turns[^1].End + 1 : 5;
+        var perTrack = conversation.Kind == DemoKind.Meeting;
+        var speakerKeys = turns.Select(turn => turn.Speaker).Distinct().ToList();
+
+        var tracks = new List<(AudioAssetRole Role, float[] Samples)>();
+        switch (conversation.Kind)
+        {
+            case DemoKind.Meeting:
+                var microphone = Synthesize(duration, turns, speakerKeys, turn => turn.Speaker == LocalSpeaker);
+                var system = Synthesize(duration, turns, speakerKeys, turn => turn.Speaker != LocalSpeaker);
+                tracks.Add((AudioAssetRole.MicrophoneOriginal, microphone));
+                tracks.Add((AudioAssetRole.SystemOriginal, system));
+                tracks.Add((AudioAssetRole.ConversationMix, [.. microphone.Zip(system, (left, right) => Math.Clamp(left + right, -1f, 1f))]));
+                break;
+            default:
+                var role = conversation.Kind switch
+                {
+                    DemoKind.Microphone => AudioAssetRole.MicrophoneOriginal,
+                    DemoKind.System => AudioAssetRole.SystemOriginal,
+                    _ => AudioAssetRole.ImportedOriginal,
+                };
+                tracks.Add((role, Synthesize(duration, turns, speakerKeys, _ => true)));
+                break;
+        }
+
         var files = new Dictionary<Guid, string>();
         var assets = new List<AudioAsset>();
         foreach (var (role, samples) in tracks)
         {
             var path = Path.Combine(staging, $"{Guid.NewGuid()}.wav");
             WritePcm16(path, samples);
-            var duration = (double)samples.Length / SampleRate;
-            var asset = new AudioAsset($"{role}.wav", "wav", new AudioMetadata(duration, "Linear PCM", SampleRate, 1), role,
+            var fileName = role == AudioAssetRole.ImportedOriginal && conversation.FileName is { } name ? Path.ChangeExtension(name, "wav") : $"{role}.wav";
+            var asset = new AudioAsset(fileName, "wav", new AudioMetadata((double)samples.Length / SampleRate, "Linear PCM", SampleRate, 1), role,
                 derivedFromAssetIds: role == AudioAssetRole.ConversationMix ? assets.Select(existing => existing.Id).ToEquatableArray() : default);
             assets.Add(asset);
             files[asset.Id] = path;
         }
-        var recording = new Recording(
-            title, sources, createdAt, assets.Max(asset => asset.Metadata.Duration),
-            transcribed ? ProcessingState.Completed : ProcessingState.Pending,
-            assets.ToEquatableArray(), notes);
-        await recordings.ImportRecordingAsync(recording, files).ConfigureAwait(false);
-        if (!transcribed) return recording;
 
-        EquatableArray<Speaker> speakers = perTrack
-            ? [new Speaker(role: SpeakerRole.LocalUser), new Speaker(role: SpeakerRole.Others)]
-            : speakerNames is { Count: > 0 } names ? [.. names.Select(name => new Speaker(name))] : [];
+        var notes = RecordingNotes.Empty;
+        foreach (var mark in conversation.Marks ?? [])
+        {
+            if (mark.Turn >= turns.Count) continue;
+            var time = turns[mark.Turn].Start;
+            notes = mark.IsSection ? notes.AddingSection(time, mark.Title).Notes : notes.AddingMoment(time, mark.Title, mark.Note).Notes;
+        }
+        var sources = conversation.Kind switch
+        {
+            DemoKind.Meeting => new[] { AudioSource.Microphone, AudioSource.SystemAudio },
+            DemoKind.Microphone => [AudioSource.Microphone],
+            DemoKind.System => [AudioSource.SystemAudio],
+            _ => [AudioSource.ImportedFile],
+        };
+        var recording = new Recording(conversation.Title, sources, conversation.CreatedAt, duration, conversation.State, assets.ToEquatableArray(), notes);
+        await recordings.ImportRecordingAsync(recording, files).ConfigureAwait(false);
+        if (conversation.State != ProcessingState.Completed) return recording;
+
+        // Who is told apart: per track, you and the others (named when identified); on one
+        // track, every voice once identified, and no one before.
+        var speakers = new Dictionary<string, Speaker>();
+        Speaker? others = null;
+        foreach (var key in speakerKeys)
+        {
+            conversation.Names.TryGetValue(key, out var typed);
+            var named = typed is { Length: > 0 } && typed != "Tú" ? typed : null;
+            if (key == LocalSpeaker && (perTrack || conversation.Diarize))
+            {
+                speakers[key] = new Speaker(role: SpeakerRole.LocalUser);
+            }
+            else if (perTrack && !conversation.Diarize)
+            {
+                speakers[key] = others ??= new Speaker(role: SpeakerRole.Others);
+            }
+            else if (conversation.Diarize)
+            {
+                speakers[key] = new Speaker(named);
+            }
+        }
         var segments = turns.Select(turn => new TranscriptSegment(
             turn.Start, turn.End, turn.Text,
-            speakerId: speakers.Count > 0 ? speakers[Math.Min(turn.Voice, speakers.Count - 1)].Id : null,
+            speakerId: speakers.TryGetValue(turn.Speaker, out var speaker) ? speaker.Id : null,
             words: Words(turn),
-            source: perTrack ? (turn.Voice == 0 ? TranscriptSource.Microphone : TranscriptSource.System) : null)).ToEquatableArray();
+            source: perTrack ? (turn.Speaker == LocalSpeaker ? TranscriptSource.Microphone : TranscriptSource.System) : null)).ToEquatableArray();
         await transcripts.SaveAsync(new Transcript(
             recording.Id,
-            new TranscriptMetadata("Demo", "1", TranscriptionSelection.TurboModelId, new TranscriptionSelection(), createdAt,
+            new TranscriptMetadata("Demo", "1", TranscriptionSelection.TurboModelId, new TranscriptionSelection(), conversation.CreatedAt,
                 trackMode: perTrack ? TranscriptionTrackMode.PerTrack : null),
-            "es", speakers, segments)).ConfigureAwait(false);
+            "es",
+            [.. speakers.Values.Distinct()],
+            segments)).ConfigureAwait(false);
         return recording;
+    }
+
+    /// <summary>Each turn as long as it takes to say, with a breath between turns.</summary>
+    private static List<Turn> Timed(IReadOnlyList<(string Speaker, string Text)> turns)
+    {
+        var timed = new List<Turn>();
+        var time = 0.5;
+        foreach (var (speaker, text) in turns)
+        {
+            var length = Math.Clamp(text.Length / 14.0, 2.5, 30);
+            timed.Add(new Turn(speaker, time, time + length, text));
+            time += length + 0.7;
+        }
+        return timed;
     }
 
     private static EquatableArray<TranscriptWord> Words(Turn turn)
@@ -149,21 +282,21 @@ public static class DemoLibrary
     }
 
     /// <summary>
-    /// Speech-like sound: syllables of a voiced tone with a little breath, in each turn of
-    /// <paramref name="track"/> (or every turn when null), silence elsewhere.
+    /// Speech-like sound: syllables of a voiced tone with a little breath for each turn
+    /// <paramref name="heard"/> says the track hears, silence elsewhere. Each speaker has a pitch.
     /// </summary>
-    private static float[] Synthesize(double seconds, IReadOnlyList<Turn> turns, int? track)
+    private static float[] Synthesize(double seconds, IReadOnlyList<Turn> turns, List<string> speakers, Func<Turn, bool> heard)
     {
         var samples = new float[(int)(seconds * SampleRate)];
-        var random = new Random(turns.Count * 7919 + (track ?? 3));
-        foreach (var turn in turns.Where(turn => track is null || turn.Voice == track))
+        var random = new Random(turns.Count * 7919 + speakers.Count);
+        foreach (var turn in turns.Where(heard))
         {
-            var pitch = turn.Voice == 0 ? 210.0 : 125.0;
+            var pitch = 110.0 + 35 * (speakers.IndexOf(turn.Speaker) % 4);
             var time = turn.Start;
             while (time < turn.End)
             {
                 var length = 0.12 + random.NextDouble() * 0.16;
-                var loudness = 0.25 + random.NextDouble() * 0.55;
+                var loudness = 0.08 + random.NextDouble() * 0.72;
                 var start = (int)(time * SampleRate);
                 var count = (int)(Math.Min(length, turn.End - time) * SampleRate);
                 for (var index = 0; index < count && start + index < samples.Length; index++)

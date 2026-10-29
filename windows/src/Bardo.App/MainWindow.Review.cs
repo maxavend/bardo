@@ -27,9 +27,19 @@ public sealed partial class MainWindow
     {
         var root = Path.Combine(Path.GetTempPath(), $"BardoDesignReview-{Guid.NewGuid()}");
         var library = Path.Combine(root, "Library");
-        await DemoLibrary.SeedAsync(library, DateTimeOffset.Now);
         var preferences = new PreferencesStore(root);
-        preferences.Update(current => current with { LocalName = "Maxi" });
+        // The portfolio's made-up week, as the macOS captures show it; the short demo otherwise.
+        var script = Path.Combine(AppContext.BaseDirectory, "Assets", "portfolio-conversations.json");
+        if (File.Exists(script))
+        {
+            var conversations = DemoLibrary.FromScript(await File.ReadAllTextAsync(script), DateTimeOffset.Now);
+            var seeded = await DemoLibrary.SeedAsync(library, conversations);
+            preferences.Update(current => DemoLibrary.Favorites(conversations, seeded).Aggregate(current, (prefs, id) => prefs.TogglingFavorite(id)));
+        }
+        else
+        {
+            await DemoLibrary.SeedAsync(library, DateTimeOffset.Now);
+        }
         return new WindowEnvironment(library, preferences, Path.Combine(root, "Models"), _ => new DemoCaptureService());
     }
 
@@ -59,8 +69,8 @@ public sealed partial class MainWindow
             await Capture(folder, $"00-bienvenida-descargando-{suffix}");
             Onboarding.Close();
 
-            // A conversation with two participants, part played.
-            ViewModel.Select(ViewModel.Rows[0].Id);
+            // A conversation with several participants, part played.
+            ViewModel.Select(Row(row => row.Recording.Notes.Sections.Count > 0).Id);
             ParticipantsExpander.IsExpanded = true;
             await WaitFor(() => Playback.IsAvailable && Playback.Duration > 1);
             await Settle();
@@ -68,13 +78,13 @@ public sealed partial class MainWindow
             await Capture(folder, $"01-conversacion-{suffix}");
 
             // A call transcribed per track: you and the others.
-            ViewModel.Select(ViewModel.Rows.First(row => row.Recording.Sources.Contains(Bardo.Domain.AudioSource.SystemAudio)).Id);
+            ViewModel.Select(Row(row => row.Recording.Sources.Count == 2 && row.Recording.ProcessingState == Bardo.Domain.ProcessingState.Completed && row.Recording.Notes.IsEmpty).Id);
             await WaitFor(() => Playback.IsAvailable && Playback.Duration > 1);
             Playback.Seek(Playback.Duration * 0.7);
             await Capture(folder, $"02-llamada-{suffix}");
 
             // Not transcribed yet.
-            ViewModel.Select(ViewModel.Rows.First(row => row.Title == "Idea para el onboarding").Id);
+            ViewModel.Select(Row(row => row.Recording.ProcessingState == Bardo.Domain.ProcessingState.Pending).Id);
             await Capture(folder, $"03-sin-transcripcion-{suffix}");
 
             // The live recorder in a meeting, twelve seconds in, with marks.
@@ -96,8 +106,8 @@ public sealed partial class MainWindow
             Navigation.SelectedItem = Navigation.MenuItems.OfType<NavigationViewItem>().First();
 
             // A search with no results.
-            ViewModel.Query = "presupuesto";
-            SearchBox.Text = "presupuesto";
+            ViewModel.Query = "Antártica";
+            SearchBox.Text = "Antártica";
             await Capture(folder, $"06-sin-resultados-{suffix}");
             ViewModel.Query = "";
             SearchBox.Text = "";
@@ -106,12 +116,14 @@ public sealed partial class MainWindow
         // The smallest size people use, where nothing may be cut off.
         root.RequestedTheme = ElementTheme.Dark;
         AppWindow.Resize(new SizeInt32((int)(980 * scale), (int)(620 * scale)));
-        ViewModel.Select(ViewModel.Rows[0].Id);
+        ViewModel.Select(Row(row => row.Recording.Notes.Sections.Count > 0).Id);
         await WaitFor(() => Playback.IsAvailable);
         await Capture(folder, "07-ventana-pequena");
 
         Close();
     }
+
+    private RecordingRow Row(Func<RecordingRow, bool> matches) => ViewModel.Rows.FirstOrDefault(matches) ?? ViewModel.Rows[0];
 
     private static Task Settle() => Task.Delay(TimeSpan.FromMilliseconds(900));
 
@@ -147,9 +159,22 @@ public sealed partial class MainWindow
             SelectObject(memory, previous);
             GetDIBits(memory, bitmap, 0, (uint)height, pixels, ref info, 0);
 
+            // Only what is visible: the window rectangle also holds the invisible resize border.
+            var visible = rect;
+            if (DwmGetWindowAttribute(window, ExtendedFrameBounds, out var frame, Marshal.SizeOf<Rect>()) == 0) visible = frame;
+            var left = Math.Clamp(visible.Left - rect.Left, 0, width - 1);
+            var top = Math.Clamp(visible.Top - rect.Top, 0, height - 1);
+            var cropWidth = Math.Clamp(visible.Right - visible.Left, 1, width - left);
+            var cropHeight = Math.Clamp(visible.Bottom - visible.Top, 1, height - top);
+            var cropped = new byte[cropWidth * cropHeight * 4];
+            for (var row = 0; row < cropHeight; row++)
+            {
+                Buffer.BlockCopy(pixels, ((top + row) * width + left) * 4, cropped, row * cropWidth * 4, cropWidth * 4);
+            }
+
             await using var file = File.Create(Path.Combine(folder, $"{name}.png"));
             var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, file.AsRandomAccessStream());
-            encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, (uint)width, (uint)height, 96, 96, pixels);
+            encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, (uint)cropWidth, (uint)cropHeight, 96, 96, cropped);
             await encoder.FlushAsync();
         }
         finally
@@ -161,6 +186,10 @@ public sealed partial class MainWindow
     }
 
     private const uint RenderFullContent = 2;
+    private const int ExtendedFrameBounds = 9;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out Rect value, int size);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect
