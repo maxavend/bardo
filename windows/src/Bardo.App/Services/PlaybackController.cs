@@ -11,7 +11,7 @@ namespace Bardo.App.Services;
 /// Plays the selected conversation with Windows' media player: its conversation mix
 /// when it has one, otherwise its original. Position updates arrive on the window's thread.
 /// </summary>
-internal sealed class PlaybackController : ObservableModel, IDisposable
+public sealed class PlaybackController : ObservableModel, IDisposable
 {
     private readonly MediaPlayer _player = new() { AutoPlay = false };
     private readonly DispatcherQueue _dispatcher;

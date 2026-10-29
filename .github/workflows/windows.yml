@@ -52,6 +52,10 @@ jobs:
       - name: Run unit tests
         run: dotnet test windows/tests/Bardo.Core.Tests --configuration Release
 
+      # Builds Whisper.net and sherpa-onnx for this platform; the real-model tests skip without models.
+      - name: Run engine tests
+        run: dotnet test windows/tests/Bardo.Engines.Tests --configuration Release
+
   app:
     name: App (${{ matrix.platform }})
     runs-on: windows-latest

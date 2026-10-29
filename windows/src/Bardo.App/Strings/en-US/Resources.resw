@@ -10,16 +10,104 @@
   <data name="SectionAll.Content" xml:space="preserve"><value>All</value></data>
   <data name="SectionRecorded.Content" xml:space="preserve"><value>Recorded</value></data>
   <data name="SectionImported.Content" xml:space="preserve"><value>Imported</value></data>
-  <data name="RecordingList.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Conversations</value></data>
+  <data name="SectionFavorites.Content" xml:space="preserve"><value>Favorites</value></data>
+  <data name="RecoveryBar.Title" xml:space="preserve"><value>Interrupted recordings</value></data>
+  <data name="RecoverButton.Content" xml:space="preserve"><value>Recover</value></data>
+  <data name="SetupBar.Title" xml:space="preserve"><value>Transcription needs its model</value></data>
+  <data name="SetupBar.Message" xml:space="preserve"><value>Download it once in Settings. After that, everything works offline.</value></data>
+  <data name="SetupButton.Content" xml:space="preserve"><value>Open Settings</value></data>
   <data name="IssuesBar.Title" xml:space="preserve"><value>Some items can’t be shown</value></data>
   <data name="IssuesBar.Message" xml:space="preserve"><value>They’re still in the Library folder.</value></data>
   <data name="IssuesOpenFolderButton.Content" xml:space="preserve"><value>Open folder</value></data>
+  <data name="RecordText.Text" xml:space="preserve"><value>Record</value></data>
+  <data name="RecordMicrophone.Text" xml:space="preserve"><value>Microphone</value></data>
+  <data name="RecordSystemAudio.Text" xml:space="preserve"><value>System audio</value></data>
+  <data name="RecordMeeting.Text" xml:space="preserve"><value>Microphone and system audio</value></data>
+  <data name="ImportText.Text" xml:space="preserve"><value>Import</value></data>
+  <data name="SortButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Sort</value></data>
+  <data name="SortButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Sort</value></data>
+  <data name="SortNewest.Text" xml:space="preserve"><value>Newest first</value></data>
+  <data name="SortOldest.Text" xml:space="preserve"><value>Oldest first</value></data>
+  <data name="SortName.Text" xml:space="preserve"><value>Name</value></data>
+  <data name="SortDuration.Text" xml:space="preserve"><value>Duration</value></data>
+  <data name="RecordingList.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Conversations</value></data>
   <data name="EmptyLibraryTitle.Text" xml:space="preserve"><value>No conversations yet</value></data>
-  <data name="EmptyLibraryBody.Text" xml:space="preserve"><value>To see your Mac’s conversations here, copy its Library into this folder.</value></data>
-  <data name="EmptyOpenFolderButton.Content" xml:space="preserve"><value>Open Library folder</value></data>
+  <data name="EmptyLibraryBody.Text" xml:space="preserve"><value>Record or import one to start.</value></data>
   <data name="FilterEmptyText.Text" xml:space="preserve"><value>No results</value></data>
   <data name="NoSelectionText.Text" xml:space="preserve"><value>Select a conversation</value></data>
-  <data name="CopyTranscriptText.Text" xml:space="preserve"><value>Copy transcript</value></data>
+  <data name="TranscribeButton.Label" xml:space="preserve"><value>Transcribe</value></data>
+  <data name="IdentifySpeakersButton.Label" xml:space="preserve"><value>Identify speakers</value></data>
+  <data name="CopyTranscriptButton.Label" xml:space="preserve"><value>Copy transcript</value></data>
+  <data name="FavoriteButton.Label" xml:space="preserve"><value>Favorite</value></data>
+  <data name="RenameButton.Label" xml:space="preserve"><value>Rename</value></data>
+  <data name="ShowInFolderButton.Label" xml:space="preserve"><value>Show in folder</value></data>
+  <data name="RecycleButton.Label" xml:space="preserve"><value>Move to Recycle Bin</value></data>
+  <data name="CancelWorkButton.Content" xml:space="preserve"><value>Cancel</value></data>
   <data name="NoTranscriptTitle.Text" xml:space="preserve"><value>No transcript</value></data>
-  <data name="NoTranscriptBody.Text" xml:space="preserve"><value>Bardo for Windows can’t transcribe yet.</value></data>
+  <data name="NoTranscriptBody.Text" xml:space="preserve"><value>Choose Transcribe to turn the audio into text.</value></data>
+  <data name="ParticipantsHeader.Text" xml:space="preserve"><value>Participants</value></data>
+  <data name="RenameSpeakerButton.Content" xml:space="preserve"><value>Rename</value></data>
+  <data name="MergeSpeakerButton.Content" xml:space="preserve"><value>Merge with</value></data>
+  <data name="SkipBackButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Back 15 seconds</value></data>
+  <data name="SkipBackButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Back 15 seconds</value></data>
+  <data name="PlayButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Play or pause</value></data>
+  <data name="PlayButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Play or pause (Ctrl+P)</value></data>
+  <data name="PositionSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Position</value></data>
+  <data name="PausedText.Text" xml:space="preserve"><value>Paused</value></data>
+  <data name="MicrophoneLevelText.Text" xml:space="preserve"><value>Microphone</value></data>
+  <data name="SystemLevelText.Text" xml:space="preserve"><value>System audio</value></data>
+  <data name="PauseRecordingButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Pause</value></data>
+  <data name="PauseRecordingButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Pause</value></data>
+  <data name="MuteButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Mute microphone</value></data>
+  <data name="MuteButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Mute microphone</value></data>
+  <data name="MomentButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Mark this moment (Ctrl+M)</value></data>
+  <data name="SectionButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Start a new section</value></data>
+  <data name="MomentText.Text" xml:space="preserve"><value>Moment</value></data>
+  <data name="SectionText.Text" xml:space="preserve"><value>Section</value></data>
+  <data name="StopText.Text" xml:space="preserve"><value>Stop</value></data>
+  <data name="SettingsTitle.Text" xml:space="preserve"><value>Settings</value></data>
+  <data name="SettingsYou.Text" xml:space="preserve"><value>You</value></data>
+  <data name="LocalNameTitle.Text" xml:space="preserve"><value>Your name</value></data>
+  <data name="LocalNameDetail.Text" xml:space="preserve"><value>Used for what your microphone hears.</value></data>
+  <data name="LocalNameBox.PlaceholderText" xml:space="preserve"><value>You</value></data>
+  <data name="LocalNameBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Your name</value></data>
+  <data name="SettingsRecording.Text" xml:space="preserve"><value>Recording</value></data>
+  <data name="MicrophoneTitle.Text" xml:space="preserve"><value>Microphone</value></data>
+  <data name="MicrophoneBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Microphone</value></data>
+  <data name="MicrophoneDefault" xml:space="preserve"><value>Same as Windows</value></data>
+  <data name="QualityTitle.Text" xml:space="preserve"><value>Audio quality</value></data>
+  <data name="QualityDetail.Text" xml:space="preserve"><value>Every level transcribes the same.</value></data>
+  <data name="QualityBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Audio quality</value></data>
+  <data name="QualityMaximum.Content" xml:space="preserve"><value>Maximum</value></data>
+  <data name="QualityHigh.Content" xml:space="preserve"><value>High</value></data>
+  <data name="QualityBalanced.Content" xml:space="preserve"><value>Balanced</value></data>
+  <data name="QualityCompact.Content" xml:space="preserve"><value>Compact</value></data>
+  <data name="LosslessTitle.Text" xml:space="preserve"><value>Keep lossless audio</value></data>
+  <data name="LosslessDetail.Text" xml:space="preserve"><value>WAV files, much larger.</value></data>
+  <data name="LosslessSwitch.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Keep lossless audio</value></data>
+  <data name="SettingsTranscription.Text" xml:space="preserve"><value>Transcription</value></data>
+  <data name="ModelTitle.Text" xml:space="preserve"><value>Model</value></data>
+  <data name="ModelDetail.Text" xml:space="preserve"><value>Precise is slower and a little more accurate.</value></data>
+  <data name="ModelBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Transcription model</value></data>
+  <data name="ModelBalanced.Content" xml:space="preserve"><value>Balanced (Whisper Turbo)</value></data>
+  <data name="ModelPrecise.Content" xml:space="preserve"><value>Precise (Whisper Large)</value></data>
+  <data name="PerTrackTitle.Text" xml:space="preserve"><value>Transcribe calls per track</value></data>
+  <data name="PerTrackDetail.Text" xml:space="preserve"><value>Your microphone and the system audio apart, without overlapping voices.</value></data>
+  <data name="PerTrackSwitch.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Transcribe calls per track</value></data>
+  <data name="ModelsTitle.Text" xml:space="preserve"><value>Speech and speaker models</value></data>
+  <data name="ModelsReadyText.Text" xml:space="preserve"><value>Ready. Everything runs on this PC.</value></data>
+  <data name="TranscriptionModelMissing.Text" xml:space="preserve"><value>Transcription:</value></data>
+  <data name="SpeakerModelMissing.Text" xml:space="preserve"><value>Speakers:</value></data>
+  <data name="DownloadModelsButton.Content" xml:space="preserve"><value>Download</value></data>
+  <data name="CancelDownloadButton.Content" xml:space="preserve"><value>Cancel</value></data>
+  <data name="PrivacyText.Text" xml:space="preserve"><value>Audio, transcripts and names stay on this PC. Bardo uses the internet only to download its models.</value></data>
+  <data name="RecordingFailed" xml:space="preserve"><value>Couldn’t record: {0}</value></data>
+  <data name="RecoveryMessage" xml:space="preserve"><value>Recordings interrupted before they finished: {0}. Their audio can be recovered.</value></data>
+  <data name="RenameDialogTitle" xml:space="preserve"><value>Rename conversation</value></data>
+  <data name="RecycleDialogTitle" xml:space="preserve"><value>Move “{0}” to the Recycle Bin?</value></data>
+  <data name="RecycleDialogBody" xml:space="preserve"><value>You can restore it from there.</value></data>
+  <data name="RecycleDialogConfirm" xml:space="preserve"><value>Move</value></data>
+  <data name="RenameSpeakerTitle" xml:space="preserve"><value>Participant’s name</value></data>
+  <data name="Save" xml:space="preserve"><value>Save</value></data>
+  <data name="Cancel" xml:space="preserve"><value>Cancel</value></data>
 </root>

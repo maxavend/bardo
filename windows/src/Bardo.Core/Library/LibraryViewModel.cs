@@ -397,6 +397,9 @@ public sealed class LibraryViewModel : ObservableModel, IDisposable
 
     public void DismissNotice() => Notice = null;
 
+    /// <summary>Reports what happened outside the Library itself, such as a recording that could not start.</summary>
+    public void ShowNotice(string message, bool isError) => Notice = new LibraryNotice(message, isError);
+
     public void Dispose()
     {
         _work?.Cancel();
