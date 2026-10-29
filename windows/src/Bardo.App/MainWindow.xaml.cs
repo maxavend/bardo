@@ -407,26 +407,33 @@ public sealed partial class MainWindow : Window
         if (await dialog.ShowAsync() == ContentDialogResult.Primary) await ViewModel.MoveToRecycleBinAsync(row.Id);
     }
 
-    private async void OnRenameSpeaker(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: Guid id } || ViewModel.Speakers.FirstOrDefault(speaker => speaker.Id == id) is not { } speaker) return;
-        if (await AskForText(Localized.Get("RenameSpeakerTitle"), speaker.IsNamed ? speaker.DisplayName : "") is { } name)
-        {
-            await ViewModel.RenameSpeakerAsync(id, name);
-        }
-    }
-
-    private void OnMergeSpeaker(object sender, RoutedEventArgs e)
+    /// <summary>A participant's actions in one menu, so their name keeps the row's width.</summary>
+    private void OnSpeakerActions(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: Guid id } button) return;
         var menu = new MenuFlyout();
+        var rename = new MenuFlyoutItem { Text = Localized.Get("RenameSpeakerMenu"), Icon = new FontIcon { Glyph = "\uE8AC" } };
+        rename.Click += async (_, _) => await RenameSpeakerAsync(id);
+        menu.Items.Add(rename);
+        var merge = new MenuFlyoutSubItem { Text = Localized.Get("MergeSpeakerMenu") };
         foreach (var other in ViewModel.Speakers.Where(speaker => speaker.Id != id))
         {
             var item = new MenuFlyoutItem { Text = other.DisplayName };
             item.Click += async (_, _) => await ViewModel.MergeSpeakersAsync(id, other.Id);
-            menu.Items.Add(item);
+            merge.Items.Add(item);
         }
-        if (menu.Items.Count > 0) menu.ShowAt(button, new FlyoutShowOptions { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight });
+        merge.IsEnabled = merge.Items.Count > 0;
+        menu.Items.Add(merge);
+        menu.ShowAt(button, new FlyoutShowOptions { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight });
+    }
+
+    private async Task RenameSpeakerAsync(Guid id)
+    {
+        if (ViewModel.Speakers.FirstOrDefault(speaker => speaker.Id == id) is not { } speaker) return;
+        if (await AskForText(Localized.Get("RenameSpeakerTitle"), speaker.IsNamed ? speaker.DisplayName : "") is { } name)
+        {
+            await ViewModel.RenameSpeakerAsync(id, name);
+        }
     }
 
     /// <summary>A small dialog with one text box; null when cancelled.</summary>

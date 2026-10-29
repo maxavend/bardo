@@ -46,8 +46,6 @@
   <data name="NoTranscriptTitle.Text" xml:space="preserve"><value>Sin transcripción</value></data>
   <data name="NoTranscriptBody.Text" xml:space="preserve"><value>Elige Transcribir para convertir el audio en texto.</value></data>
   <data name="ParticipantsHeader.Text" xml:space="preserve"><value>Participantes</value></data>
-  <data name="RenameSpeakerButton.Content" xml:space="preserve"><value>Cambiar nombre</value></data>
-  <data name="MergeSpeakerButton.Content" xml:space="preserve"><value>Unir con</value></data>
   <data name="SkipBackButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Retroceder 10 segundos</value></data>
   <data name="SkipBackButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Retroceder 10 segundos</value></data>
   <data name="PlayButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Reproducir o pausar</value></data>
@@ -116,4 +114,8 @@
   <data name="LosslessSwitch.OffContent" xml:space="preserve"><value>Desactivado</value></data>
   <data name="PerTrackSwitch.OnContent" xml:space="preserve"><value>Activado</value></data>
   <data name="PerTrackSwitch.OffContent" xml:space="preserve"><value>Desactivado</value></data>
+  <data name="SpeakerActionsButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Más opciones</value></data>
+  <data name="SpeakerActionsButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Más opciones</value></data>
+  <data name="RenameSpeakerMenu" xml:space="preserve"><value>Cambiar nombre</value></data>
+  <data name="MergeSpeakerMenu" xml:space="preserve"><value>Unir con</value></data>
 </root>
