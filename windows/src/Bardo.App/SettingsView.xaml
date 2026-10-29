@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Bardo.App.SettingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:app="using:Bardo.App">
+
+    <UserControl.Resources>
+        <!--  A row like the Settings app's: what it is on the left, the control on the right.  -->
+        <Style x:Key="SettingsCardStyle" TargetType="Grid">
+            <Setter Property="Padding" Value="16,12" />
+            <Setter Property="MinHeight" Value="68" />
+            <Setter Property="ColumnSpacing" Value="16" />
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
+        </Style>
+        <Style x:Key="SettingsGroupStyle" BasedOn="{StaticResource BodyStrongTextBlockStyle}" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,20,0,4" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer>
+        <!--  Aligned with the pane and as wide as it allows up to 1000, as in Windows Settings.  -->
+        <Grid Padding="36,20,36,48">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="1000" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="4">
+            <TextBlock x:Uid="SettingsTitle" Style="{StaticResource TitleTextBlockStyle}" />
+
+            <TextBlock x:Uid="SettingsYou" Style="{StaticResource SettingsGroupStyle}" />
+            <Grid Style="{StaticResource SettingsCardStyle}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Uid="LocalNameTitle" TextWrapping="WrapWholeWords" />
+                    <TextBlock
+                        x:Uid="LocalNameDetail"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        TextWrapping="WrapWholeWords" />
+                </StackPanel>
+                <TextBox
+                    x:Uid="LocalNameBox"
+                    Grid.Column="1"
+                    Width="240"
+                    VerticalAlignment="Center"
+                    Text="{x:Bind ViewModel.LocalName, Mode=TwoWay}" />
+            </Grid>
+
+            <TextBlock x:Uid="SettingsRecording" Style="{StaticResource SettingsGroupStyle}" />
+            <Grid Style="{StaticResource SettingsCardStyle}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    x:Uid="MicrophoneTitle"
+                    VerticalAlignment="Center"
+                    TextWrapping="WrapWholeWords" />
+                <ComboBox
+                    x:Name="MicrophoneBox"
+                    x:Uid="MicrophoneBox"
+                    Grid.Column="1"
+                    MinWidth="240"
+                    MaxWidth="360"
+                    VerticalAlignment="Center"
+                    DisplayMemberPath="Name"
+                    SelectionChanged="OnMicrophoneChanged" />
+            </Grid>
+            <Grid Style="{StaticResource SettingsCardStyle}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Uid="QualityTitle" TextWrapping="WrapWholeWords" />
+                    <TextBlock
+                        x:Uid="QualityDetail"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        TextWrapping="WrapWholeWords" />
+                </StackPanel>
+                <ComboBox
+                    x:Uid="QualityBox"
+                    Grid.Column="1"
+                    MinWidth="200"
+                    VerticalAlignment="Center"
+                    SelectedIndex="{x:Bind ViewModel.AudioQualityIndex, Mode=TwoWay}">
+                    <ComboBoxItem x:Uid="QualityMaximum" />
+                    <ComboBoxItem x:Uid="QualityHigh" />
+                    <ComboBoxItem x:Uid="QualityBalanced" />
+                    <ComboBoxItem x:Uid="QualityCompact" />
+                </ComboBox>
+            </Grid>
+            <Grid Style="{StaticResource SettingsCardStyle}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Uid="LosslessTitle" TextWrapping="WrapWholeWords" />
+                    <TextBlock
+                        x:Uid="LosslessDetail"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        TextWrapping="WrapWholeWords" />
+                </StackPanel>
+                <ToggleSwitch
+                    x:Uid="LosslessSwitch"
+                    Grid.Column="1"
+                    MinWidth="0"
+                    VerticalAlignment="Center"
+                    IsOn="{x:Bind ViewModel.KeepsLossless, Mode=TwoWay}" />
+            </Grid>
+
+            <TextBlock x:Uid="SettingsTranscription" Style="{StaticResource SettingsGroupStyle}" />
+            <Grid Style="{StaticResource SettingsCardStyle}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Uid="ModelTitle" TextWrapping="WrapWholeWords" />
+                    <TextBlock
+                        x:Uid="ModelDetail"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        TextWrapping="WrapWholeWords" />
+                </StackPanel>
+                <ComboBox
+                    x:Uid="ModelBox"
+                    Grid.Column="1"
+                    MinWidth="200"
+                    VerticalAlignment="Center"
+                    IsEnabled="{x:Bind ViewModel.IsNotDownloading, Mode=OneWay}"
+                    SelectedIndex="{x:Bind ViewModel.TranscriptionQualityIndex, Mode=TwoWay}">
+                    <ComboBoxItem x:Uid="ModelBalanced" />
+                    <ComboBoxItem x:Uid="ModelPrecise" />
+                </ComboBox>
+            </Grid>
+            <Grid Style="{StaticResource SettingsCardStyle}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Uid="PerTrackTitle" TextWrapping="WrapWholeWords" />
+                    <TextBlock
+                        x:Uid="PerTrackDetail"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        TextWrapping="WrapWholeWords" />
+                </StackPanel>
+                <ToggleSwitch
+                    x:Uid="PerTrackSwitch"
+                    Grid.Column="1"
+                    MinWidth="0"
+                    VerticalAlignment="Center"
+                    IsOn="{x:Bind ViewModel.TranscribesTracksApart, Mode=TwoWay}" />
+            </Grid>
+
+            <!--  Models  -->
+            <Grid Style="{StaticResource SettingsCardStyle}" RowSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Uid="ModelsTitle" TextWrapping="WrapWholeWords" />
+                    <TextBlock
+                        x:Uid="ModelsReadyText"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        TextWrapping="WrapWholeWords"
+                        Visibility="{x:Bind app:Bind.ShowBoth(ViewModel.IsTranscriptionReady, ViewModel.IsSpeakerIdentificationReady), Mode=OneWay}" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        TextWrapping="WrapWholeWords"
+                        Visibility="{x:Bind app:Bind.Show(ViewModel.IsTranscriptionMissing), Mode=OneWay}">
+                        <Run x:Uid="TranscriptionModelMissing" />
+                        <Run Text="{x:Bind ViewModel.TranscriptionModelSize, Mode=OneWay}" />
+                    </TextBlock>
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        TextWrapping="WrapWholeWords"
+                        Visibility="{x:Bind app:Bind.Show(ViewModel.IsSpeakerIdentificationMissing), Mode=OneWay}">
+                        <Run x:Uid="SpeakerModelMissing" />
+                        <Run Text="{x:Bind ViewModel.SpeakerModelSize}" />
+                    </TextBlock>
+                </StackPanel>
+                <StackPanel
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <Button
+                        x:Uid="DownloadModelsButton"
+                        Click="OnDownloadModels"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Visibility="{x:Bind app:Bind.Show(ViewModel.IsNotDownloading), Mode=OneWay}" />
+                    <Button
+                        x:Uid="CancelDownloadButton"
+                        Click="OnCancelDownload"
+                        Visibility="{x:Bind app:Bind.Show(ViewModel.IsDownloading), Mode=OneWay}" />
+                </StackPanel>
+                <StackPanel
+                    Grid.Row="1"
+                    Grid.ColumnSpan="2"
+                    Spacing="4">
+                    <ProgressBar
+                        Maximum="1"
+                        Visibility="{x:Bind app:Bind.Show(ViewModel.IsDownloading), Mode=OneWay}"
+                        Value="{x:Bind ViewModel.DownloadProgress, Mode=OneWay}" />
+                    <TextBlock
+                        Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                        Text="{x:Bind ViewModel.DownloadError, Mode=OneWay}"
+                        TextWrapping="WrapWholeWords"
+                        Visibility="{x:Bind app:Bind.Show(ViewModel.HasDownloadError), Mode=OneWay}" />
+                </StackPanel>
+            </Grid>
+            <TextBlock
+                x:Uid="PrivacyText"
+                Margin="0,12,0,0"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                TextWrapping="WrapWholeWords" />
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

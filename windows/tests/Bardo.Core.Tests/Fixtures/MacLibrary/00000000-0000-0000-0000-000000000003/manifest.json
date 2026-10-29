@@ -1,0 +1,23 @@
+{
+  "audioAssets" : [
+    {
+      "channelCount" : 2,
+      "codec" : "aac",
+      "duration" : 12,
+      "fileExtension" : "m4a",
+      "id" : "00000000-0000-0000-0000-000000000014",
+      "originalFileName" : "audio.m4a",
+      "sampleRate" : 48000
+    }
+  ],
+  "createdAtEpochSeconds" : 1700000100.25,
+  "createdAtEpochSecondsBitPattern" : 4744917125214240768,
+  "duration" : 12,
+  "id" : "00000000-0000-0000-0000-000000000003",
+  "processingState" : "failed",
+  "schemaVersion" : 2,
+  "sources" : [
+    "systemAudio"
+  ],
+  "title" : "Segunda versión"
+}

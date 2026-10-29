@@ -1,0 +1,174 @@
+name: Windows
+
+"on":
+  pull_request:
+    paths:
+      - "windows/**"
+      - "Bardo/Domain/**"
+      - "Bardo/Persistence/**"
+      - "Bardo/Transcription/TranscriptionBackend.swift"
+      - ".github/workflows/windows.yml"
+  push:
+    branches:
+      - main
+      - windows/port
+    paths:
+      - "windows/**"
+      - "Bardo/Domain/**"
+      - "Bardo/Persistence/**"
+      - "Bardo/Transcription/TranscriptionBackend.swift"
+      - ".github/workflows/windows.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Core (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: windows/global.json
+
+      - name: Run unit tests
+        run: dotnet test windows/tests/Bardo.Core.Tests --configuration Release
+
+      # Builds Whisper.net and sherpa-onnx for this platform; the real-model tests skip without models.
+      - name: Run engine tests
+        run: dotnet test windows/tests/Bardo.Engines.Tests --configuration Release
+
+  app:
+    name: App (${{ matrix.platform }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x64
+            rid: win-x64
+          - platform: ARM64
+            rid: win-arm64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: windows/global.json
+
+      - name: Read the version
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path project.yml -Pattern "MARKETING_VERSION:\s*(\S+)").Matches[0].Groups[1].Value
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      # Self-contained, so it opens on any Windows 11 PC without installing .NET or the
+      # Windows App SDK first.
+      - name: Publish
+        run: >
+          dotnet publish windows/src/Bardo.App
+          --configuration Release
+          --runtime ${{ matrix.rid }}
+          --self-contained
+          -p:Platform=${{ matrix.platform }}
+          -p:Version=${{ env.VERSION }}
+          --output publish/Bardo-${{ matrix.rid }}
+
+      - name: Check the app was produced
+        shell: pwsh
+        run: |
+          $app = "publish/Bardo-${{ matrix.rid }}"
+          Get-ChildItem $app -Filter *.pri | ForEach-Object { "Resources: $($_.Name)" }
+          if (-not (Test-Path "$app/Bardo.exe")) { exit 1 }
+          # The interface text lives in the PRI file (resources.pri or Bardo.pri).
+          if (-not (Get-ChildItem $app -Filter *.pri)) { exit 1 }
+
+      # Opens Bardo on a made-up Library, walks its main states and saves a picture of
+      # each, so the interface can be reviewed without a Windows PC.
+      - name: Capture the design review
+        if: matrix.platform == 'x64'
+        shell: pwsh
+        run: |
+          ./windows/tools/design-review/Set-Display.ps1
+          $folder = Join-Path $PWD "design-review"
+          $app = Start-Process -FilePath "publish/Bardo-${{ matrix.rid }}/Bardo.exe" -ArgumentList "--design-review", "`"$folder`"" -PassThru
+          if (-not $app.WaitForExit(180000)) { $app.Kill(); Write-Error "The design review did not finish." }
+          Get-ChildItem $folder -Filter *.png | ForEach-Object { "$($_.Name) $($_.Length)" }
+          if (Test-Path "$folder/display.txt") { Get-Content "$folder/display.txt" }
+          if (-not (Get-ChildItem $folder -Filter *.png)) { exit 1 }
+
+      - name: Upload the design review
+        if: always() && matrix.platform == 'x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-review
+          path: design-review
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bardo-${{ matrix.rid }}
+          path: publish/Bardo-${{ matrix.rid }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build the installer
+        shell: pwsh
+        run: >
+          ./windows/installer/build-installer.ps1
+          -Arch ${{ matrix.platform == 'ARM64' && 'arm64' || 'x64' }}
+          -Published publish/Bardo-${{ matrix.rid }}
+          -Output installer
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bardo-Setup-${{ matrix.rid }}
+          path: installer
+          if-no-files-found: error
+          retention-days: 14
+
+  mac-library-fixtures:
+    name: macOS Library fixtures are current
+    runs-on: macos-26
+    timeout-minutes: 10
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      # The fixtures come from the macOS app's own persistence code. If that code now
+      # writes something different, Bardo for Windows must learn to read it.
+      - name: Regenerate fixtures with the macOS persistence code
+        run: windows/tools/macos-fixtures/make-fixtures.sh
+
+      - name: Compare with the committed fixtures
+        run: |
+          git status --porcelain -- windows/tests/Bardo.Core.Tests/Fixtures
+          test -z "$(git status --porcelain -- windows/tests/Bardo.Core.Tests/Fixtures)"

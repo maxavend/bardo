@@ -1,6 +1,13 @@
 # Changelog
 
-All notable changes to Bardo. Each version is also a [GitHub release](https://github.com/maxavend/bardo/releases) with its DMG.
+All notable changes to Bardo. Each version is also a [GitHub release](https://github.com/maxavend/bardo/releases) with its DMG and, from 1.2.0, its Windows installers.
+
+## 1.2.0 — 2026-10-29
+
+### Windows
+
+- **Bardo for Windows.** A native Windows 11 app, for x64 and ARM PCs, that records, transcribes and tells speakers apart on the PC itself. It matches Bardo for Mac as of 1.1.2; archiving and the recording indicator are Mac only for now.
+- **Installers on every release.** `Bardo-<version>-Setup-x64.exe` and `-arm64.exe`, with their SHA-256, sit next to the DMG. They install for the current person, without administrator rights, and keep the Library when uninstalled.
 
 ## 1.1.4 — 2026-10-29
 

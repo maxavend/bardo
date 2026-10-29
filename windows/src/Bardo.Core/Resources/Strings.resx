@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="MomentTitle" xml:space="preserve"><value>Moment {0}</value></data>
+  <data name="SectionTitle" xml:space="preserve"><value>Section {0}</value></data>
+  <data name="LocalSpeaker" xml:space="preserve"><value>You</value></data>
+  <data name="OtherSpeakers" xml:space="preserve"><value>Others</value></data>
+  <data name="NumberedSpeaker" xml:space="preserve"><value>Speaker {0}</value></data>
+  <data name="UnknownDuration" xml:space="preserve"><value>Unknown</value></data>
+  <data name="CouldNotWrite" xml:space="preserve"><value>Could not write {0}: {1}</value></data>
+  <data name="CouldNotPublish" xml:space="preserve"><value>Could not publish {0}: {1}</value></data>
+  <data name="CouldNotOperate" xml:space="preserve"><value>Could not {0} {1}: {2}</value></data>
+  <data name="RecordingNotFound" xml:space="preserve"><value>Recording {0} was not found.</value></data>
+  <data name="RecordingAlreadyExists" xml:space="preserve"><value>Recording {0} already exists.</value></data>
+  <data name="AudioAssetNotFound" xml:space="preserve"><value>Audio {1} is not registered for recording {0}.</value></data>
+  <data name="AudioAssetFileSetMismatch" xml:space="preserve"><value>Recording {0} expected {1} managed audio files but received {2}.</value></data>
+  <data name="ManagedAudioMissing" xml:space="preserve"><value>Managed audio {1} for recording {0} is missing.</value></data>
+  <data name="ManifestUnsupportedSchema" xml:space="preserve"><value>Manifest schema version {0} is not supported.</value></data>
+  <data name="ManifestInvalid" xml:space="preserve"><value>The recording manifest is invalid: {0}</value></data>
+  <data name="ManifestIdentityMismatch" xml:space="preserve"><value>Manifest identity {1} does not match directory identity {0}.</value></data>
+  <data name="TranscriptNotFound" xml:space="preserve"><value>Recording {0} has no transcript yet.</value></data>
+  <data name="TranscriptUnsupportedSchema" xml:space="preserve"><value>Transcript schema version {0} is not supported.</value></data>
+  <data name="TranscriptInvalid" xml:space="preserve"><value>The transcript is invalid: {0}</value></data>
+  <data name="TranscriptIdentityMismatch" xml:space="preserve"><value>Transcript identity {1} does not match recording {0}.</value></data>
+  <data name="Yesterday" xml:space="preserve"><value>Yesterday</value></data>
+  <data name="RecordingFrom" xml:space="preserve"><value>Recording from {0}</value></data>
+  <data name="SourceMicrophone" xml:space="preserve"><value>Microphone</value></data>
+  <data name="SourceSystemAudio" xml:space="preserve"><value>System Audio</value></data>
+  <data name="SourceImportedFile" xml:space="preserve"><value>Imported File</value></data>
+  <data name="UnknownSource" xml:space="preserve"><value>Unknown source</value></data>
+  <data name="ImportedAudio" xml:space="preserve"><value>Imported audio</value></data>
+  <data name="UnsupportedAudioFormat" xml:space="preserve"><value>{0} is not a supported audio format.</value></data>
+  <data name="UnreadableAudio" xml:space="preserve"><value>The file does not contain a readable audio stream.</value></data>
+  <data name="EmptyRecordingTitle" xml:space="preserve"><value>Recording title cannot be empty.</value></data>
+  <data name="RecordingRenamed" xml:space="preserve"><value>Recording renamed</value></data>
+  <data name="RecordingRecycled" xml:space="preserve"><value>Recording moved to the Recycle Bin</value></data>
+  <data name="RecordingImported" xml:space="preserve"><value>{0} imported</value></data>
+  <data name="Transcribing" xml:space="preserve"><value>Transcribing</value></data>
+  <data name="IdentifyingSpeakers" xml:space="preserve"><value>Identifying speakers</value></data>
+  <data name="TranscriptionFailed" xml:space="preserve"><value>Couldn’t transcribe: {0}</value></data>
+  <data name="SpeakerIdentificationFailed" xml:space="preserve"><value>Couldn’t identify speakers: {0}</value></data>
+  <data name="EmptySpeakerName" xml:space="preserve"><value>A name can’t be empty.</value></data>
+</root>

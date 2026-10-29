@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="ModelInUse" xml:space="preserve"><value>Este recurso se está usando ahora. Inténtalo de nuevo cuando termine la transcripción o la identificación de hablantes en curso.</value></data>
+  <data name="TranscriptionNoManagedAudio" xml:space="preserve"><value>La grabación {0} no tiene audio legible para transcribir.</value></data>
+  <data name="TranscriptionMixUnavailable" xml:space="preserve"><value>No está disponible la mezcla del audio del sistema y el micrófono. Bardo conservó las pistas originales.</value></data>
+  <data name="TranscriptionInvalidDuration" xml:space="preserve"><value>Bardo no pudo determinar la duración del audio para transcribirlo.</value></data>
+  <data name="TranscriptionEmpty" xml:space="preserve"><value>No se encontró voz para transcribir en este audio.</value></data>
+  <data name="DiarizationNoManagedAudio" xml:space="preserve"><value>La grabación {0} no tiene audio legible para identificar hablantes.</value></data>
+  <data name="DiarizationMixUnavailable" xml:space="preserve"><value>No está disponible la mezcla del audio del sistema y el micrófono. Bardo conservó las pistas originales.</value></data>
+  <data name="DiarizationInvalidDuration" xml:space="preserve"><value>Bardo no pudo determinar la duración del audio para identificar hablantes.</value></data>
+  <data name="DiarizationNoSpeakerActivity" xml:space="preserve"><value>No se encontraron voces para identificar en este audio.</value></data>
+  <data name="DiarizationModelsUnavailable" xml:space="preserve"><value>Bardo no pudo descargar o verificar los recursos para identificar hablantes. Revisa la conexión e inténtalo de nuevo.</value></data>
+  <data name="DiarizationModelsNotLoaded" xml:space="preserve"><value>Bardo no pudo cargar los recursos para identificar hablantes. Elimínalos en Configuración y descárgalos de nuevo.</value></data>
+</root>

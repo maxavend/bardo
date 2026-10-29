@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="MomentTitle" xml:space="preserve"><value>Momento {0}</value></data>
+  <data name="SectionTitle" xml:space="preserve"><value>Sección {0}</value></data>
+  <data name="LocalSpeaker" xml:space="preserve"><value>Tú</value></data>
+  <data name="OtherSpeakers" xml:space="preserve"><value>Los demás</value></data>
+  <data name="NumberedSpeaker" xml:space="preserve"><value>Participante {0}</value></data>
+  <data name="UnknownDuration" xml:space="preserve"><value>Desconocido</value></data>
+  <data name="CouldNotWrite" xml:space="preserve"><value>No se pudo escribir {0}: {1}</value></data>
+  <data name="CouldNotPublish" xml:space="preserve"><value>No se pudo guardar {0}: {1}</value></data>
+  <data name="CouldNotOperate" xml:space="preserve"><value>No se pudo completar «{0}» en {1}: {2}</value></data>
+  <data name="RecordingNotFound" xml:space="preserve"><value>No se encontró la grabación {0}.</value></data>
+  <data name="RecordingAlreadyExists" xml:space="preserve"><value>La grabación {0} ya existe.</value></data>
+  <data name="AudioAssetNotFound" xml:space="preserve"><value>El audio {1} no pertenece a la grabación {0}.</value></data>
+  <data name="AudioAssetFileSetMismatch" xml:space="preserve"><value>La grabación {0} esperaba {1} archivos de audio, pero recibió {2}.</value></data>
+  <data name="ManagedAudioMissing" xml:space="preserve"><value>Falta el audio {1} de la grabación {0}.</value></data>
+  <data name="ManifestUnsupportedSchema" xml:space="preserve"><value>Esta grabación usa un formato más nuevo ({0}) que esta versión de Bardo no reconoce.</value></data>
+  <data name="ManifestInvalid" xml:space="preserve"><value>La información de la grabación no es válida: {0}</value></data>
+  <data name="ManifestIdentityMismatch" xml:space="preserve"><value>La información {1} no coincide con la carpeta {0}.</value></data>
+  <data name="TranscriptNotFound" xml:space="preserve"><value>La grabación {0} aún no tiene transcripción.</value></data>
+  <data name="TranscriptUnsupportedSchema" xml:space="preserve"><value>Esta transcripción usa un formato más nuevo ({0}) que esta versión de Bardo no reconoce.</value></data>
+  <data name="TranscriptInvalid" xml:space="preserve"><value>La transcripción no es válida: {0}</value></data>
+  <data name="TranscriptIdentityMismatch" xml:space="preserve"><value>La transcripción {1} no corresponde a la grabación {0}.</value></data>
+  <data name="Yesterday" xml:space="preserve"><value>Ayer</value></data>
+  <data name="RecordingFrom" xml:space="preserve"><value>Grabación del {0}</value></data>
+  <data name="SourceMicrophone" xml:space="preserve"><value>Micrófono</value></data>
+  <data name="SourceSystemAudio" xml:space="preserve"><value>Audio del sistema</value></data>
+  <data name="SourceImportedFile" xml:space="preserve"><value>Archivo importado</value></data>
+  <data name="UnknownSource" xml:space="preserve"><value>Origen desconocido</value></data>
+  <data name="ImportedAudio" xml:space="preserve"><value>Audio importado</value></data>
+  <data name="UnsupportedAudioFormat" xml:space="preserve"><value>{0} no es un formato de audio compatible.</value></data>
+  <data name="UnreadableAudio" xml:space="preserve"><value>El archivo no contiene audio legible.</value></data>
+  <data name="EmptyRecordingTitle" xml:space="preserve"><value>El nombre de la grabación no puede quedar vacío.</value></data>
+  <data name="RecordingRenamed" xml:space="preserve"><value>Grabación renombrada</value></data>
+  <data name="RecordingRecycled" xml:space="preserve"><value>Grabación movida a la Papelera de reciclaje</value></data>
+  <data name="RecordingImported" xml:space="preserve"><value>{0} importado</value></data>
+  <data name="Transcribing" xml:space="preserve"><value>Transcribiendo</value></data>
+  <data name="IdentifyingSpeakers" xml:space="preserve"><value>Identificando participantes</value></data>
+  <data name="TranscriptionFailed" xml:space="preserve"><value>No se pudo transcribir: {0}</value></data>
+  <data name="SpeakerIdentificationFailed" xml:space="preserve"><value>No se pudo identificar a los participantes: {0}</value></data>
+  <data name="EmptySpeakerName" xml:space="preserve"><value>El nombre no puede quedar vacío.</value></data>
+</root>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="ModelInUse" xml:space="preserve"><value>This model is being used right now. Try again when the current transcription or speaker identification finishes.</value></data>
+  <data name="TranscriptionNoManagedAudio" xml:space="preserve"><value>Recording {0} has no readable managed audio to transcribe.</value></data>
+  <data name="TranscriptionMixUnavailable" xml:space="preserve"><value>The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before transcribing.</value></data>
+  <data name="TranscriptionInvalidDuration" xml:space="preserve"><value>Bardo could not determine a valid audio duration for transcription.</value></data>
+  <data name="TranscriptionEmpty" xml:space="preserve"><value>Whisper completed without producing any transcript segments.</value></data>
+  <data name="DiarizationNoManagedAudio" xml:space="preserve"><value>Recording {0} has no readable managed audio to diarize.</value></data>
+  <data name="DiarizationMixUnavailable" xml:space="preserve"><value>The combined System Audio + Microphone track is unavailable. Bardo preserved the original tracks; regenerate the conversation mix before identifying speakers.</value></data>
+  <data name="DiarizationInvalidDuration" xml:space="preserve"><value>Bardo could not determine a valid audio duration for speaker identification.</value></data>
+  <data name="DiarizationNoSpeakerActivity" xml:space="preserve"><value>Speaker identification completed without finding any speaker activity.</value></data>
+  <data name="DiarizationModelsUnavailable" xml:space="preserve"><value>Bardo could not download or verify the private speaker identification models. Check the connection and try again.</value></data>
+  <data name="DiarizationModelsNotLoaded" xml:space="preserve"><value>Bardo could not load the private speaker identification models. Reset them and download them again.</value></data>
+</root>
