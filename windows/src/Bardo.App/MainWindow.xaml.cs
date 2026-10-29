@@ -83,6 +83,7 @@ public sealed partial class MainWindow : Window
             {
                 PlaybackWaveform.Progress = Playback.Position / Math.Max(0.01, Playback.Duration);
             }
+            if (e.PropertyName == nameof(PlaybackController.Duration)) ApplySkips();
         };
         Recorder.PropertyChanged += (_, e) =>
         {
@@ -148,10 +149,17 @@ public sealed partial class MainWindow : Window
 
     private async void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(LibraryViewModel.Selected))
+        if (e.PropertyName == nameof(LibraryViewModel.ListenedSpeakers))
         {
+            // Choosing whom to hear, or merging participants, changes what is skipped.
+            ApplySkips();
+        }
+        else if (e.PropertyName == nameof(LibraryViewModel.Selected))
+        {
+            // The waveform is read while the player opens, so it is ready sooner.
+            var overview = ShowOverviewAsync();
             await Playback.LoadAsync(ViewModel.Selected?.Recording);
-            await ShowOverviewAsync();
+            await overview;
         }
         else if (e.PropertyName == nameof(LibraryViewModel.SelectedTranscript))
         {
@@ -171,7 +179,7 @@ public sealed partial class MainWindow : Window
         }
         if (!_overviews.ContainsKey(recording.Id))
         {
-            PlaybackWaveform.Clear();
+            PlaybackWaveform.ShowLoading();
             using var cancellation = new CancellationTokenSource();
             _overviewLoad = cancellation;
             try
@@ -182,6 +190,8 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception error) when (error is OperationCanceledException or RecordingStoreException or IOException or System.Runtime.InteropServices.COMException)
             {
+                // Another conversation's waveform may be loading in its place.
+                if (error is not OperationCanceledException) PlaybackWaveform.Clear();
                 return;
             }
             finally
@@ -460,6 +470,71 @@ public sealed partial class MainWindow : Window
     private void OnTogglePlay(object sender, RoutedEventArgs e) => Playback.TogglePlay();
 
     private void OnSkipBack(object sender, RoutedEventArgs e) => Playback.SkipBy(-10);
+
+    /// <summary>
+    /// Whom the conversation plays, one check box per participant; the flyout stays open,
+    /// so leaving several out takes one visit.
+    /// </summary>
+    private void OnChooseListened(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement button) return;
+        var panel = new StackPanel { Spacing = 4, MinWidth = 220, MaxWidth = 320 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = Localized.Get("ListenTitle"),
+            Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"],
+            Margin = new Thickness(0, 0, 0, 4),
+        });
+        var boxes = new List<(CheckBox Box, Guid Id)>();
+        var footer = new TextBlock
+        {
+            Text = Localized.Get("ListenFooter"),
+            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            TextWrapping = TextWrapping.WrapWholeWords,
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+
+        void Refresh()
+        {
+            var listened = ViewModel.ListenedSpeakers;
+            foreach (var (box, id) in boxes)
+            {
+                box.IsChecked = listened?.Contains(id) ?? true;
+                // Someone is always heard.
+                box.IsEnabled = !(listened is { Count: 1 } && listened.Contains(id));
+            }
+            footer.Visibility = listened is null ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        foreach (var speaker in ViewModel.Speakers)
+        {
+            var label = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            label.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse
+            {
+                Width = 10,
+                Height = 10,
+                VerticalAlignment = VerticalAlignment.Center,
+                Fill = Bind.SpeakerBrush(speaker.Index),
+            });
+            label.Children.Add(new TextBlock { Text = speaker.DisplayName, TextWrapping = TextWrapping.WrapWholeWords });
+            var box = new CheckBox { Content = label };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(box, speaker.DisplayName);
+            box.Click += (_, _) =>
+            {
+                ViewModel.SetListened(speaker.Id, box.IsChecked == true);
+                Refresh();
+            };
+            boxes.Add((box, speaker.Id));
+            panel.Children.Add(box);
+        }
+        panel.Children.Add(footer);
+        Refresh();
+        new Flyout { Content = panel, Placement = FlyoutPlacementMode.TopEdgeAlignedRight }.ShowAt(button);
+    }
+
+    /// <summary>Has playback jump over the turns of participants left out.</summary>
+    private void ApplySkips() => Playback.SkippedRanges = ViewModel.PlaybackSkips(Playback.Duration);
 
     private void OnPlayFromBlock(object sender, RoutedEventArgs e)
     {

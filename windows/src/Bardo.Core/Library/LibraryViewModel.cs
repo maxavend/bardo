@@ -111,6 +111,9 @@ public sealed class LibraryViewModel : ObservableModel, IDisposable
     private CancellationTokenSource? _work;
     private LibraryNotice? _notice;
 
+    /// <summary>Whom playback lets through, per recording, while Bardo is open; everyone when a recording has no entry.</summary>
+    private readonly Dictionary<Guid, HashSet<Guid>> _listened = [];
+
     public LibraryViewModel(
         string libraryPath,
         PreferencesStore? preferences = null,
@@ -257,6 +260,56 @@ public sealed class LibraryViewModel : ObservableModel, IDisposable
         && FindTranscript(row.Id) is { Segments.Count: > 0 };
 
     public bool HasSpeakers => Speakers.Count > 0;
+
+    /// <summary>Whether playback can leave someone out: there is more than one participant.</summary>
+    public bool CanChooseListened => Speakers.Count > 1;
+
+    /// <summary>
+    /// The participants the selected conversation plays, or null for everyone. Participants
+    /// merged away since they were chosen no longer count.
+    /// </summary>
+    public IReadOnlySet<Guid>? ListenedSpeakers
+    {
+        get
+        {
+            if (Selected is not { } row || !_listened.TryGetValue(row.Id, out var chosen)) return null;
+            var present = chosen.Where(id => Speakers.Any(speaker => speaker.Id == id)).ToHashSet();
+            return present.Count == 0 || present.Count == Speakers.Count ? null : present;
+        }
+    }
+
+    public bool IsListeningToSome => ListenedSpeakers is not null;
+
+    /// <summary>Lets one participant of the selected conversation be heard or not; someone is always heard.</summary>
+    public void SetListened(Guid speakerId, bool isListened)
+    {
+        if (Selected is not { } row) return;
+        var speakers = ListenedSpeakers?.ToHashSet() ?? [.. Speakers.Select(speaker => speaker.Id)];
+        if (isListened) speakers.Add(speakerId);
+        else speakers.Remove(speakerId);
+        if (speakers.Count == 0) return;
+        if (speakers.Count == Speakers.Count) _listened.Remove(row.Id);
+        else _listened[row.Id] = speakers;
+        NotifyListened();
+    }
+
+    /// <summary>Lets everyone in the selected conversation be heard again.</summary>
+    public void ListenToEveryone()
+    {
+        if (Selected is { } row && _listened.Remove(row.Id)) NotifyListened();
+    }
+
+    /// <summary>What playback of the selected conversation jumps over: the turns of participants left out.</summary>
+    public IReadOnlyList<TimeRange> PlaybackSkips(double duration) =>
+        SelectedTranscript is { } transcript && ListenedSpeakers is { } speakers
+            ? SpeakerPlaybackFilter.SkippedRanges(transcript, speakers, Math.Max(duration, Selected?.Recording.Duration ?? 0))
+            : [];
+
+    private void NotifyListened()
+    {
+        OnPropertyChanged(nameof(ListenedSpeakers));
+        OnPropertyChanged(nameof(IsListeningToSome));
+    }
 
     /// <summary>Reads the Library again, keeping the selection when it is still there.</summary>
     public async Task LoadAsync()
@@ -579,6 +632,9 @@ public sealed class LibraryViewModel : ObservableModel, IDisposable
         OnPropertyChanged(nameof(SelectedDetails));
         OnPropertyChanged(nameof(IsSelectedFavorite));
         OnPropertyChanged(nameof(HasSpeakers));
+        OnPropertyChanged(nameof(CanChooseListened));
+        // Merging or identifying participants changes whose turns are whose.
+        NotifyListened();
         NotifySelectionActions();
     }
 

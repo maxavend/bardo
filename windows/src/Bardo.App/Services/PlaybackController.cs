@@ -26,7 +26,11 @@ public sealed class PlaybackController : ObservableModel, IDisposable
     {
         _dispatcher = dispatcher;
         _store = store;
-        _player.PlaybackSession.PositionChanged += (session, _) => OnPlayer(() => Position = session.Position.TotalSeconds);
+        _player.PlaybackSession.PositionChanged += (session, _) => OnPlayer(() =>
+        {
+            Position = session.Position.TotalSeconds;
+            SkipAhead();
+        });
         _player.PlaybackSession.PlaybackStateChanged += (session, _) =>
             OnPlayer(() => IsPlaying = session.PlaybackState == MediaPlaybackState.Playing);
         _player.MediaOpened += (player, _) => OnPlayer(() => Duration = player.PlaybackSession.NaturalDuration.TotalSeconds);
@@ -70,6 +74,9 @@ public sealed class PlaybackController : ObservableModel, IDisposable
 
     public string PositionText => DurationFormatting.Duration(Position);
 
+    /// <summary>Stretches playback jumps over while it plays, in seconds on the recording's timeline.</summary>
+    public IReadOnlyList<TimeRange> SkippedRanges { get; set; } = [];
+
     public string DurationText => DurationFormatting.Duration(Duration);
 
     public async Task LoadAsync(Recording? recording)
@@ -98,8 +105,14 @@ public sealed class PlaybackController : ObservableModel, IDisposable
     public void TogglePlay()
     {
         if (!IsAvailable) return;
-        if (IsPlaying) _player.Pause();
-        else _player.Play();
+        if (IsPlaying)
+        {
+            _player.Pause();
+            return;
+        }
+        // Played to its end, it starts again.
+        if (Position >= Duration - 0.05) Seek(0);
+        _player.Play();
     }
 
     public void Seek(double seconds, bool play = false)
@@ -113,6 +126,20 @@ public sealed class PlaybackController : ObservableModel, IDisposable
     public void SkipBy(double seconds) => Seek(Position + seconds);
 
     public void Dispose() => _player.Dispose();
+
+    private void SkipAhead()
+    {
+        if (_player.PlaybackSession.PlaybackState != MediaPlaybackState.Playing) return;
+        if (SkippedRanges.FirstOrDefault(range => range.Contains(Position)) is not { End: > 0 } skipped) return;
+        if (skipped.End < Duration)
+        {
+            Seek(skipped.End);
+            return;
+        }
+        // Nothing left to hear: it ends as the recording would.
+        _player.Pause();
+        Position = Duration;
+    }
 
     private void OnPlayer(Action update) => _dispatcher.TryEnqueue(() => update());
 }

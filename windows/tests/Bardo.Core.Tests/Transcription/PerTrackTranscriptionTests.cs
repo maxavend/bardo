@@ -305,3 +305,71 @@ public sealed class TrackEchoDetectorTests
         Assert.IsNotNull(loudness.LevelsFrom(1.5, 10));
     }
 }
+
+[TestClass]
+public sealed class TrackSilenceDetectorTests
+{
+    /// <summary>Ten seconds of a muted microphone: digital silence.</summary>
+    private static float[] Silence() => Enumerable.Repeat(-6f, 500).ToArray();
+
+    [TestMethod]
+    public void TextOverDigitalSilenceIsDropped()
+    {
+        var segment = new TranscriptSegment(2, 4.8, "Thank you.");
+        Assert.IsTrue(TrackSilenceDetector.IsSilent(segment, new TrackLoudness(0, Silence())));
+    }
+
+    [TestMethod]
+    public void AQuietVoiceIsKept()
+    {
+        // Peaks around −50 dBFS, as a soft voice far from the microphone.
+        var quiet = Enumerable.Range(0, 500).Select(index => (float)(-3.6 + 0.9 * Math.Max(0, Math.Sin(index * 0.4))));
+        var segment = new TranscriptSegment(2, 4.8, "sí, claro");
+        Assert.IsFalse(TrackSilenceDetector.IsSilent(segment, new TrackLoudness(0, quiet)));
+    }
+
+    [TestMethod]
+    public void OneWordBesideTheTimestampsIsKept()
+    {
+        // Whisper placed the text a little early; the word sounds just after its end.
+        var levels = Silence();
+        levels[246] = -1.5f;
+        var segment = new TranscriptSegment(3, 4.8, "vale");
+        Assert.IsFalse(TrackSilenceDetector.IsSilent(segment, new TrackLoudness(0, levels)));
+    }
+
+    [TestMethod]
+    public void TextBeyondTheMeasuredAudioIsKept()
+    {
+        var segment = new TranscriptSegment(30, 32, "hola");
+        Assert.IsFalse(TrackSilenceDetector.IsSilent(segment, new TrackLoudness(0, Silence())));
+    }
+
+    [TestMethod]
+    public void ATrackPlacedLaterOnTheTimelineIsReadAtItsOffset()
+    {
+        // The computer's audio starts 1.3 s into the recording and is silent at first.
+        var levels = Silence();
+        for (var index = 300; index < 500; index++) levels[index] = -1.5f;
+        var loudness = new TrackLoudness(1.3, levels);
+        Assert.IsTrue(TrackSilenceDetector.IsSilent(new TranscriptSegment(2, 4, "Gracias."), loudness));
+        Assert.IsFalse(TrackSilenceDetector.IsSilent(new TranscriptSegment(7.5, 9, "Gracias."), loudness));
+    }
+
+    [TestMethod]
+    public async Task LoudnessReadAStretchAtATimeKeepsFramesWhole()
+    {
+        // 330 samples then 310: two 20 ms frames, the second straddling both stretches.
+        static async IAsyncEnumerable<float[]> Chunks()
+        {
+            yield return Enumerable.Repeat(0.5f, 330).ToArray();
+            await Task.Yield();
+            yield return Enumerable.Repeat(0.5f, 310).ToArray();
+        }
+
+        var loudness = await TrackLoudness.MeasureAsync(Chunks(), offset: 0);
+
+        Assert.HasCount(2, loudness.Levels);
+        Assert.AreEqual(MathF.Log10(0.5f), loudness.Levels[1], 0.001);
+    }
+}

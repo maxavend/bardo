@@ -571,6 +571,7 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <Button x:Uid="SkipBackButton" Click="OnSkipBack">
                                         <FontIcon FontSize="16" Glyph="&#xED3C;" />
@@ -601,6 +602,22 @@
                                         VerticalAlignment="Center"
                                         Style="{StaticResource CaptionTextBlockStyle}"
                                         Text="{x:Bind Playback.DurationText, Mode=OneWay}" />
+                                    <!--  Whom to hear; the dot says someone is left out.  -->
+                                    <Grid Grid.Column="5" Visibility="{x:Bind app:Bind.Show(ViewModel.CanChooseListened), Mode=OneWay}">
+                                        <Button
+                                            x:Name="ListenButton"
+                                            x:Uid="ListenButton"
+                                            Click="OnChooseListened">
+                                            <FontIcon FontSize="16" Glyph="&#xE716;" />
+                                        </Button>
+                                        <InfoBadge
+                                            Margin="0,-2,-2,0"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top"
+                                            IsHitTestVisible="False"
+                                            Style="{StaticResource AttentionDotInfoBadgeStyle}"
+                                            Visibility="{x:Bind app:Bind.Show(ViewModel.IsListeningToSome), Mode=OneWay}" />
+                                    </Grid>
                                 </Grid>
                             </Grid>
 

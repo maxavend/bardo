@@ -56,6 +56,31 @@ public sealed class TrackLoudness
         return new TrackLoudness(offset, levels);
     }
 
+    /// <summary>
+    /// The loudness of audio read a stretch at a time, as a decoder delivers it: 16 kHz
+    /// mono samples from the start of the file.
+    /// </summary>
+    public static async Task<TrackLoudness> MeasureAsync(IAsyncEnumerable<float[]> chunks, double offset, CancellationToken cancellationToken = default)
+    {
+        var samplesPerFrame = (int)(SampleRate * FrameDuration);
+        var levels = new List<float>();
+        var energy = 0f;
+        var inFrame = 0;
+        await foreach (var chunk in chunks.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            // A frame can straddle two stretches.
+            foreach (var sample in chunk)
+            {
+                energy += sample * sample;
+                if (++inFrame < samplesPerFrame) continue;
+                levels.Add(MathF.Log10(MathF.Sqrt(energy / samplesPerFrame) + SilenceFloor));
+                energy = 0;
+                inFrame = 0;
+            }
+        }
+        return new TrackLoudness(offset, levels);
+    }
+
     /// <summary>The levels between two moments on the timeline, or null where the track has none.</summary>
     public ReadOnlyMemory<float>? LevelsFrom(double start, int count)
     {

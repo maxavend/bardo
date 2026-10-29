@@ -45,6 +45,8 @@ public sealed class WhisperTranscriber : ITranscriber, IDisposable
         {
             var started = DateTimeOffset.UtcNow;
             var plan = await TranscriptionAudioSelection.ResolvePlanAsync(recording, _store, _trackMode()).ConfigureAwait(false);
+            // Each track's loudness is read while the model loads and listens.
+            var loudness = plan.Passes.Select(pass => Task.Run(() => LoudnessAsync(pass, cancellationToken), cancellationToken)).ToArray();
             var factory = await Task.Run(Factory, cancellationToken).ConfigureAwait(false);
 
             var totalDuration = plan.Passes.Sum(pass => pass.Duration);
@@ -62,13 +64,15 @@ public sealed class WhisperTranscriber : ITranscriber, IDisposable
                     recognized.Add(segment.Segment);
                     if (segment.Language is { Length: > 0 } detected) languages.Add(detected);
                 }
-                segmentsPerPass.Add(TranscriptionAssembly.Segments(recognized, pass));
+                var heard = await loudness[segmentsPerPass.Count].ConfigureAwait(false);
+                segmentsPerPass.Add([.. TranscriptionAssembly.Segments(recognized, pass)
+                    .Where(segment => heard is null || !TrackSilenceDetector.IsSilent(segment, heard))]);
                 doneBefore += pass.Duration;
                 // The microphone is heard in the language the call was in.
                 language ??= MostCommon(languages);
             }
 
-            var (segments, speakers) = TranscriptionAssembly.Combine(plan, segmentsPerPass);
+            var (segments, speakers) = TranscriptionAssembly.Combine(plan, segmentsPerPass, await AcousticEchoCheckAsync(plan, loudness).ConfigureAwait(false));
             var selection = new TranscriptionSelection(
                 TranscriptionBackend.WhisperKit,
                 _quality == TranscriptionQuality.Precise ? TranscriptionSelection.LargeModelId : TranscriptionSelection.TurboModelId);
@@ -96,6 +100,30 @@ public sealed class WhisperTranscriber : ITranscriber, IDisposable
     {
         _factory?.Dispose();
         _gate.Dispose();
+    }
+
+    /// <summary>A track's loudness, or null when its audio cannot be read; then nothing is judged by it.</summary>
+    private async Task<TrackLoudness?> LoudnessAsync(TranscriptionPass pass, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await TrackLoudness.MeasureAsync(_decoder.ReadMonoAsync(pass.Path, SampleRate, ChunkLength, cancellationToken), pass.Offset, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Compares the microphone's loudness with the computer's audio; without both, nothing is an echo by sound.</summary>
+    private static async Task<Func<TranscriptSegment, bool>?> AcousticEchoCheckAsync(TranscriptionPlan plan, Task<TrackLoudness?>[] loudness)
+    {
+        var system = plan.Passes.ToList().FindIndex(pass => pass.Source == TranscriptSource.System);
+        var microphone = plan.Passes.ToList().FindIndex(pass => pass.Source == TranscriptSource.Microphone);
+        if (system < 0 || microphone < 0) return null;
+        if (await loudness[system].ConfigureAwait(false) is not { } played
+            || await loudness[microphone].ConfigureAwait(false) is not { } spoken) return null;
+        return segment => TrackEchoDetector.IsEcho(segment, spoken, played);
     }
 
     /// <summary>

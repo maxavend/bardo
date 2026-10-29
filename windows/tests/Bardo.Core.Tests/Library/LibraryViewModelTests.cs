@@ -290,6 +290,34 @@ public sealed class LibraryViewModelTests
     }
 
     [TestMethod]
+    public async Task PlaybackCanLeaveParticipantsOut()
+    {
+        CopyMacLibrary();
+        using var model = await Loaded();
+        Assert.IsTrue(model.CanChooseListened);
+        Assert.IsNull(model.ListenedSpeakers);
+        Assert.IsEmpty(model.PlaybackSkips(60));
+        var kept = model.Speakers[0];
+
+        foreach (var speaker in model.Speakers.Skip(1)) model.SetListened(speaker.Id, false);
+        model.SetListened(kept.Id, false);
+
+        CollectionAssert.AreEquivalent(new[] { kept.Id }, model.ListenedSpeakers!.ToArray(), "Someone is always heard");
+        var transcript = model.SelectedTranscript!;
+        var skips = model.PlaybackSkips(transcript.Segments.Max(segment => segment.EndTime) + 5);
+        Assert.IsNotEmpty(skips);
+        foreach (var segment in transcript.Segments.Where(segment => segment.SpeakerId == kept.Id))
+        {
+            Assert.IsFalse(skips.Any(skip => skip.Start < segment.EndTime && segment.StartTime < skip.End), "Their turns play");
+        }
+
+        // Merged into the one heard, the others are heard too: everyone plays again.
+        foreach (var speaker in model.Speakers.Skip(1).ToList()) Assert.IsTrue(await model.MergeSpeakersAsync(speaker.Id, kept.Id));
+        Assert.IsNull(model.ListenedSpeakers);
+        Assert.IsFalse(model.CanChooseListened);
+    }
+
+    [TestMethod]
     public async Task SpeakerIdentificationReplacesTheTranscript()
     {
         CopyMacLibrary();

@@ -143,4 +143,8 @@
   <data name="OnboardingSkipButton.Content" xml:space="preserve"><value>Continue without transcribing</value></data>
   <data name="OnboardingSkipButtonPaused.Content" xml:space="preserve"><value>Continue without transcribing</value></data>
   <data name="OnboardingPrivacy.Text" xml:space="preserve"><value>Speaker identification is included. Audio and transcripts stay on this PC.</value></data>
+  <data name="ListenButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose who to hear</value></data>
+  <data name="ListenButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Choose who to hear</value></data>
+  <data name="ListenTitle" xml:space="preserve"><value>Listen to</value></data>
+  <data name="ListenFooter" xml:space="preserve"><value>What the others say is skipped.</value></data>
 </root>

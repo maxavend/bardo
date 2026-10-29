@@ -69,6 +69,8 @@ public sealed partial class WaveformView : Grid
     private IReadOnlyList<double> _markFractions = [];
     private double _progress = 1;
     private bool _isLive;
+    private bool _isLoading;
+    private CompositionLinearGradientBrush? _shimmer;
 
     public WaveformView()
     {
@@ -99,6 +101,9 @@ public sealed partial class WaveformView : Grid
     /// <summary>Shows a whole recording: its loudness, and who speaks in each stretch.</summary>
     public void ShowOverview(float[] levels, int[] speakers)
     {
+        // Read while a placeholder stood in, the bars fade in over it.
+        if (_isLoading && levels.Length > 0) FadeIn(TimeSpan.Zero, TimeSpan.FromMilliseconds(300));
+        _isLoading = false;
         _isLive = false;
         _levels = levels;
         _speakers = speakers;
@@ -108,7 +113,33 @@ public sealed partial class WaveformView : Grid
         Redraw();
     }
 
-    public void Clear() => ShowOverview([], []);
+    public void Clear()
+    {
+        _isLoading = false;
+        _shapes.StopAnimation("Opacity");
+        _shapes.Opacity = 1;
+        ShowOverview([], []);
+    }
+
+    /// <summary>
+    /// Stands in for a waveform while it is read: quiet grey bars in a speech-like rhythm,
+    /// with a soft light passing over them. It appears only if reading takes a moment, so
+    /// a waveform that is ready never flashes it, and the light stays still when Windows
+    /// turns animations off.
+    /// </summary>
+    public void ShowLoading()
+    {
+        if (_isLoading) return;
+        _isLoading = true;
+        _isLive = false;
+        _levels = [];
+        _speakers = [];
+        _secondary = [];
+        _markFractions = [];
+        ProtectedCursor = null;
+        FadeIn(TimeSpan.FromMilliseconds(120), TimeSpan.FromMilliseconds(250));
+        Redraw();
+    }
 
     /// <summary>How much has played, from 0 to 1; what is ahead is drawn fainter.</summary>
     public double Progress
@@ -157,6 +188,12 @@ public sealed partial class WaveformView : Grid
             _drawnLevels = Waveform.Bars(_levels, count);
             _drawnSecondary = _secondary.Length > 0 ? Waveform.Bars(_secondary, count) : [];
         }
+        else if (_isLoading)
+        {
+            count = slots;
+            _drawnLevels = [.. Enumerable.Range(0, count).Select(PlaceholderLevel)];
+            _drawnSecondary = [];
+        }
         else
         {
             count = slots;
@@ -187,8 +224,11 @@ public sealed partial class WaveformView : Grid
             var barHeight = Math.Max(BarWidth, level * drawable * 0.92f);
             var (shape, geometry) = _bars[index];
             geometry.Size = new Vector2(BarWidth, barHeight);
-            shape.Offset = new Vector2(origin + index * (BarWidth + BarGap), height - drawable + (drawable - barHeight) / 2);
+            // Placed by their geometry rather than the shape, so the placeholder's light
+            // crosses all the bars as one.
+            geometry.Offset = new Vector2(origin + index * (BarWidth + BarGap), height - drawable + (drawable - barHeight) / 2);
         }
+        if (_isLoading) Shimmer(width);
         Recolor();
         DrawMarks(width);
     }
@@ -198,6 +238,11 @@ public sealed partial class WaveformView : Grid
         var count = _bars.Count;
         var speakers = _isLive ? Array.Empty<int>() : SpeakersFor(count);
         var transcribed = _speakers.Any(speaker => speaker >= 0);
+        if (_isLoading && _shimmer is not null)
+        {
+            foreach (var (shape, _) in _bars) shape.FillBrush = _shimmer;
+            return;
+        }
         for (var index = 0; index < count; index++)
         {
             Color color;
@@ -217,6 +262,51 @@ public sealed partial class WaveformView : Grid
     }
 
     private static float At(float[] values, int index) => index < values.Length ? values[index] : 0;
+
+    /// <summary>Speech-like heights that never change, so nothing seems to be heard yet.</summary>
+    private static float PlaceholderLevel(int index) =>
+        (float)(0.3 + 0.22 * Math.Sin(index * 0.37) + 0.14 * Math.Sin(index * 0.11 + 1.3));
+
+    private void FadeIn(TimeSpan delay, TimeSpan duration)
+    {
+        var fade = _compositor.CreateScalarKeyFrameAnimation();
+        fade.InsertKeyFrame(0, 0);
+        fade.InsertKeyFrame(1, 1, _compositor.CreateCubicBezierEasingFunction(new Vector2(0, 0), new Vector2(0.58f, 1)));
+        fade.DelayTime = delay;
+        fade.DelayBehavior = AnimationDelayBehavior.SetInitialValueBeforeDelay;
+        fade.Duration = duration;
+        _shapes.StartAnimation("Opacity", fade);
+    }
+
+    /// <summary>A faint grey with a lighter band that crosses from the leading edge to past the trailing one, then again.</summary>
+    private void Shimmer(float width)
+    {
+        var grey = SpeakerPalette.Neutral(ActualTheme);
+        Color Tint(double opacity) => Color.FromArgb((byte)(255 * opacity), grey.R, grey.G, grey.B);
+        _shimmer ??= _compositor.CreateLinearGradientBrush();
+        _shimmer.ColorStops.Clear();
+        _shimmer.ColorStops.Add(_compositor.CreateColorGradientStop(0, Tint(0.14)));
+        _shimmer.ColorStops.Add(_compositor.CreateColorGradientStop(0.5f, Tint(0.30)));
+        _shimmer.ColorStops.Add(_compositor.CreateColorGradientStop(1, Tint(0.14)));
+        _shimmer.MappingMode = CompositionMappingMode.Absolute;
+        // The band is a fifth of the width either side of the light.
+        _shimmer.StartPoint = new Vector2(-0.2f * width, 0);
+        _shimmer.EndPoint = new Vector2(0.2f * width, 0);
+        _shimmer.ExtendMode = CompositionGradientExtendMode.Clamp;
+
+        _shimmer.StopAnimation("Offset");
+        if (!new Windows.UI.ViewManagement.UISettings().AnimationsEnabled)
+        {
+            _shimmer.Offset = new Vector2(-width, 0);
+            return;
+        }
+        var sweep = _compositor.CreateVector2KeyFrameAnimation();
+        sweep.InsertKeyFrame(0, new Vector2(-0.2f * width, 0), _compositor.CreateLinearEasingFunction());
+        sweep.InsertKeyFrame(1, new Vector2(1.2f * width, 0), _compositor.CreateLinearEasingFunction());
+        sweep.Duration = TimeSpan.FromSeconds(1.6);
+        sweep.IterationBehavior = AnimationIterationBehavior.Forever;
+        _shimmer.StartAnimation("Offset", sweep);
+    }
 
     private void DrawMarks(float width)
     {

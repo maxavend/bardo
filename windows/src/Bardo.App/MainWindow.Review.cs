@@ -85,6 +85,18 @@ public sealed partial class MainWindow
             Playback.Seek(Playback.Duration * 0.42);
             await Capture(folder, $"01-conversacion-{suffix}");
 
+            // Listening to some participants only, chosen in the player.
+            ViewModel.SetListened(ViewModel.Speakers[^1].Id, false);
+            OnChooseListened(ListenButton, new RoutedEventArgs());
+            await Capture(folder, $"09-escuchar-a-{suffix}");
+            foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(Content.XamlRoot)) popup.IsOpen = false;
+            ViewModel.ListenToEveryone();
+
+            // A waveform still being read: placeholder bars until it is ready.
+            PlaybackWaveform.ShowLoading();
+            await Capture(folder, $"10-onda-cargando-{suffix}");
+            ShowSpeakers();
+
             // The same conversation to read: its sections and moment among the turns.
             ParticipantsExpander.IsExpanded = false;
             await Settle();
