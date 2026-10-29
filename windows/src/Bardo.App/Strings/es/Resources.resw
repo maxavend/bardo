@@ -109,8 +109,11 @@
   <data name="RenameSpeakerTitle" xml:space="preserve"><value>Nombre del participante</value></data>
   <data name="Save" xml:space="preserve"><value>Guardar</value></data>
   <data name="Cancel" xml:space="preserve"><value>Cancelar</value></data>
-  <data name="EmptyDetailText.Text" xml:space="preserve"><value>No hay nada que mostrar.</value></data>
   <data name="PlaybackWaveform.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Onda de la conversación</value></data>
   <data name="PlaybackWaveform.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Haz clic para reproducir desde ahí. Las flechas izquierda y derecha mueven 5 segundos.</value></data>
   <data name="LiveWaveform.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Onda de la grabación</value></data>
+  <data name="LosslessSwitch.OnContent" xml:space="preserve"><value>Activado</value></data>
+  <data name="LosslessSwitch.OffContent" xml:space="preserve"><value>Desactivado</value></data>
+  <data name="PerTrackSwitch.OnContent" xml:space="preserve"><value>Activado</value></data>
+  <data name="PerTrackSwitch.OffContent" xml:space="preserve"><value>Desactivado</value></data>
 </root>

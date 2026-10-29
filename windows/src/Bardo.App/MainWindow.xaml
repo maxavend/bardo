@@ -270,24 +270,6 @@
                         BorderThickness="1,1,0,0"
                         CornerRadius="8,0,0,0">
                         <Grid>
-                            <StackPanel
-                                Margin="24"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                Spacing="8"
-                                Visibility="{x:Bind app:Bind.ShowUnless(ViewModel.ShowsEmptyDetail, Recorder.IsRecording), Mode=OneWay}">
-                                <FontIcon
-                                    HorizontalAlignment="Center"
-                                    FontSize="32"
-                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                    Glyph="&#xE8F2;" />
-                                <TextBlock
-                                    x:Uid="EmptyDetailText"
-                                    HorizontalAlignment="Center"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextAlignment="Center"
-                                    TextWrapping="WrapWholeWords" />
-                            </StackPanel>
 
                             <TextBlock
                                 x:Uid="NoSelectionText"
@@ -634,16 +616,19 @@
                                                 <TextBlock x:Uid="SectionText" />
                                             </StackPanel>
                                         </Button>
-                                        <Button
-                                            Click="OnStopRecording"
-                                            IsEnabled="{x:Bind app:Bind.Not(Recorder.IsFinishing), Mode=OneWay}"
-                                            Style="{StaticResource AccentButtonStyle}">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <FontIcon FontSize="16" Glyph="&#xE71A;" />
-                                                <TextBlock x:Uid="StopText" />
-                                            </StackPanel>
-                                        </Button>
                                     </StackPanel>
+                                    <!--  Stop stands apart, like the Sound Recorder's main button.  -->
+                                    <Button
+                                        MinWidth="160"
+                                        HorizontalAlignment="Center"
+                                        Click="OnStopRecording"
+                                        IsEnabled="{x:Bind app:Bind.Not(Recorder.IsFinishing), Mode=OneWay}"
+                                        Style="{StaticResource AccentButtonStyle}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon FontSize="16" Glyph="&#xE71A;" />
+                                            <TextBlock x:Uid="StopText" />
+                                        </StackPanel>
+                                    </Button>
                                     <ProgressRing
                                         HorizontalAlignment="Center"
                                         IsActive="{x:Bind Recorder.IsFinishing, Mode=OneWay}" />
