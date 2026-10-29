@@ -18,7 +18,7 @@ interface GitHubRelease {
  * The release the site offers when GitHub cannot be reached while building, so a build
  * never fails or links to nothing. Bump it now and then; a normal build reads GitHub.
  */
-const fallback = { version: "1.1.4", publishedAt: "2026-10-29T15:28:31Z", windowsVersion: null as string | null }
+const fallback = { version: "1.2.0", publishedAt: "2026-10-29T18:03:00Z", windowsVersion: "1.2.0" as string | null }
 
 /** Published releases, newest first, or null when GitHub does not answer. */
 async function readReleases(): Promise<GitHubRelease[] | null> {

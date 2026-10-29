@@ -24,7 +24,7 @@ Los componentes existentes están en `src/components/ui`; para añadir otro pued
 
 ## Versiones y descargas
 
-Al compilar, `src/lib/site.ts` lee los releases publicados de GitHub (sin borradores ni prereleases) y ofrece el más reciente que trae `Bardo-<versión>.dmg`, y el más reciente que trae ambos instaladores de Windows (`Bardo-<versión>-Setup-x64.exe` y `-arm64.exe`, que adjunta el flujo Release). Los enlaces, la versión y la fecha del footer salen de ahí, así que **hay que volver a compilar y publicar el sitio después de cada release**. Si GitHub no responde, el build avisa y usa el release fijo de `fallback` en el mismo archivo. Con `GITHUB_TOKEN` en el entorno, la consulta no cuenta contra el límite anónimo.
+Al compilar, `src/lib/site.ts` lee los releases publicados de GitHub (sin borradores ni prereleases) y ofrece el más reciente que trae `Bardo-<versión>.dmg`, y el más reciente que trae ambos instaladores de Windows (`Bardo-<versión>-Setup-x64.exe` y `-arm64.exe`, que adjunta el flujo Release). Los enlaces, la versión y la fecha del footer salen de ahí, así que el sitio debe compilarse de nuevo después de cada release: el flujo `Website` (`.github/workflows/website.yml`) se lo pide a Cloudflare Pages al publicarse uno. Si GitHub no responde, el build avisa y usa el release fijo de `fallback` en el mismo archivo. Con `GITHUB_TOKEN` en el entorno, la consulta no cuenta contra el límite anónimo.
 
 Mientras ningún release trae instaladores de Windows, el sitio ofrece solo Mac, muestra Windows como «Pronto» y la portada no tiene la sección «También en Windows.». Para revisar cómo se verá, sin publicarlo:
 
@@ -50,6 +50,27 @@ Publicar **solo `dist/`**. Astro genera una CSP por meta con hashes para los scr
 
 `public/_headers` añade protección contra inclusión en marcos, restricciones de permisos, `nosniff`, política de referrer y caché inmutable de un año **solo para `/_astro/*`**, cuyos nombres incluyen hashes. Los archivos públicos sin hash y el HTML pueden cambiar en cada publicación.
 
-**El hosting debe admitir `_headers`** (por ejemplo, [Netlify](https://docs.netlify.com/manage/routing/headers/)); en otro servicio hay que trasladar las reglas a su configuración. `astro preview` no aplica ese archivo. La protección [`frame-ancestors`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/frame-ancestors) requiere una cabecera HTTP y no funciona desde meta.
+**El hosting debe admitir `_headers`**, como [Cloudflare Pages](https://developers.cloudflare.com/pages/configuration/headers/); en otro servicio hay que trasladar las reglas a su configuración. `astro preview` no aplica ese archivo. La protección [`frame-ancestors`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/frame-ancestors) requiere una cabecera HTTP y no funciona desde meta.
 
 Al confirmar dominio y hosting, comprobar las cabeceras de las respuestas reales, HTTPS y compresión Brotli/gzip. Configurar entonces la URL `site` de Astro para futuras URLs canónicas. No se ha configurado HSTS para un dominio desconocido. La auditoría local no mide CDN, TTFB público ni Core Web Vitals reales; esas mediciones quedan para el despliegue.
+
+## Publicar en Cloudflare Pages
+
+El sitio se publica como un proyecto de Pages conectado a GitHub, que compila `main`:
+
+| Ajuste | Valor |
+|---|---|
+| Repositorio y rama de producción | `maxavend/bardo`, `main` |
+| Directorio raíz | `web` |
+| Comando de compilación | `npm run build && npm run check:build` |
+| Directorio de salida | `dist` |
+| Variable `NODE_VERSION` | `24` (`package.json` pide 22.23.4 o posterior) |
+| Variable `GITHUB_TOKEN` | Opcional: un token *fine-grained* sin permisos, solo para no depender del límite anónimo de la API |
+| Rutas observadas (*build watch paths*) | Incluir `web/*`, para que los cambios solo de la app no publiquen la web |
+
+Pages instala las dependencias desde `package-lock.json` antes de compilar. Si el registro dice `Could not read the releases`, el sitio salió con el release de `fallback`: revisar la red o el token y compilar otra vez.
+
+Para que cada release publicado actualice las descargas, crear un *Deploy Hook* de la rama `main` en el proyecto de Pages y guardarlo como secreto `CLOUDFLARE_PAGES_DEPLOY_HOOK` del repositorio. El flujo `Website` también se puede lanzar a mano desde Actions.
+
+Con el dominio definido, añadir `site` en `astro.config.mjs` y comprobar en producción: las cabeceras de `_headers` en `/` y en un archivo de `/_astro/`, HTTPS, la compresión, y que los enlaces de descarga de la portada y de `/descargar` respondan.
+
