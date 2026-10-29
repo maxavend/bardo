@@ -4,7 +4,7 @@ import DownloadCta from "@/components/site/DownloadCta.astro"
 import Feature from "@/components/site/Feature.astro"
 import { HeroDemo } from "@/components/site/HeroDemo"
 import HeroShader from "@/components/site/HeroShader.astro"
-import { url } from "@/lib/site"
+import { links, url } from "@/lib/site"
 
 const returns = [
   { title: "Cada voz, con su nombre", text: "Escucha una muestra de cada voz, ponle nombre o junta a quien aparezca dos veces." },
@@ -170,6 +170,35 @@ const privacy = [
     </div>
   </section>
 
+  <!-- Bardo for Windows: the same reading view in a whole Windows 11 window, once a release carries the installers. -->
+  {
+    links.windows && (
+      <section class="shell mt-12 py-16 max-lg:mt-8 max-lg:py-12 max-sm:mt-4 max-sm:py-6" aria-labelledby="windows-title">
+        <div class="mb-10 flex items-end justify-between gap-16 max-lg:flex-col max-lg:items-start max-lg:gap-8 max-sm:mb-6 max-sm:gap-5" data-reveal>
+          <div class="flex flex-col gap-5">
+            <h2 id="windows-title" class="max-w-[16ch] text-headline font-heading font-semibold">También en Windows.</h2>
+            <p class="max-w-[44ch] text-lead text-soft">La misma app, hecha para Windows 11. Graba, transcribe y reconoce cada voz en el propio PC.</p>
+          </div>
+          <DownloadCta windowsOnly class="shrink-0 max-w-[30ch]" />
+        </div>
+        <div class="t-skel image-skel" data-image-reveal data-state="loading" data-reveal data-reveal-delay="1">
+          <div class="t-skel-skeleton is-pulsing" aria-hidden="true"><div class="image-skel-shimmer"></div></div>
+          <picture class="t-skel-content block">
+            <source media="(max-width: 40rem)" srcset={url("assets/capturas/windows-lectura-panel-960.webp")} width="960" height="846" />
+            <img
+              class="h-auto w-full shadow-float rounded-capture"
+              src={url("assets/capturas/windows-lectura.webp")}
+              width="1868"
+              height="1037"
+              alt="Bardo en Windows 11: la revisión de diseño transcrita por hablante, con el momento «Bajar a 3 datos» y el reproductor"
+              loading="lazy" decoding="async"
+            />
+          </picture>
+        </div>
+      </section>
+    )
+  }
+
   <section class="shell flex flex-col items-center pt-24 text-center max-lg:pt-16 max-sm:pt-10" aria-labelledby="close-title">
     <div class="flex max-w-full flex-col items-center" data-reveal>
       <!-- Offset the feather's lighter visual weight to center the head optically. -->
@@ -178,7 +207,7 @@ const privacy = [
         <img class="t-skel-content size-full drop-shadow-[0_8px_16px_oklch(0%_0_0/0.3)]" src={url("assets/marca/bardo-mascota-ai-v2-512.webp")} width="512" height="512" alt="" loading="lazy" decoding="async" />
       </div>
       <h2 id="close-title" class="font-heading text-[clamp(3.5rem,5vw,4rem)] leading-none font-semibold tracking-[-0.01em]">Bardo</h2>
-      <p class="mt-3 text-base text-soft sm:text-lg">Transcripción privada para Mac.</p>
+      <p class="mt-3 text-base text-soft sm:text-lg">{links.windows ? "Transcripción privada para Mac y Windows." : "Transcripción privada para Mac."}</p>
     </div>
     <DownloadCta align="center" class="mt-8 max-w-[52ch] max-sm:mt-6" />
     <a class="text-link mt-5 text-sm" href={url("descargar/")} data-reveal>Cómo instalarlo</a>

@@ -231,8 +231,15 @@ const ways = [
           )
         }
         <p class="text-sm text-soft">
-          El resultado debe coincidir con el archivo <code>.sha256</code> de la <a class="text-link" href={links.releases}>versión {release.version}</a>.
-          {windowsRelease && " En Windows, usa PowerShell; el resultado sale en mayúsculas."}
+          El resultado debe coincidir con el archivo <code>.sha256</code> de la <a class="text-link" href={links.macRelease}>versión {release.version}</a>.
+          {links.windows && windowsRelease === release.version && " En Windows, usa PowerShell; el resultado sale en mayúsculas."}
+          {
+            links.windows && windowsRelease !== release.version && (
+              <>
+                {" En Windows, con el de la "}<a class="text-link" href={links.windows.release}>versión {windowsRelease}</a>, en PowerShell; el resultado sale en mayúsculas.
+              </>
+            )
+          }
         </p>
       </div>
     </div>

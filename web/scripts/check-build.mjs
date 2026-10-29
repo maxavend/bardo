@@ -36,6 +36,14 @@ for (const route of routes) {
     assert.ok(asset.startsWith(root), "Asset escaped dist")
     assert.ok(existsSync(asset), `${route}: missing ${reference}`)
   }
+  // Every download names the tag it comes from, and the file in it carries that same version.
+  const downloads = [...html.matchAll(/href="https:\/\/github\.com\/maxavend\/bardo\/releases\/download\/([^"]+)"/g)].map(([, path]) => path)
+  for (const path of downloads) {
+    const [, tag, name] = path.match(/^v(\d+\.\d+\.\d+)\/(.+)$/) ?? []
+    assert.ok(tag && (name === `Bardo-${tag}.dmg` || new RegExp(`^Bardo-${tag.replaceAll(".", "\\.")}-Setup-(x64|arm64)\\.exe$`).test(name)), `${route || "/"}: odd download ${path}`)
+  }
+  if (route === "" || route === "descargar") assert.ok(downloads.some(path => path.endsWith(".dmg")), `${route || "/"}: no Mac download`)
+
   if (route) {
     assert.ok(!html.includes("<astro-island"), `${route}: secondary page should not hydrate React`)
     assert.ok(inlineBytes < 8192, `${route}: unnecessary JavaScript grew beyond 8 KiB`)

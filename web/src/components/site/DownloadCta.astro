@@ -10,14 +10,16 @@ interface Props {
   class?: string
   /** Hide the link to the other downloads, as on the page that lists them. */
   hideOthers?: boolean
+  /** Offer only the Windows installers, as a secondary action; phones read just the requirements. */
+  windowsOnly?: boolean
 }
 
-const { align = "start", class: className, hideOthers = false } = Astro.props
+const { align = "start", class: className, hideOthers = false, windowsOnly = false } = Astro.props
 
-// One choice per computer; the page shows the Mac's until the browser says otherwise,
+// One choice per computer; the page shows the first until the browser says otherwise,
 // so it reads right without JavaScript too.
 const choices = [
-  { platform: "mac", label: "Descargar para Mac", href: links.dmg, caption: `Gratis. ${requirements}. Versión ${release.version}.` },
+  ...(windowsOnly ? [] : [{ platform: "mac", label: "Descargar para Mac", href: links.dmg, caption: `Gratis. ${requirements}. Versión ${release.version}.` }]),
   ...(links.windows
     ? [
         { platform: "windows-x64", label: "Descargar para Windows", href: links.windows.x64, caption: `Gratis. Windows 11 en un PC x64 (Intel o AMD). Versión ${windowsRelease}.` },
@@ -29,9 +31,9 @@ const choices = [
 
 <bardo-download class={cn("flex flex-col gap-3 max-sm:w-full", align === "center" ? "items-center text-center" : "items-start", className)}>
   {
-    choices.map(choice => (
-      <div data-platform={choice.platform} hidden={choice.platform !== "mac"} class={cn("flex flex-col gap-3 max-sm:hidden", align === "center" ? "items-center" : "items-start")}>
-        <a class={buttonVariants()} href={choice.href}>
+    choices.map((choice, i) => (
+      <div data-platform={choice.platform} hidden={i > 0} class={cn("flex flex-col gap-3 max-sm:hidden", align === "center" ? "items-center" : "items-start")}>
+        <a class={buttonVariants({ variant: windowsOnly ? "outline" : "default" })} href={choice.href}>
           <DownloadIcon data-icon="inline-start" aria-hidden="true" />
           {choice.label}
         </a>
@@ -41,10 +43,16 @@ const choices = [
   }
   {!links.windows && <p data-windows-soon hidden class="text-sm text-faint max-sm:hidden">Bardo para Windows llega pronto.</p>}
   {!hideOthers && <a class="text-link text-sm max-sm:hidden" href={url("descargar/#equipos")}>Otras descargas</a>}
-  <div class="w-full sm:hidden">
-    <MacOnly align={align} />
-  </div>
-  <p class="text-sm text-faint sm:hidden">{links.windows ? "Gratis · Mac y Windows 11" : "Gratis · Apple silicon · macOS 15 o posterior"}</p>
+  {
+    !windowsOnly && (
+      <div class="w-full sm:hidden">
+        <MacOnly align={align} />
+      </div>
+    )
+  }
+  <p class="text-sm text-faint sm:hidden">
+    {windowsOnly ? "Gratis · Windows 11 · x64 o ARM" : links.windows ? "Gratis · Mac y Windows 11" : "Gratis · Apple silicon · macOS 15 o posterior"}
+  </p>
 </bardo-download>
 
 <script>
@@ -54,7 +62,7 @@ const choices = [
     async connectedCallback() {
       const platform = await detectPlatform(navigator)
       const choices = [...this.querySelectorAll<HTMLElement>("[data-platform]")]
-      // Show this computer's download when there is one; otherwise keep the Mac's.
+      // Show this computer's download when there is one; otherwise keep the first.
       if (!choices.some(choice => choice.dataset.platform === platform)) {
         const soon = this.querySelector<HTMLElement>("[data-windows-soon]")
         if (soon && platform.startsWith("windows")) soon.hidden = false

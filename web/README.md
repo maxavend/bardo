@@ -22,9 +22,11 @@ npm run preview
 
 Los componentes existentes están en `src/components/ui`; para añadir otro puede usarse `npx shadcn@latest add nombre`. La CLI no es una dependencia del sitio.
 
-## Windows
+## Versiones y descargas
 
-`windowsRelease` en `src/lib/site.ts` es la primera versión que trae instaladores de Windows (`Bardo-<versión>-Setup-x64.exe` y `-arm64.exe`, que adjunta el flujo Release), o `null` mientras no hay ninguna. Con `null`, el sitio ofrece solo Mac y muestra Windows como «Pronto». Para revisar cómo se verá, sin publicarlo:
+Al compilar, `src/lib/site.ts` lee los releases publicados de GitHub (sin borradores ni prereleases) y ofrece el más reciente que trae `Bardo-<versión>.dmg`, y el más reciente que trae ambos instaladores de Windows (`Bardo-<versión>-Setup-x64.exe` y `-arm64.exe`, que adjunta el flujo Release). Los enlaces, la versión y la fecha del footer salen de ahí, así que **hay que volver a compilar y publicar el sitio después de cada release**. Si GitHub no responde, el build avisa y usa el release fijo de `fallback` en el mismo archivo. Con `GITHUB_TOKEN` en el entorno, la consulta no cuenta contra el límite anónimo.
+
+Mientras ningún release trae instaladores de Windows, el sitio ofrece solo Mac, muestra Windows como «Pronto» y la portada no tiene la sección «También en Windows.». Para revisar cómo se verá, sin publicarlo:
 
 ```sh
 PUBLIC_WINDOWS_RELEASE=1.2.0 npm run dev

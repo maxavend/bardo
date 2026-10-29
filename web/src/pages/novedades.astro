@@ -1,7 +1,7 @@
 ---
 import Layout from "@/layouts/main.astro"
 import DownloadCta from "@/components/site/DownloadCta.astro"
-import { links, url } from "@/lib/site"
+import { links, release, url } from "@/lib/site"
 
 interface Release {
   version: string
@@ -11,6 +11,26 @@ interface Release {
 }
 
 const releases: Release[] = [
+  {
+    version: "1.1.4",
+    date: "2026-10-29",
+    label: "29 de octubre de 2026",
+    groups: [
+      { name: "Biblioteca", items: ["Archiva conversaciones sin borrarlas", "Selecciona varias a la vez"] },
+      { name: "Grabación", items: ["La grabación en curso, en la barra de menús"] },
+      { name: "Transcripción", items: ["Qué modelo transcribió cada conversación y cuánto tardó"] },
+    ],
+  },
+  {
+    version: "1.1.2",
+    date: "2026-10-29",
+    label: "29 de octubre de 2026",
+    groups: [
+      { name: "Transcripción", items: ["Ya no escribe frases sobre el silencio"] },
+      { name: "Reproducción", items: ["Escucha solo a algunos participantes", "La onda está lista antes"] },
+      { name: "Diseño", items: ["Los avatares del botón Participantes siguen su curva"] },
+    ],
+  },
   {
     version: "1.1.1",
     date: "2026-10-27",
@@ -79,13 +99,13 @@ const releases: Release[] = [
   <section class="shell" aria-label="Versiones">
     <ol class="border-t">
       {
-        releases.map((entry, i) => (
+        releases.map((entry) => (
           <li class="grid grid-cols-[minmax(0,4fr)_minmax(0,7fr)] gap-16 border-b py-10 max-lg:grid-cols-1 max-lg:gap-6">
             <div class="flex flex-col gap-1">
               <h2 class="text-headline tabular-nums font-heading font-semibold">{entry.version}</h2>
               <p class="text-sm text-faint">
                 <time datetime={entry.date}>{entry.label}</time>
-                {i === 0 && <span class="text-soft"> · Versión actual</span>}
+                {entry.version === release.version && <span class="text-soft"> · Versión actual</span>}
               </p>
             </div>
             <dl class="flex flex-col gap-6">
