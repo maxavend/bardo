@@ -72,5 +72,5 @@ Pages instala las dependencias desde `package-lock.json` antes de compilar. Si e
 
 Para que cada release publicado actualice las descargas, crear un *Deploy Hook* de la rama `main` en el proyecto de Pages y guardarlo como secreto `CLOUDFLARE_PAGES_DEPLOY_HOOK` del repositorio. El flujo `Website` también se puede lanzar a mano desde Actions.
 
-Con el dominio definido, añadir `site` en `astro.config.mjs` y comprobar en producción: las cabeceras de `_headers` en `/` y en un archivo de `/_astro/`, HTTPS, la compresión, y que los enlaces de descarga de la portada y de `/descargar` respondan.
+El dominio es `bardodesktop.maxavend.com`: se añade como *Custom domain* del proyecto de Pages y es la URL `site` de `astro.config.mjs`. Comprobar en producción: las cabeceras de `_headers` en `/` y en un archivo de `/_astro/`, HTTPS, la compresión, y que los enlaces de descarga de la portada y de `/descargar` respondan.
 
