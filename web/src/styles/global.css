@@ -313,8 +313,11 @@
   transform: translateY(0);
 }
 
-/* A same-size skeleton holds each screenshot's space while its image loads. */
-.t-skel { position: relative; }
+/* A same-size skeleton holds each screenshot's space while its image loads.
+   Layered so a position utility (the overlapping Participants sheet) still wins. */
+@layer components {
+  .t-skel { position: relative; }
+}
 .t-skel-skeleton,
 .t-skel-content {
   position: absolute;

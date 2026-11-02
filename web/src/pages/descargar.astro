@@ -127,7 +127,7 @@ const ways = [
             <ol class={cn("grid gap-8 max-lg:gap-0", windowsRelease ? "grid-cols-1 gap-0" : "grid-cols-3 max-lg:grid-cols-1")}>
               {group.steps.map((step, i) => (
                 <li class={cn("flex gap-3 border-t pt-6 max-lg:pb-8", windowsRelease ? "flex-row items-baseline gap-5 pb-6" : "flex-col")}>
-                  <span class="text-headline text-faint tabular-nums" aria-hidden="true">
+                  <span class="text-headline font-heading font-semibold text-faint tabular-nums" aria-hidden="true">
                     {i + 1}
                   </span>
                   <div class="flex flex-col gap-3">
@@ -218,7 +218,7 @@ const ways = [
   </section>
 
   <section class="shell pt-16 max-sm:pt-8" aria-labelledby="verify-title">
-    <div class="grid grid-cols-[minmax(0,4fr)_minmax(0,7fr)] items-center gap-16 rounded-[28px] border bg-ground-2 p-12 max-lg:grid-cols-1 max-lg:gap-6 max-sm:p-6">
+    <div class="grid grid-cols-[minmax(0,4fr)_minmax(0,7fr)] items-center gap-16 rounded-[28px] bg-ground-2 p-12 max-lg:grid-cols-1 max-lg:gap-6 max-sm:p-6">
       <div class="flex flex-col gap-3">
         <h2 id="verify-title" class="text-title">Comprueba la descarga</h2>
         <p class="text-sm text-faint">Opcional, para quien quiera verificar que el archivo es el original.</p>
