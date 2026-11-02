@@ -2,6 +2,12 @@
 
 All notable changes to Bardo. Each version is also a [GitHub release](https://github.com/maxavend/bardo/releases) with its DMG and, from 1.2.0, its Windows installers.
 
+## 1.2.1 — 2026-11-02
+
+### Mac
+
+- **A new app icon.** Bardo's head with its beret and feather, the same one as on the website and the Windows app. On macOS 26 and later the beret and the face are separate layers, so the clear and tinted looks shade them apart.
+
 ## 1.2.0 — 2026-10-29
 
 ### Windows
