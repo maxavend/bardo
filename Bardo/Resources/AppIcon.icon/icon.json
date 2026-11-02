@@ -12,11 +12,26 @@
   ],
   "groups" : [
     {
-      "name" : "Bardo",
+      "name" : "Boina",
       "layers" : [
         {
-          "name" : "Bardo",
-          "image-name" : "character.png",
+          "name" : "Boina",
+          "image-name" : "boina.png",
+          "glass" : false
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : false
+    },
+    {
+      "name" : "Cara",
+      "layers" : [
+        {
+          "name" : "Cara",
+          "image-name" : "cara.png",
           "glass" : false
         }
       ],
