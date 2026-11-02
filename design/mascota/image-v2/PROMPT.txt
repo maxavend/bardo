@@ -1,0 +1,11 @@
+Tool: ChatGPT Image (built-in image_gen). Transparent background.
+
+Use case: stylized-concept.
+Asset type: polished premium 3D mascot cutout for the Bardo macOS app and its website.
+Create a substantially more beautiful, professional version of this SAME character as a COMPLETE FLOATING HEAD on genuinely transparent background.
+Input image 1 is the authoritative original app icon: preserve its character identity, cream face, rich violet felt beret, glossy black capsule eyes, head attitude and upward/rightward gaze. Input image 2 is ONLY a reference for the complete head framing, feather and pin placement; improve its rigid hat and flat feather rather than reproducing those defects.
+Subject: adorable broad rounded cream head, no mouth, nose, ears, neck, shoulders or body. Two simple black pill-shaped eyes integrated into the curved face, convincingly rounded, subtle tight highlights. Head tilted approximately 30 degrees, face turned slightly upward and toward image-right, matching the original icon.
+Hat: a soft, convincingly tailored French artist's violet beret with a thick plush rolled lip, gently slouched organic crown behind it, subtle natural folds, fine tactile wool felt. It must read as a soft beret, never a hard plate, cowboy hat or rigid brim. A small elegant crimson recessed round pin holds a soft curved pale-lavender feather sweeping to image-left. Feather has delicate rounded flowing barbs and a graceful raised quill, natural depth, not a flat leaf or a geometric comb.
+Style: exceptionally polished high-end 3D character illustration, sculpted coherent forms, soft physically plausible studio light, beautiful rich violet fabric, creamy soft face, elegant material separation. Preserve the simple friendly identity and the precise head/gaze direction from image 1.
+Composition: SINGLE complete floating head, whole beret and entire feather fully visible, centered, occupies about 82% of a square frame, 8–10% clear padding. Actual alpha transparency, soft clean antialiased cutout edges, no colored fringe. No ground, no drop shadow outside the character, no platform, no background, no checkerboard pixels, no icon tile, no text, no watermark, no extra characters.
+Deliver an actual transparent PNG.
