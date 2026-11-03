@@ -449,3 +449,15 @@ body > footer { padding-bottom: env(safe-area-inset-bottom, 0px); }
 header.sticky { padding-left: max(var(--gutter), env(safe-area-inset-left, 0px)); padding-right: max(var(--gutter), env(safe-area-inset-right, 0px)); }
 body > main, body > footer { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
 [data-mobile-panel] { max-height: calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 6rem); overflow-y: auto; overscroll-behavior: contain; }
+
+/* Continue the opaque status edge into a scrim below the floating navigation. */
+.browser-scroll-fade {
+  position: fixed;
+  inset: max(12px, env(safe-area-inset-top, 0px)) 0 auto;
+  height: 7rem;
+  z-index: 39;
+  pointer-events: none;
+  background: linear-gradient(to bottom, var(--ground) 0%, var(--ground) 12%, transparent 100%);
+}
+header.sticky { top: env(safe-area-inset-top, 0px); padding-top: 0.75rem; }
+@media print { .browser-scroll-fade { display: none; } }
