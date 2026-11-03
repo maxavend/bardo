@@ -439,3 +439,13 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Browser chrome gets a stable opaque edge; interactive content respects every inset. */
+.browser-theme-edge { position: fixed; inset: 0 0 auto; height: max(12px, env(safe-area-inset-top, 0px)); background: var(--ground); z-index: 39; pointer-events: none; }
+header.sticky { padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem); }
+html { background-color: var(--ground); }
+body > footer { padding-bottom: env(safe-area-inset-bottom, 0px); }
+@media print { .browser-theme-edge { display: none; } }
+header.sticky { padding-left: max(var(--gutter), env(safe-area-inset-left, 0px)); padding-right: max(var(--gutter), env(safe-area-inset-right, 0px)); }
+body > main, body > footer { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+[data-mobile-panel] { max-height: calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 6rem); overflow-y: auto; overscroll-behavior: contain; }

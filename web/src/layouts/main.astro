@@ -18,7 +18,7 @@ const { title, description, current } = Astro.props
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
@@ -31,6 +31,7 @@ const { title, description, current } = Astro.props
     <link rel="manifest" href={url("site.webmanifest")} />
   </head>
   <body>
+    <div class="browser-theme-edge" aria-hidden="true"></div>
     <a
       class="fixed -top-24 left-4 z-50 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background focus-visible:top-4"
       href="#main">Saltar al contenido</a
