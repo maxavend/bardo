@@ -1,5 +1,6 @@
 import AVFAudio
 import Foundation
+import UniformTypeIdentifiers
 
 struct AudioMetadataReader: Sendable {
     func read(from url: URL) throws -> AudioMetadata {
@@ -51,6 +52,9 @@ struct AudioMetadataReader: Sendable {
         case ".mp3": return "MP3"
         case "flac": return "FLAC"
         case "alac": return "Apple Lossless"
+        case "opus": return "Opus"
+        case "samr": return "AMR"
+        case "sawb": return "AMR-WB"
         case "": return String(format: "0x%08X", formatID)
         default: return fourCC.uppercased()
         }
@@ -59,8 +63,26 @@ struct AudioMetadataReader: Sendable {
 
 actor AudioImportService {
     static let supportedFileExtensions: Set<String> = [
-        "m4a", "mp3", "wav", "flac", "aac", "aiff"
+        "m4a", "mp3", "wav", "flac", "aac", "aiff",
+        "aif", "aifc", "caf", "m4b", "mp4",
+        // Voice notes: Opus from WhatsApp and Telegram, AMR and 3GP from phone recorders.
+        // Core Audio decodes them all, so Bardo keeps them as they are: they are already
+        // lighter than AAC or MP3 would make them.
+        "opus", "ogg", "oga", "amr", "awb", "3gp", "3gpp", "3g2"
     ]
+
+    /// What the open panel offers. Some formats Bardo reads, such as 3GP and MP4, are
+    /// registered as video rather than audio, so they are named one by one.
+    static let supportedContentTypes: [UTType] = {
+        var types: [UTType] = [.audio]
+        for fileExtension in supportedFileExtensions.sorted() {
+            guard let type = UTType(filenameExtension: fileExtension),
+                  !type.conforms(to: .audio),
+                  !types.contains(type) else { continue }
+            types.append(type)
+        }
+        return types
+    }()
 
     private let store: RecordingStore
     private let metadataReader: AudioMetadataReader

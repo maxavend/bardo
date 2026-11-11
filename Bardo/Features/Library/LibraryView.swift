@@ -26,6 +26,8 @@ struct LibraryView: View {
     @State private var searchText = ""
     /// Conversations waiting for confirmation before they go to the Trash.
     @State private var trashCandidates: Set<Recording.ID> = []
+    @State private var compressionRequest: CompressionRequest?
+    @State private var isStoragePresented = false
     @FocusState private var isSearchFocused: Bool
     #if DEBUG
     @Environment(\.openSettings) private var openSettings
@@ -88,6 +90,12 @@ struct LibraryView: View {
                 )
             }
         }
+        .sheet(item: $compressionRequest) { request in
+            CompressAudioSheet(recordingIDs: request.ids, model: model)
+        }
+        .sheet(isPresented: $isStoragePresented) {
+            StorageManagerSheet(model: model, moveToTrash: moveToTrash)
+        }
         .focusedSceneValue(\.libraryInspector, model.selectedRecording == nil ? nil : $isInfoPresented)
         .focusedSceneValue(\.librarySelection, selectionCommands)
         .confirmationDialog(
@@ -128,6 +136,10 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.focusSearch)) { _ in
             isSearchFocused = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.manageStorage)) { _ in
+            isInfoPresented = false
+            isStoragePresented = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: BardoCommandNotification.libraryChanged)) { _ in
             Task {
                 await model.reload()
@@ -139,7 +151,7 @@ struct LibraryView: View {
         }
         .fileImporter(
             isPresented: $isFileImporterPresented,
-            allowedContentTypes: [.audio],
+            allowedContentTypes: AudioImportService.supportedContentTypes,
             allowsMultipleSelection: true
         ) { result in
             switch result {
@@ -226,6 +238,10 @@ struct LibraryView: View {
             Task { await model.importAudio(from: [URL(fileURLWithPath: step.value)]) }
         case "trash":
             if let recording = model.selectedRecording { moveToTrash([recording.id]) }
+        case "storage":
+            isStoragePresented = true
+        case "compress":
+            requestCompression(model.selectedIDs)
         default:
             break
         }
@@ -251,7 +267,8 @@ struct LibraryView: View {
                 onNewRecording: onNewRecording,
                 onImport: { isFileImporterPresented = true },
                 onToggleArchived: toggleArchived,
-                onRequestTrash: { trashCandidates = $0 }
+                onRequestTrash: { trashCandidates = $0 },
+                onRequestCompress: requestCompression
             )
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -320,7 +337,9 @@ struct LibraryView: View {
             MultipleSelectionView(
                 count: model.selectedIDs.count,
                 archives: LibrarySelection.archives(selectedRecordings),
+                canCompress: LibrarySelection.canCompress(selectedRecordings, model: model),
                 onToggleArchived: { toggleArchived(model.selectedIDs) },
+                onCompress: { requestCompression(model.selectedIDs) },
                 onMoveToTrash: { trashCandidates = model.selectedIDs }
             )
         } else if model.recordings.isEmpty {
@@ -399,6 +418,14 @@ struct LibraryView: View {
         }
     }
 
+    /// Opens the compression sheet for the conversations, in Library order.
+    private func requestCompression(_ ids: Set<Recording.ID>) {
+        let recordings = sort.sorted(model.recordings.filter { ids.contains($0.id) })
+        guard LibrarySelection.canCompress(recordings, model: model) else { return }
+        isInfoPresented = false
+        compressionRequest = CompressionRequest(ids: recordings.map(\.id))
+    }
+
     /// Search results, newest first, as the list shows them.
     private var searchResultIDs: [Recording.ID] {
         let matching = Set(model.searchDocuments.filter { $0.match(query: searchQuery) != nil }.map(\.id))
@@ -422,8 +449,10 @@ struct LibraryView: View {
         return LibrarySelectionCommands(
             archives: LibrarySelection.archives(recordings),
             addsToFavorites: addsToFavorites,
+            canCompress: LibrarySelection.canCompress(recordings, model: model),
             toggleArchived: { toggleArchived(ids) },
-            toggleFavorite: { favorites.set(ids, favorite: addsToFavorites) }
+            toggleFavorite: { favorites.set(ids, favorite: addsToFavorites) },
+            compress: { requestCompression(ids) }
         )
     }
 }
@@ -432,7 +461,9 @@ struct LibraryView: View {
 private struct MultipleSelectionView: View {
     let count: Int
     let archives: Bool
+    let canCompress: Bool
     let onToggleArchived: () -> Void
+    let onCompress: () -> Void
     let onMoveToTrash: () -> Void
 
     var body: some View {
@@ -440,6 +471,8 @@ private struct MultipleSelectionView: View {
             Label("\(count) conversaciones seleccionadas", systemImage: "rectangle.stack")
         } actions: {
             Button(archives ? "Archivar" : "Desarchivar", action: onToggleArchived)
+            Button("Comprimir audio…", action: onCompress)
+                .disabled(!canCompress)
             Button("Mover a la Papelera…", role: .destructive, action: onMoveToTrash)
         }
     }
@@ -450,8 +483,11 @@ struct LibrarySelectionCommands {
     /// Archivar, or Desarchivar when every selected conversation is archived.
     var archives: Bool
     var addsToFavorites: Bool
+    /// Whether the selection has audio to compress, with no compression running.
+    var canCompress: Bool
     var toggleArchived: () -> Void
     var toggleFavorite: () -> Void
+    var compress: () -> Void
 }
 
 extension FocusedValues {

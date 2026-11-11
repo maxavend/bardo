@@ -40,6 +40,8 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var isDiarizing = false
     /// The recording whose audio is being compressed, one at a time.
     @Published private(set) var compressingRecordingID: Recording.ID?
+    /// The compression in progress or just finished, for its sheet.
+    @Published private(set) var compressionRun: AudioCompressionRun?
     /// A manual edit is being written; model work must not start from a stale copy.
     @Published private(set) var isSavingTranscriptEdit = false
     /// The conversations selected in the list; several when a person ⌘- or ⇧-clicks.
@@ -60,6 +62,7 @@ final class LibraryViewModel: ObservableObject {
     private var transcriber: (any RecordingTranscribing)?
     private var diarizer: (any RecordingDiarizing)?
     private var transcriptionTask: Task<Void, Never>?
+    private var stopsCompression = false
     private var diarizationTask: Task<Void, Never>?
 
     init(
@@ -221,59 +224,148 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
-    /// Re-encodes a recording's audio at a lower quality to take less space. A track is
-    /// replaced only when its new file is smaller; the rest stay as they are.
-    func compressAudio(_ recordingID: Recording.ID, to preset: AudioQualityPreset) async {
-        guard compressingRecordingID == nil, !isProcessing(recordingID),
-              let recording = recordings.first(where: { $0.id == recordingID }) else { return }
-        compressingRecordingID = recordingID
-        defer { compressingRecordingID = nil }
+    /// Re-encodes conversations' audio at a lower quality to take less space, one after
+    /// another. A track is replaced only when its new file is smaller; the rest stay as
+    /// they are. `stopCompression()` lets the conversation in progress finish first.
+    func compressAudio(_ recordingIDs: [Recording.ID], to preset: AudioQualityPreset) async {
+        guard compressionRun?.isRunning != true else { return }
+        let ids = recordingIDs.filter { id in recordings.contains { $0.id == id } }
+        guard !ids.isEmpty else { return }
 
-        let encoding = AudioEncoding(preset: preset, format: .aac)
+        stopsCompression = false
+        var run = AudioCompressionRun(total: ids.count)
+        compressionRun = run
+        defer {
+            compressingRecordingID = nil
+            run.isRunning = false
+            run.currentTitle = nil
+            compressionRun = run
+        }
+
+        for id in ids {
+            guard !stopsCompression else { break }
+            guard let recording = recordings.first(where: { $0.id == id }) else { continue }
+            run.currentTitle = LibraryFormatting.recordingTitle(recording)
+            compressionRun = run
+            if isProcessing(id) {
+                run.failures.append(.init(
+                    title: LibraryFormatting.recordingTitle(recording),
+                    reason: "Se está transcribiendo."
+                ))
+            } else {
+                compressingRecordingID = id
+                do {
+                    run.savedBytes += try await compressAudio(of: recording, encoding: AudioEncoding(preset: preset, format: .aac))
+                } catch {
+                    run.failures.append(.init(
+                        title: LibraryFormatting.recordingTitle(recording),
+                        reason: error.localizedDescription
+                    ))
+                }
+            }
+            run.completed += 1
+            compressionRun = run
+        }
+        run.wasStopped = stopsCompression && run.completed < run.total
+    }
+
+    /// Lets the conversation being compressed finish, then stops.
+    func stopCompression() {
+        stopsCompression = true
+    }
+
+    /// Forgets a finished compression, once its result has been seen.
+    func clearCompressionRun() {
+        guard compressionRun?.isRunning != true else { return }
+        compressionRun = nil
+    }
+
+    /// Compresses one conversation's tracks and returns the bytes saved.
+    private func compressAudio(of recording: Recording, encoding: AudioEncoding) async throws -> Int64 {
+        let recordingID = recording.id
         let workDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("bardo-compress-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: workDirectory) }
 
-        do {
-            let store = try resolveStore()
-            try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
-            var replacements: [(asset: AudioAsset, sourceURL: URL)] = []
-            for asset in recording.audioAssets {
-                let source = try await store.managedAudioURL(recordingID: recordingID, audioAssetID: asset.id)
-                let destination = workDirectory.appendingPathComponent("\(asset.id.uuidString).m4a")
-                try await AudioFileTranscoder().transcode(from: source, to: destination, encoding: encoding)
-                guard Self.fileSize(destination) < Self.fileSize(source) else { continue }
-                let name = (asset.originalFileName as NSString).deletingPathExtension
-                replacements.append((
-                    AudioAsset(
-                        id: asset.id,
-                        originalFileName: "\(name).m4a",
-                        fileExtension: "m4a",
-                        metadata: try AudioMetadataReader().read(from: destination),
-                        role: asset.role,
-                        timelineOffset: asset.timelineOffset,
-                        derivedFromAssetIDs: asset.derivedFromAssetIDs
-                    ),
-                    destination
-                ))
-            }
-            guard !replacements.isEmpty else { return }
-
-            // The player lets go of the old files while they are swapped.
-            let isSelected = selection == recordingID
-            if isSelected { playback.unload() }
-            let updated = try await store.replaceAudio(of: recordingID, with: replacements)
-            if let index = recordings.firstIndex(where: { $0.id == recordingID }) {
-                recordings[index].audioAssets = updated.audioAssets
-            }
-            if isSelected { await preparePlaybackForSelection() }
-        } catch {
-            recordingActionErrorMessage = error.localizedDescription
+        let store = try resolveStore()
+        try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+        var replacements: [(asset: AudioAsset, sourceURL: URL)] = []
+        var saved: Int64 = 0
+        for asset in recording.audioAssets {
+            let source = try await store.managedAudioURL(recordingID: recordingID, audioAssetID: asset.id)
+            let destination = workDirectory.appendingPathComponent("\(asset.id.uuidString).m4a")
+            try await AudioFileTranscoder().transcode(from: source, to: destination, encoding: encoding)
+            // Re-encoding lossy audio costs quality: only worth it for a real saving,
+            // the same rule the estimate shown before compressing follows.
+            guard let before = LibraryStorage.fileSize(source),
+                  let after = LibraryStorage.fileSize(destination),
+                  Double(after) < Double(before) * AudioCompressionPlan.worthwhileShare else { continue }
+            saved += before - after
+            let name = (asset.originalFileName as NSString).deletingPathExtension
+            replacements.append((
+                AudioAsset(
+                    id: asset.id,
+                    originalFileName: "\(name).m4a",
+                    fileExtension: "m4a",
+                    metadata: try AudioMetadataReader().read(from: destination),
+                    role: asset.role,
+                    timelineOffset: asset.timelineOffset,
+                    derivedFromAssetIDs: asset.derivedFromAssetIDs
+                ),
+                destination
+            ))
         }
+        guard !replacements.isEmpty else { return 0 }
+
+        // The player lets go of the old files while they are swapped.
+        let isSelected = selection == recordingID
+        if isSelected { playback.unload() }
+        let updated = try await store.replaceAudio(of: recordingID, with: replacements)
+        if let index = recordings.firstIndex(where: { $0.id == recordingID }) {
+            recordings[index].audioAssets = updated.audioAssets
+        }
+        if isSelected { await preparePlaybackForSelection() }
+        return saved
     }
 
-    private static func fileSize(_ url: URL) -> Int {
-        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? .max
+    /// How much space each conversation takes, measured away from the main thread.
+    /// With `ids`, only those conversations are measured; otherwise every one, the
+    /// Library folder, the models and the free space as well.
+    func storageReport(for ids: Set<Recording.ID>? = nil) async -> LibraryStorageReport {
+        guard let store = try? resolveStore() else { return .empty }
+        var locations: [(id: Recording.ID, directory: URL, audio: [(AudioAsset.ID, URL)])] = []
+        for recording in recordings where ids?.contains(recording.id) ?? true {
+            guard let directory = try? await store.recordingDirectoryURL(recordingID: recording.id) else { continue }
+            var audio: [(AudioAsset.ID, URL)] = []
+            for asset in recording.audioAssets {
+                if let url = try? await store.managedAudioURL(recordingID: recording.id, audioAssetID: asset.id) {
+                    audio.append((asset.id, url))
+                }
+            }
+            locations.append((recording.id, directory, audio))
+        }
+        let libraryURL = ids == nil ? try? RecordingStore.defaultLibraryURL() : nil
+        let measuresEverything = ids == nil
+        let measured = locations
+        return await Task.detached(priority: .userInitiated) {
+            var report = LibraryStorageReport()
+            for location in measured {
+                var audioBytes: [AudioAsset.ID: Int64] = [:]
+                for (id, url) in location.audio {
+                    if let size = LibraryStorage.fileSize(url) { audioBytes[id] = size }
+                }
+                report.entries[location.id] = .init(
+                    totalBytes: LibraryStorage.directorySize(location.directory),
+                    audioBytes: audioBytes
+                )
+            }
+            if let libraryURL {
+                report.libraryBytes = LibraryStorage.directorySize(libraryURL)
+                report.availableBytes = LibraryStorage.availableCapacity(at: libraryURL)
+            }
+            if measuresEverything { report.modelsBytes = LibraryStorage.modelsSize() }
+            return report
+        }.value
     }
 
     func deleteRecording(_ recordingID: Recording.ID) async {

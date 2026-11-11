@@ -61,6 +61,14 @@ enum LibrarySelection {
         ids.contains { !favorites.contains($0) }
     }
 
+    /// Comprimir audio is offered when some of them have audio that is not being
+    /// transcribed, and no other compression is running.
+    @MainActor
+    static func canCompress(_ recordings: [Recording], model: LibraryViewModel) -> Bool {
+        model.compressionRun?.isRunning != true
+            && recordings.contains { !$0.audioAssets.isEmpty && !model.isProcessing($0.id) }
+    }
+
     /// The conversation that takes the selection when `removed` leave `list`, as in
     /// Mail: the one after them, or the one before when they were last.
     static func neighbor(of removed: Set<Recording.ID>, in list: [Recording.ID]) -> Recording.ID? {

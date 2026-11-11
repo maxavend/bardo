@@ -5,11 +5,10 @@ struct RecordingInspector: View {
     let recording: Recording
     let transcript: Transcript?
     var isCompressing = false
-    /// Compresses the audio at a lower quality; `nil` where it cannot be offered.
-    var compress: ((AudioQualityPreset) -> Void)?
+    /// Opens the compression sheet; `nil` where it cannot be offered.
+    var compress: (() -> Void)?
 
     @State private var showsTechnicalDetails = false
-    @State private var isConfirmingCompression = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -144,56 +143,28 @@ struct RecordingInspector: View {
     // MARK: Compression
 
     private var compressionRow: some View {
-        let options = compressionOptions
-        return LabeledContent {
+        LabeledContent {
             if isCompressing {
                 ProgressView()
                     .controlSize(.small)
             } else {
-                Button("Comprimir…") { isConfirmingCompression = true }
-                    .disabled(options.isEmpty)
+                Button("Comprimir…") { compress?() }
             }
         } label: {
             Text("Comprimir audio")
-            Text(isCompressing
-                ? "Comprimiendo…"
-                : (options.last.map { "Puede ocupar unos \(SettingsView.megabytes($0.bytes))." } ?? "Ya ocupa poco espacio."))
-        }
-        .confirmationDialog(
-            "¿Seguro que quieres comprimir el audio?",
-            isPresented: $isConfirmingCompression,
-            titleVisibility: .visible
-        ) {
-            ForEach(options, id: \.preset) { option in
-                Button("\(option.preset.title) · unos \(SettingsView.megabytes(option.bytes))") {
-                    compress?(option.preset)
-                }
-            }
-            Button("Cancelar", role: .cancel) {}
-        } message: {
-            Text("\(formattedTotalBytes.map { "Ahora ocupa \($0). " } ?? "")Se seguirá entendiendo y transcribiendo todo, pero la calidad original no se puede recuperar.")
+            Text(isCompressing ? "Comprimiendo…" : compressionHint)
         }
     }
 
-    /// The qualities that would save a real share of the space, with what each would take.
-    private var compressionOptions: [(preset: AudioQualityPreset, bytes: Double)] {
-        guard let current = totalByteCount else { return [] }
-        return [AudioQualityPreset.high, .balanced, .compact].compactMap { preset in
-            let encoding = AudioEncoding(preset: preset, format: .aac)
-            let bytes = recording.audioAssets.reduce(0.0) { total, asset in
-                total + encoding.bytesPerMinute(channels: Int(asset.metadata.channelCount)) * asset.metadata.duration / 60
-            }
-            return bytes < Double(current) * 0.8 ? (preset, bytes) : nil
-        }
-    }
-
-    private var totalByteCount: Int64? {
-        let sizes = recording.audioAssets.compactMap(byteCount(for:))
-        return sizes.count == recording.audioAssets.count ? sizes.reduce(0, +) : nil
-    }
-
-    private var formattedTotalBytes: String? {
-        totalByteCount.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+    /// What Equilibrada would leave, as a hint before opening the sheet.
+    private var compressionHint: String {
+        let sizes = Dictionary(uniqueKeysWithValues: recording.audioAssets.compactMap { asset in
+            byteCount(for: asset).map { (asset.id, $0) }
+        })
+        let plan = AudioCompressionPlan(recordings: [recording], audioBytes: sizes, preset: .balanced)
+        return plan.savesSpace
+            ? "Puede ocupar unos \(LibraryStorage.format(plan.estimatedBytes))."
+            : "Ya ocupa poco espacio."
     }
 
     private static let dateFormat = Date.FormatStyle.dateTime.day().month(.abbreviated).year().hour().minute()

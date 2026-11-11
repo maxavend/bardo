@@ -57,6 +57,32 @@ enum AudioTestFixture {
         file.close()
     }
 
+    /// An Opus voice note. Core Audio cannot write Ogg, so the fixture uses a CAF
+    /// container; the import path is the same for `.opus` files from WhatsApp.
+    static func makeOpusCAF(at url: URL, duration: TimeInterval = 0.5) throws {
+        let sampleRate = 48_000.0
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
+            throw XCTSkip("Could not create an AVAudioFormat fixture.")
+        }
+
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatOpus,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: 24_000
+        ]
+        let frameCount = AVAudioFrameCount((sampleRate * duration).rounded())
+        let buffer = try makeBuffer(format: format, frameCount: frameCount)
+        let file = try AVAudioFile(
+            forWriting: url,
+            settings: settings,
+            commonFormat: format.commonFormat,
+            interleaved: format.isInterleaved
+        )
+        try file.write(from: buffer)
+        file.close()
+    }
+
     private static func makeBuffer(
         format: AVAudioFormat,
         frameCount: AVAudioFrameCount

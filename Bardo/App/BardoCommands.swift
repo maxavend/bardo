@@ -14,6 +14,8 @@ enum BardoCommandNotification {
     /// Brings the recorder into view in the main window.
     static let showRecording = Notification.Name("Bardo.Command.ShowRecording")
     static let libraryChanged = Notification.Name("Bardo.Library.Changed")
+    /// Opens the storage manager over the main window.
+    static let manageStorage = Notification.Name("Bardo.Command.ManageStorage")
 }
 
 /// What the focused window's capture can do right now, so menu items are enabled
@@ -49,6 +51,12 @@ struct BardoCommands: Commands {
                 post(BardoCommandNotification.importAudio)
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Gestionar almacenamiento…") {
+                post(BardoCommandNotification.manageStorage)
+            }
         }
 
         CommandGroup(after: .textEditing) {
@@ -82,6 +90,13 @@ struct BardoCommands: Commands {
             }
             .keyboardShortcut("a", modifiers: [.command, .control])
             .disabled(selection == nil)
+
+            Divider()
+
+            Button("Comprimir audio…") {
+                selection?.compress()
+            }
+            .disabled(selection?.canCompress != true)
         }
 
         CommandMenu("Grabación") {

@@ -15,6 +15,7 @@ struct RecordingListView: View {
     let onToggleArchived: (Set<Recording.ID>) -> Void
     /// Asks for confirmation before the conversations go to the Trash.
     let onRequestTrash: (Set<Recording.ID>) -> Void
+    let onRequestCompress: (Set<Recording.ID>) -> Void
 
     @State private var renameTarget: Recording?
 
@@ -149,6 +150,13 @@ struct RecordingListView: View {
         } label: {
             Label("Mostrar en Finder", systemImage: "folder")
         }
+
+        Button {
+            onRequestCompress(ids)
+        } label: {
+            Label("Comprimir audio…", systemImage: "rectangle.compress.vertical")
+        }
+        .disabled(!LibrarySelection.canCompress(recordings, model: model))
 
         Divider()
 

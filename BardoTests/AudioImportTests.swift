@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import XCTest
 @testable import Bardo
 
@@ -26,7 +27,11 @@ final class AudioImportTests: XCTestCase {
     func testSupportedFormatsAreExplicit() {
         XCTAssertEqual(
             AudioImportService.supportedFileExtensions,
-            Set(["m4a", "mp3", "wav", "flac", "aac", "aiff"])
+            Set([
+                "m4a", "mp3", "wav", "flac", "aac", "aiff",
+                "aif", "aifc", "caf", "m4b", "mp4",
+                "opus", "ogg", "oga", "amr", "awb", "3gp", "3gpp", "3g2"
+            ])
         )
     }
 
@@ -81,8 +86,29 @@ final class AudioImportTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: restartedManagedURL.path))
     }
 
+    func testOpusVoiceNoteImportsAsIs() async throws {
+        let sourceURL = externalURL.appendingPathComponent("Voice note.caf")
+        try AudioTestFixture.makeOpusCAF(at: sourceURL)
+
+        let store = RecordingStore(rootURL: rootURL)
+        let importer = AudioImportService(store: store)
+        let recording = try await importer.importFile(at: sourceURL)
+        let asset = try XCTUnwrap(recording.audioAssets.first)
+
+        XCTAssertEqual(asset.fileExtension, "caf")
+        XCTAssertEqual(asset.metadata.codec, "Opus")
+        XCTAssertEqual(asset.metadata.duration, 0.5, accuracy: 0.05)
+    }
+
+    func testOpenPanelOffersVoiceNotesRegisteredAsVideo() throws {
+        let types = AudioImportService.supportedContentTypes
+        let threeGP = try XCTUnwrap(UTType(filenameExtension: "3gp"))
+        XCTAssertTrue(types.contains(.audio))
+        XCTAssertTrue(types.contains { threeGP.conforms(to: $0) })
+    }
+
     func testUnsupportedExtensionProducesControlledErrorWithoutMutation() async throws {
-        let sourceURL = externalURL.appendingPathComponent("Meeting.ogg")
+        let sourceURL = externalURL.appendingPathComponent("Meeting.wma")
         try Data("not important".utf8).write(to: sourceURL)
         let store = RecordingStore(rootURL: rootURL)
         let importer = AudioImportService(store: store)
@@ -91,7 +117,7 @@ final class AudioImportTests: XCTestCase {
             _ = try await importer.importFile(at: sourceURL)
             XCTFail("Expected unsupported extension to fail")
         } catch AudioImportError.unsupportedFileExtension(let value) {
-            XCTAssertEqual(value, "ogg")
+            XCTAssertEqual(value, "wma")
         }
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
