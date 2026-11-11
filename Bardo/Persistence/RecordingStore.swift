@@ -164,29 +164,31 @@ actor RecordingStore {
     }
 
     /// Swaps tracks of a saved recording for new encodings of the same audio, as when
-    /// compressing it. New files are copied in first; each one then takes its track's
-    /// place in one rename, the manifest follows, and files left under an old name are
-    /// removed last.
+    /// compressing it. Keep the original files available until the manifest is saved.
     func replaceAudio(
         of recordingID: Recording.ID,
         with replacements: [(asset: AudioAsset, sourceURL: URL)]
     ) throws -> Recording {
         var recording = try read(id: recordingID)
         let audioDirectory = audioDirectoryURL(for: recordingID)
-        var staged: [(asset: AudioAsset, url: URL)] = []
+        let staging = audioDirectory.appendingPathComponent(".replacement-\(UUID().uuidString)", isDirectory: true)
+        let manager = FileManager.default
+        try ensureDirectoryExists(staging)
+        var preserveBackups = false
+        defer { if !preserveBackups { try? manager.removeItem(at: staging) } }
+
+        var staged: [(index: Int, asset: AudioAsset, url: URL)] = []
         do {
             for (asset, sourceURL) in replacements {
-                guard recording.audioAssets.contains(where: { $0.id == asset.id }) else {
+                guard let index = recording.audioAssets.firstIndex(where: { $0.id == asset.id }) else {
                     throw RecordingStoreError.audioAssetNotFound(recordingID: recordingID, audioAssetID: asset.id)
                 }
-                let temporaryURL = audioDirectory.appendingPathComponent(".audio-\(asset.id.uuidString).replacing.tmp")
-                try? FileManager.default.removeItem(at: temporaryURL)
-                try FileManager.default.copyItem(at: sourceURL, to: temporaryURL)
+                let temporaryURL = staging.appendingPathComponent(asset.id.uuidString)
+                try manager.copyItem(at: sourceURL, to: temporaryURL)
                 DurableFile.restrictToOwner(temporaryURL)
-                staged.append((asset, temporaryURL))
+                staged.append((index, asset, temporaryURL))
             }
         } catch {
-            staged.forEach { try? FileManager.default.removeItem(at: $0.url) }
             throw RecordingStoreError.fileSystem(
                 operation: "copy replacement audio",
                 entry: recordingID.uuidString,
@@ -194,17 +196,78 @@ actor RecordingStore {
             )
         }
 
+        var published: [(url: URL, backup: URL?)] = []
         var obsolete: [URL] = []
-        for (asset, temporaryURL) in staged {
-            guard let index = recording.audioAssets.firstIndex(where: { $0.id == asset.id }) else { continue }
-            let oldURL = managedAudioURL(recordingID: recordingID, asset: recording.audioAssets[index])
-            let newURL = managedAudioURL(recordingID: recordingID, asset: asset)
-            try atomicallyMove(from: temporaryURL, to: newURL, operation: "replace managed audio")
-            if oldURL != newURL { obsolete.append(oldURL) }
-            recording.audioAssets[index] = asset
+        do {
+            for (index, asset, temporaryURL) in staged {
+                let oldURL = managedAudioURL(recordingID: recordingID, asset: recording.audioAssets[index])
+                let newURL = managedAudioURL(recordingID: recordingID, asset: asset)
+                let backup: URL?
+                if oldURL == newURL {
+                    let path = staging.appendingPathComponent("\(asset.id.uuidString).backup")
+                    do {
+                        try manager.linkItem(at: oldURL, to: path)
+                    } catch {
+                        try manager.copyItem(at: oldURL, to: path)
+                    }
+                    backup = path
+                } else {
+                    backup = nil
+                    obsolete.append(oldURL)
+                }
+                try atomicallyMove(from: temporaryURL, to: newURL, operation: "replace managed audio")
+                published.append((newURL, backup))
+                recording.audioAssets[index] = asset
+            }
+            try save(recording)
+        } catch {
+            for (url, backup) in published.reversed() {
+                do {
+                    if let backup {
+                        try atomicallyMove(from: backup, to: url, operation: "restore original audio")
+                    } else {
+                        try manager.removeItem(at: url)
+                    }
+                } catch {
+                    preserveBackups = true
+                }
+            }
+            throw error
         }
-        try save(recording)
-        obsolete.forEach { try? FileManager.default.removeItem(at: $0) }
+        obsolete.forEach { try? manager.removeItem(at: $0) }
+        return recording
+    }
+
+    /// Publish the unified file and manifest before removing any source tracks.
+    func replaceAllAudio(
+        of recordingID: Recording.ID,
+        expectedAssetIDs: Set<AudioAsset.ID>,
+        with asset: AudioAsset,
+        from source: URL
+    ) throws -> Recording {
+        var recording = try read(id: recordingID)
+        let originals = recording.audioAssets
+        guard Set(originals.map(\.id)) == expectedAssetIDs, !expectedAssetIDs.contains(asset.id) else {
+            throw RecordingStoreError.invalidManifest("Las pistas de la conversación cambiaron durante la compresión.")
+        }
+        let destination = managedAudioURL(recordingID: recordingID, asset: asset)
+        let staged = destination.deletingLastPathComponent()
+            .appendingPathComponent(".audio-\(asset.id.uuidString).tmp")
+        let manager = FileManager.default
+        defer { try? manager.removeItem(at: staged) }
+        try manager.copyItem(at: source, to: staged)
+        DurableFile.restrictToOwner(staged)
+        try atomicallyMove(from: staged, to: destination, operation: "publish unified audio")
+        do {
+            recording.audioAssets = [asset]
+            try save(recording)
+        } catch {
+            try? manager.removeItem(at: destination)
+            throw error
+        }
+        for original in originals {
+            try? manager.removeItem(at: managedAudioURL(recordingID: recordingID, asset: original))
+        }
         return recording
     }
 

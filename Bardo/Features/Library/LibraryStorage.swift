@@ -80,21 +80,45 @@ enum LibraryStorage {
 
 /// A compression of one or several conversations, while it runs and once it ends.
 struct AudioCompressionRun: Equatable, Sendable {
+    enum Phase: Equatable, Sendable {
+        case preparing
+        case encoding(TrackProgress)
+        case saving
+        case preparingPlayback
+    }
+
+    struct TrackProgress: Equatable, Sendable {
+        let id = UUID()
+        let title: String
+        let number: Int
+        let count: Int
+        let duration: TimeInterval
+        let precedingDuration: TimeInterval
+        let recordingDuration: TimeInterval
+        var processed: TimeInterval = 0
+
+        var recordingFraction: Double? {
+            guard recordingDuration > 0 else { return nil }
+            return (precedingDuration + processed) / recordingDuration
+        }
+    }
+
     struct Failure: Equatable, Sendable {
         let title: String
         let reason: String
     }
 
     let total: Int
+    var copyFolder: URL?
     var completed = 0
     var currentTitle: String?
+    var phase: Phase = .preparing
+    var stoppingAfterCurrent = false
     var savedBytes: Int64 = 0
+    var copiedBytes: Int64 = 0
+    var copyURLs: [URL] = []
     var failures: [Failure] = []
     var isRunning = true
     /// Stopped before every conversation was compressed.
     var wasStopped = false
-
-    var fractionCompleted: Double {
-        total > 0 ? Double(completed) / Double(total) : 0
-    }
 }

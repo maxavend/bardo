@@ -35,12 +35,12 @@ final class AudioCompressionTests: XCTestCase {
         let lightRecording = Recording(title: "Opus", duration: 600, sources: [.importedFile], audioAssets: [light])
         let sizes: [AudioAsset.ID: Int64] = [heavy.id: 57_600_000, light.id: 1_500_000]
 
-        let plan = AudioCompressionPlan(recordings: [heavyRecording, lightRecording], audioBytes: sizes, preset: .balanced)
+        let plan = AudioCompressionPlan(recordings: [heavyRecording, lightRecording], audioBytes: sizes)
 
-        // Equilibrada mono: 64 kbps, 4.8 MB in ten minutes.
+        // Equilibrada mono: 24 kbps, 1.8 MB in ten minutes.
         XCTAssertEqual(plan.currentBytes, 59_100_000)
-        XCTAssertEqual(plan.estimatedBytes, 4_800_000 + 1_500_000)
-        XCTAssertEqual(plan.savedBytes, 52_800_000)
+        XCTAssertEqual(plan.estimatedBytes, 1_800_000 + 1_500_000)
+        XCTAssertEqual(plan.savedBytes, 55_800_000)
         XCTAssertEqual(plan.shrinkingRecordingIDs, [heavyRecording.id])
         XCTAssertTrue(plan.savesSpace)
     }
@@ -49,7 +49,11 @@ final class AudioCompressionTests: XCTestCase {
         let light = asset(duration: 600)
         let recording = Recording(title: "Opus", duration: 600, sources: [.importedFile], audioAssets: [light])
 
-        let plan = AudioCompressionPlan(recordings: [recording], audioBytes: [light.id: 1_500_000], preset: .high)
+        let plan = AudioCompressionPlan(
+            recordings: [recording],
+            audioBytes: [light.id: 1_500_000],
+            encoding: .init(bitRate: .kbps48)
+        )
 
         XCTAssertFalse(plan.savesSpace)
         XCTAssertEqual(plan.estimatedBytes, plan.currentBytes)
@@ -101,7 +105,15 @@ final class AudioCompressionTests: XCTestCase {
         try AudioTestFixture.makeWAV(at: wav, sampleRate: 48_000, channelCount: 1, duration: 4)
         // Already AAC at Compacta: Equilibrada would not save a fifth of it.
         let compact = rootURL.appendingPathComponent("Voice note.m4a")
-        try AudioFileTranscoder.encode(from: wav, to: compact, encoding: AudioEncoding(preset: .compact, format: .aac))
+        try AudioFileTranscoder.encode(from: wav, to: compact) { _ in
+            [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 16_000,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 16_000,
+                AVEncoderBitRateStrategyKey: AVAudioBitRateStrategy_Constant
+            ]
+        }
         let heavy = try await importer.importFile(at: wav)
         let light = try await importer.importFile(at: compact)
 
@@ -109,7 +121,7 @@ final class AudioCompressionTests: XCTestCase {
         await model.reload()
         let before = await model.storageReport()
 
-        await model.compressAudio([heavy.id, light.id], to: .balanced)
+        await model.compressAudio([heavy.id, light.id], using: .init(bitRate: .kbps48))
 
         let run = try XCTUnwrap(model.compressionRun)
         XCTAssertFalse(run.isRunning)

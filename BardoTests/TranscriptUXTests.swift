@@ -1,8 +1,88 @@
+import AppKit
 import Foundation
+import SwiftUI
 import XCTest
 @testable import Bardo
 
 final class TranscriptUXTests: XCTestCase {
+    @MainActor
+    func testClickingSecondWordMovesThePlayingAudioAndShowsHover() async throws {
+        let audio = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: audio) }
+        try AudioTestFixture.makeWAV(at: audio, sampleRate: 24_000, channelCount: 1, duration: 12)
+        let playback = AudioPlaybackController()
+        XCTAssertTrue(playback.load(url: audio))
+        playback.setVolume(0)
+        defer { playback.unload() }
+
+        let segment = TranscriptSegment(startTime: 1, endTime: 7, text: "Primera segunda", words: [
+            TranscriptWord(startTime: 1, endTime: 2, text: "Primera"),
+            TranscriptWord(startTime: 6, endTime: 7, text: "segunda")
+        ])
+        let rendered = TranscriptPlaybackText.attributed(segments: [segment], position: nil, searchQuery: "", canSeek: true)
+        let host = NSHostingView(rootView: SelectablePlaybackText(text: rendered, commands: []) { time in
+            playback.play(from: time)
+        }.frame(width: 340, height: 60, alignment: .topLeading))
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 340, height: 60), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = host
+        window.orderFrontRegardless()
+        try await Task.sleep(for: .milliseconds(100))
+        host.layoutSubtreeIfNeeded()
+        func findTextView(in view: NSView) -> SelectablePlaybackText.PlaybackTextView? {
+            (view as? SelectablePlaybackText.PlaybackTextView) ?? view.subviews.lazy.compactMap(findTextView).first
+        }
+        let view = try XCTUnwrap(findTextView(in: host))
+        let layout = try XCTUnwrap(view.layoutManager)
+        let container = try XCTUnwrap(view.textContainer)
+        let range = (rendered.string as NSString).range(of: "segunda")
+        let glyphRange = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        let rect = layout.boundingRect(forGlyphRange: glyphRange, in: container)
+        let location = view.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                                           timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                           context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+
+        view.mouseMoved(with: try event(.mouseMoved))
+        XCTAssertEqual(layout.temporaryAttribute(.underlineStyle, atCharacterIndex: range.location, effectiveRange: nil) as? Int, NSUnderlineStyle.single.rawValue)
+        XCTAssertNil(layout.temporaryAttribute(.underlineStyle, atCharacterIndex: 0, effectiveRange: nil))
+
+        XCTAssertTrue(playback.play())
+        view.mouseDown(with: try event(.leftMouseDown))
+        view.mouseUp(with: try event(.leftMouseUp))
+        XCTAssertEqual(playback.position, 6, accuracy: 0.25)
+        XCTAssertTrue(playback.isPlaying)
+    }
+
+    @MainActor
+    func testTranscriptSearchAndEditedTextKeepPlaybackTargets() throws {
+        let timed = TranscriptSegment(startTime: 2, endTime: 5, text: "Hola Figma.", words: [
+            TranscriptWord(startTime: 2, endTime: 3, text: " Hola"),
+            TranscriptWord(startTime: 4, endTime: 5, text: " figma.")
+        ])
+        let edited = TranscriptSegment(startTime: 8, endTime: 9, text: "Borrador", editedText: "Texto editado.")
+        let untimed = TranscriptSegment(startTime: 12, endTime: 13, text: "Sin tiempos.")
+        let text = TranscriptPlaybackText.attributed(
+            segments: [timed, edited, untimed], position: nil, searchQuery: "figma", canSeek: true
+        )
+        XCTAssertEqual(text.string, "Hola Figma. Texto editado. Sin tiempos.")
+
+        let coordinator = SelectablePlaybackText.Coordinator()
+        var visited: [TimeInterval] = []
+        coordinator.seek = { visited.append($0) }
+        let view = NSTextView(usingTextLayoutManager: false)
+        view.delegate = coordinator
+        for word in ["Figma", "editado", "tiempos"] {
+            let index = (text.string as NSString).range(of: word).location
+            let link = try XCTUnwrap(text.attribute(.link, at: index, effectiveRange: nil))
+            view.clicked(onLink: link, at: index)
+        }
+        XCTAssertEqual(visited, [4, 8, 12])
+    }
+
     func testSetupCopyStaysSingleLineAndNonTechnical() {
         let forbiddenTerms = [
             "whisper", "speakerkit", "core ml", "model", "transcription",

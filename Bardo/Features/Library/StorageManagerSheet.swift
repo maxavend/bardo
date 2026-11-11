@@ -14,6 +14,7 @@ struct StorageManagerSheet: View {
     @State private var sortOrder = [KeyPathComparator(\StorageRow.bytes, order: .reverse)]
     @State private var compressionRequest: CompressionRequest?
     @State private var trashCandidates: Set<Recording.ID> = []
+    @State private var showsTrackDetails = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -53,6 +54,7 @@ struct StorageManagerSheet: View {
         .sheet(item: $compressionRequest) { request in
             CompressAudioSheet(recordingIDs: request.ids, model: model)
         }
+        .onChange(of: selection) { _, _ in showsTrackDetails = false }
         .confirmationDialog(
             trashTitle,
             isPresented: Binding(
@@ -80,6 +82,8 @@ struct StorageManagerSheet: View {
                 selection = Set(indices.filter { rows.indices.contains($0) }.map { rows[$0].id })
             case "storageCompress":
                 if !selection.isEmpty { compress(selection) }
+            case "storageTracks":
+                showsTrackDetails = selectedRecording != nil
             case "storageRecommendation":
                 if let recommendation { compress(Set(recommendation.ids)) }
             default:
@@ -142,7 +146,7 @@ struct StorageManagerSheet: View {
         var ids: [Recording.ID] = []
         var saved: Int64 = 0
         for recording in model.recordings where !model.isProcessing(recording.id) {
-            let plan = AudioCompressionPlan(recordings: [recording], audioBytes: bytes, preset: .balanced)
+            let plan = AudioCompressionPlan(recordings: [recording], audioBytes: bytes, mergeTracks: true)
             guard plan.savesSpace, plan.savedBytes >= Self.recommendationMinimumBytes else { continue }
             ids.append(recording.id)
             saved += plan.savedBytes
@@ -186,6 +190,13 @@ struct StorageManagerSheet: View {
             Text("Conversaciones")
                 .font(.headline)
             Spacer()
+            Button("Pistas…") { showsTrackDetails = true }
+                .disabled(selectedRecording.flatMap { report?.entries[$0.id] } == nil)
+                .popover(isPresented: $showsTrackDetails, arrowEdge: .bottom) {
+                    if let recording = selectedRecording, let entry = report?.entries[recording.id] {
+                        trackDetails(recording, entry: entry)
+                    }
+                }
             Button("Comprimir…") { compress(selection) }
                 .disabled(selection.isEmpty || model.compressionRun?.isRunning == true)
             Button("Mover a la Papelera…") { trashCandidates = selection }
@@ -226,6 +237,12 @@ struct StorageManagerSheet: View {
                 Text(row.format)
             }
             .width(min: 56, ideal: 64)
+
+            TableColumn("Pistas", value: \.trackCount) { row in
+                Text(row.trackCount, format: .number)
+                    .monospacedDigit()
+            }
+            .width(min: 45, ideal: 50)
 
             TableColumn("Tamaño", value: \.bytes) { row in
                 Text(row.bytes > 0 ? LibraryStorage.format(row.bytes) : "—")
@@ -276,6 +293,36 @@ struct StorageManagerSheet: View {
         }
     }
 
+    private var selectedRecording: Recording? {
+        guard selection.count == 1, let id = selection.first else { return nil }
+        return model.recordings.first { $0.id == id }
+    }
+
+    private func trackDetails(_ recording: Recording, entry: LibraryStorageReport.Entry) -> some View {
+        let merge = AudioCompressionPlan(recordings: [recording], audioBytes: entry.audioBytes, mergeTracks: true)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(LibraryFormatting.recordingTitle(recording))
+                .font(.headline)
+                .lineLimit(2)
+            AudioTrackSizeRows(recording: recording, bytes: entry.audioBytes)
+            Divider()
+            LabeledContent("Total de audio", value: LibraryStorage.format(entry.audioTotal))
+            LabeledContent("Total de la conversación", value: LibraryStorage.format(entry.totalBytes))
+            if AudioCompressionMix(recording: recording) != nil {
+                LabeledContent("Una pista a 24 kbps", value: "≈ \(LibraryStorage.format(merge.copyBytes))")
+                Button("Unir y comprimir…") {
+                    showsTrackDetails = false
+                    compress([recording.id])
+                }
+                .disabled(model.isProcessing(recording.id) || model.compressionRun?.isRunning == true)
+            }
+        }
+        .padding(16)
+        .frame(width: 320)
+        .monospacedDigit()
+        .labeledContentStyle(StorageTrackDetailStyle())
+    }
+
     private var footer: some View {
         HStack {
             Text(footerSummary)
@@ -307,7 +354,7 @@ struct StorageManagerSheet: View {
         let entries = report?.entries ?? [:]
         let bytes = report?.allAudioBytes ?? [:]
         let rows = model.recordings.map { recording in
-            let plan = AudioCompressionPlan(recordings: [recording], audioBytes: bytes, preset: .balanced)
+            let plan = AudioCompressionPlan(recordings: [recording], audioBytes: bytes, mergeTracks: true)
             let entry = entries[recording.id]
             let audio = entry?.audioTotal ?? 0
             return StorageRow(
@@ -316,6 +363,7 @@ struct StorageManagerSheet: View {
                 date: recording.createdAt,
                 duration: recording.duration ?? 0,
                 format: Self.format(of: recording),
+                trackCount: recording.audioAssets.count,
                 bytes: entry?.totalBytes ?? 0,
                 compressedBytes: plan.savesSpace ? (entry?.totalBytes ?? audio) - plan.savedBytes : nil,
                 isArchived: recording.isArchived
@@ -357,6 +405,17 @@ struct StorageManagerSheet: View {
     }
 }
 
+private struct StorageTrackDetailStyle: LabeledContentStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            configuration.label
+            Spacer(minLength: 12)
+            configuration.content
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 /// Conversations to compress, for presenting `CompressAudioSheet`.
 struct CompressionRequest: Identifiable {
     let id = UUID()
@@ -369,6 +428,7 @@ struct StorageRow: Identifiable {
     let date: Date
     let duration: TimeInterval
     let format: String
+    let trackCount: Int
     let bytes: Int64
     /// What the conversation would take compressed at Equilibrada; `nil` when it would
     /// not shrink.

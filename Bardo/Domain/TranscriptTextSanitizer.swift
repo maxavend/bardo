@@ -47,6 +47,45 @@ enum TranscriptTextSanitizer {
         return capitalizeSentenceStarts(value)
     }
 
+    static func wordKey(_ word: some StringProtocol) -> String {
+        String(word.filter { $0.isLetter || $0.isNumber })
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
+    /// Whisper can emit many copies of a word at the same timestamp. Only trim
+    /// long, implausibly timed runs when the visible text and word timings agree.
+    static func removingRecognitionLoop(from segment: TranscriptSegment) -> TranscriptSegment {
+        let words = segment.words
+        guard segment.editedText == nil, words.count >= 8 else { return segment }
+        let tokens = segment.text.split(whereSeparator: \.isWhitespace)
+        guard tokens.count == words.count else { return segment }
+        let keys = words.map { wordKey($0.text) }
+        guard zip(tokens, keys).allSatisfy({ wordKey($0.0) == $0.1 }) else { return segment }
+
+        var removed = IndexSet()
+        var start = 0
+        while start < keys.count {
+            var end = start + 1
+            while end < keys.count, keys[end] == keys[start] { end += 1 }
+            let count = end - start
+            if count >= 8, !keys[start].isEmpty {
+                let range = words[start..<end]
+                let duration = words[end - 1].endTime - words[start].startTime
+                let collapsed = range.filter { $0.endTime - $0.startTime < 0.01 }.count
+                if duration < Double(count) * 0.075 || collapsed * 2 >= count {
+                    removed.insert(integersIn: (start + 3)..<end)
+                }
+            }
+            start = end
+        }
+        guard !removed.isEmpty else { return segment }
+        let kept = words.indices.filter { !removed.contains($0) }
+        var cleaned = segment
+        cleaned.text = kept.map { tokens[$0] }.joined(separator: " ")
+        cleaned.words = kept.map { words[$0] }
+        return cleaned
+    }
+
     private static func capitalizeSentenceStarts(_ text: String) -> String {
         var result = ""
         var shouldCapitalize = true

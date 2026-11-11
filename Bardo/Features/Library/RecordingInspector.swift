@@ -57,8 +57,9 @@ struct RecordingInspector: View {
                             "Pistas de audio",
                             value: "\(recording.audioAssets.count)"
                         )
+                        AudioTrackSizeRows(recording: recording, bytes: trackSizes)
                         if let size = formattedTotalFileSize {
-                            LabeledContent("Tamaño total", value: size)
+                            LabeledContent("Total de audio", value: size)
                         }
                     }
                     if compress != nil {
@@ -100,10 +101,12 @@ struct RecordingInspector: View {
                             }
                             .padding(.vertical, 4)
                         }
-                        ForEach(Array(recording.audioAssets.enumerated()), id: \.element.id) { index, asset in
+                        ForEach(recording.audioAssets) { asset in
                             VStack(alignment: .leading, spacing: 6) {
                                 if recording.audioAssets.count > 1 {
-                                    detailHeading("Pista \(index + 1)")
+                                    Text(LibraryFormatting.audioTrackTitle(asset))
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
                                 } else if processing != nil {
                                     detailHeading("Audio")
                                 }
@@ -158,13 +161,22 @@ struct RecordingInspector: View {
 
     /// What Equilibrada would leave, as a hint before opening the sheet.
     private var compressionHint: String {
-        let sizes = Dictionary(uniqueKeysWithValues: recording.audioAssets.compactMap { asset in
-            byteCount(for: asset).map { (asset.id, $0) }
-        })
-        let plan = AudioCompressionPlan(recordings: [recording], audioBytes: sizes, preset: .balanced)
+        let plan = AudioCompressionPlan(recordings: [recording], audioBytes: trackSizes)
+        if AudioCompressionMix(recording: recording) != nil {
+            let merged = AudioCompressionPlan(recordings: [recording], audioBytes: trackSizes, mergeTracks: true)
+            if merged.savesSpace {
+                return "En una pista a 24 kbps: unos \(LibraryStorage.format(merged.copyBytes))."
+            }
+        }
         return plan.savesSpace
             ? "Puede ocupar unos \(LibraryStorage.format(plan.estimatedBytes))."
             : "Ya ocupa poco espacio."
+    }
+
+    private var trackSizes: [AudioAsset.ID: Int64] {
+        Dictionary(uniqueKeysWithValues: recording.audioAssets.compactMap { asset in
+            byteCount(for: asset).map { (asset.id, $0) }
+        })
     }
 
     private static let dateFormat = Date.FormatStyle.dateTime.day().month(.abbreviated).year().hour().minute()
@@ -204,5 +216,32 @@ struct RecordingInspector: View {
         let sizes = recording.audioAssets.compactMap(byteCount(for:))
         guard sizes.count == recording.audioAssets.count else { return nil }
         return ByteCountFormatter.string(fromByteCount: sizes.reduce(0, +), countStyle: .file)
+    }
+}
+
+struct AudioTrackSizeRows: View {
+    let recording: Recording
+    let bytes: [AudioAsset.ID: Int64]
+
+    var body: some View {
+        ForEach(recording.audioAssets) { asset in
+            LabeledContent {
+                Text(bytes[asset.id].map(LibraryStorage.format) ?? "—")
+                    .monospacedDigit()
+            } label: {
+                Text(title(for: asset))
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func title(for asset: AudioAsset) -> String {
+        if asset.role == .conversationMix {
+            if recording.audioAssets.count == 1 { return "Pista unificada" }
+            if recording.sources.contains(.systemAudio), recording.sources.contains(.microphone) {
+                return "Mezcla del Mac y micrófono"
+            }
+        }
+        return LibraryFormatting.audioTrackTitle(asset)
     }
 }

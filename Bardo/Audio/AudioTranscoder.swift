@@ -37,32 +37,55 @@ struct AudioFileTranscoder: AudioTranscoding {
     }
 
     static func encode(from sourceURL: URL, to destinationURL: URL, encoding: AudioEncoding) throws {
+        try encode(from: sourceURL, to: destinationURL) { input in
+            // Below the rates Bardo records, keep the source's rate and let the encoder
+            // choose the AAC bit rate.
+            var settings = encoding.outputSettings(channels: Int(input.channelCount))
+            if input.sampleRate < encoding.preset.sampleRate {
+                settings[AVSampleRateKey] = input.sampleRate
+                settings.removeValue(forKey: AVEncoderBitRateKey)
+            }
+            return settings
+        }
+    }
+
+    static func encode(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        progress: ((TimeInterval) -> Void)? = nil,
+        settings: (AVAudioFormat) -> [String: Any]
+    ) throws {
         try? FileManager.default.removeItem(at: destinationURL)
         do {
-            try encodeChunks(from: sourceURL, to: destinationURL, encoding: encoding)
+            try encodeChunks(from: sourceURL, to: destinationURL, progress: progress, settings: settings)
         } catch {
             try? FileManager.default.removeItem(at: destinationURL)
             throw error
         }
     }
 
-    private static func encodeChunks(from sourceURL: URL, to destinationURL: URL, encoding: AudioEncoding) throws {
+    private static func encodeChunks(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        progress: ((TimeInterval) -> Void)?,
+        settings: (AVAudioFormat) -> [String: Any]
+    ) throws {
         let input = try AVAudioFile(forReading: sourceURL)
         let inputFormat = input.processingFormat
         let expectedDuration = Double(input.length) / inputFormat.sampleRate
-
-        // Never record more samples per second than the source has: it only adds weight.
-        // Below the rates Bardo records, the encoder picks its own AAC bit rate.
-        var settings = encoding.outputSettings(channels: Int(inputFormat.channelCount))
-        if inputFormat.sampleRate < encoding.preset.sampleRate {
-            settings[AVSampleRateKey] = inputFormat.sampleRate
-            settings.removeValue(forKey: AVEncoderBitRateKey)
+        var nextUpdate = ContinuousClock.now
+        func reportProgress() {
+            guard let progress else { return }
+            let now = ContinuousClock.now
+            guard now >= nextUpdate else { return }
+            nextUpdate = now + .milliseconds(250)
+            progress(Double(input.framePosition) / inputFormat.sampleRate)
         }
 
         do {
             let output = try AVAudioFile(
                 forWriting: destinationURL,
-                settings: settings,
+                settings: settings(inputFormat),
                 commonFormat: .pcmFormatFloat32,
                 interleaved: false
             )
@@ -76,9 +99,10 @@ struct AudioFileTranscoder: AudioTranscoding {
                     try input.read(into: inputBuffer, frameCount: framesPerChunk)
                     guard inputBuffer.frameLength > 0 else { break }
                     try output.write(from: inputBuffer)
+                    reportProgress()
                 }
             } else {
-                try convert(input, into: output, from: inputBuffer)
+                try convert(input, into: output, from: inputBuffer, onChunk: reportProgress)
             }
             output.close()
         }
@@ -92,11 +116,19 @@ struct AudioFileTranscoder: AudioTranscoding {
     }
 
     /// Resamples while writing, when the quality records fewer samples per second.
-    private static func convert(_ input: AVAudioFile, into output: AVAudioFile, from inputBuffer: AVAudioPCMBuffer) throws {
+    private static func convert(
+        _ input: AVAudioFile,
+        into output: AVAudioFile,
+        from inputBuffer: AVAudioPCMBuffer,
+        onChunk: () -> Void
+    ) throws {
         let inputFormat = input.processingFormat
         let outputFormat = output.processingFormat
         guard let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
             throw AudioTranscodingError.couldNotConvert
+        }
+        if outputFormat.channelCount < inputFormat.channelCount {
+            converter.downmix = true
         }
         let ratio = outputFormat.sampleRate / inputFormat.sampleRate
         let capacity = AVAudioFrameCount(Double(framesPerChunk) * ratio) + 1_024
@@ -129,7 +161,10 @@ struct AudioFileTranscoder: AudioTranscoding {
             }
             if let readError { throw readError }
             if status == .error { throw conversionError ?? AudioTranscodingError.couldNotConvert }
-            if outputBuffer.frameLength > 0 { try output.write(from: outputBuffer) }
+            if outputBuffer.frameLength > 0 {
+                try output.write(from: outputBuffer)
+                onChunk()
+            }
             if status == .endOfStream || (status == .inputRanDry && outputBuffer.frameLength == 0) { break }
         }
     }

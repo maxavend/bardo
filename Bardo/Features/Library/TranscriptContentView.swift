@@ -701,10 +701,6 @@ private struct TranscriptParagraph: Identifiable {
         segments.contains { $0.editedText != nil }
     }
 
-    var timedWords: [TranscriptWord] {
-        segments.flatMap(\.words)
-    }
-
     var endTime: TimeInterval {
         segments.last?.endTime ?? startTime
     }
@@ -729,12 +725,12 @@ private struct TranscriptParagraphRow: View {
     let playback: AudioPlaybackController
     let canEdit: Bool
     var searchQuery: String = ""
-    var usesKaraoke: Bool = true
     var speakerChoices: [TranscriptSpeakerChoice] = []
     let onEditSegment: (TranscriptSegment) -> Void
     var onAssignSpeaker: ((Speaker.ID) -> Void)? = nil
 
     @State private var playbackPhase = ParagraphPlayback.ahead
+    @State private var wordPosition: TimeInterval?
     @State private var canPlay = false
 
     var body: some View {
@@ -756,13 +752,17 @@ private struct TranscriptParagraphRow: View {
             phase = position > paragraph.endTime ? .heard : .ahead
         }
         if phase != playbackPhase { playbackPhase = phase }
+        if phase == .active, paragraph.segments.contains(where: { $0.editedText == nil && !$0.words.isEmpty }) {
+            wordPosition = position
+        } else if wordPosition != nil {
+            wordPosition = nil
+        }
     }
 
     private var rowContent: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Button {
-                playback.seek(to: paragraph.startTime)
-                _ = playback.play()
+                play(from: paragraph.startTime)
             } label: {
                 Text(LibraryFormatting.duration(paragraph.startTime))
                     .font(
@@ -791,7 +791,6 @@ private struct TranscriptParagraphRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 paragraphText
-                    .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 if paragraph.hasEdits {
@@ -800,86 +799,53 @@ private struct TranscriptParagraphRow: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+            .alignmentGuide(.firstTextBaseline) { _ in
+                ceil(NSFont.systemFont(ofSize: NSFont.systemFontSize).ascender)
+            }
         }
         .contentShape(Rectangle())
-        .contextMenu {
-            Button(String(localized: "Play From Here")) {
-                playback.seek(to: paragraph.startTime)
-                _ = playback.play()
-            }
-            .disabled(!canPlay)
-
-            if paragraph.segments.count == 1, let segment = paragraph.segments.first {
-                Button(String(localized: "Edit Segment…")) {
-                    onEditSegment(segment)
-                }
-                .disabled(!canEdit)
-            } else if paragraph.segments.count > 1 {
-                Menu(String(localized: "Edit Segment")) {
-                    ForEach(paragraph.segments) { segment in
-                        Button(segmentMenuTitle(segment)) {
-                            onEditSegment(segment)
-                        }
-                    }
-                }
-                .disabled(!canEdit)
-            }
-
-            if canEdit, let onAssignSpeaker, !speakerChoices.isEmpty {
-                Menu("Asignar hablante") {
-                    ForEach(speakerChoices) { choice in
-                        Button {
-                            onAssignSpeaker(choice.id)
-                        } label: {
-                            if paragraph.speakerID == choice.id {
-                                Label(choice.label, systemImage: "checkmark")
-                            } else {
-                                Text(choice.label)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Divider()
-
-            Button("Copiar bloque") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(paragraph.fullText, forType: .string)
-            }
-        }
     }
 
     private var isActivePlaybackParagraph: Bool {
         playbackPhase == .active
     }
 
-    @ViewBuilder
     private var paragraphText: some View {
-        if !searchQuery.isEmpty, LibraryFormatting.containsSearchTerms(paragraph.fullText, query: searchQuery) {
-            Text(LibraryFormatting.highlighted(paragraph.fullText, matching: searchQuery, style: .findIndicator))
-                .font(.body)
-                .lineSpacing(4)
-        } else if !usesKaraoke || paragraph.hasEdits || paragraph.timedWords.isEmpty {
-            Text(paragraph.fullText)
-                .font(.body)
-                .lineSpacing(4)
-        } else {
-            KaraokeTranscriptText(
-                words: paragraph.timedWords,
-                fallbackText: paragraph.fullText,
-                playback: isActivePlaybackParagraph ? playback : nil
-            )
-            // Each word is a link to its moment: the hand shows over it, a click plays
-            // from there, and the words still select for copying.
-            .tint(.primary)
-            .environment(\.openURL, OpenURLAction { url in
-                guard let time = KaraokeTranscriptText.time(in: url) else { return .systemAction }
-                playback.seek(to: time)
-                if !playback.isPlaying { _ = playback.play() }
-                return .handled
-            })
+        SelectablePlaybackText(
+            text: TranscriptPlaybackText.attributed(
+                segments: paragraph.segments, position: wordPosition, searchQuery: searchQuery, canSeek: canPlay
+            ),
+            commands: textCommands,
+            seek: play(from:)
+        )
+    }
+
+    private var textCommands: [SelectablePlaybackText.Command] {
+        var commands: [SelectablePlaybackText.Command] = [
+            .action(String(localized: "Play From Here"), enabled: canPlay) { play(from: paragraph.startTime) }
+        ]
+        if paragraph.segments.count == 1, let segment = paragraph.segments.first {
+            commands.append(.action(String(localized: "Edit Segment…"), enabled: canEdit) { onEditSegment(segment) })
+        } else if paragraph.segments.count > 1 {
+            commands.append(.submenu(String(localized: "Edit Segment"), paragraph.segments.map { segment in
+                .action(segmentMenuTitle(segment), enabled: canEdit) { onEditSegment(segment) }
+            }))
         }
+        if canEdit, let onAssignSpeaker, !speakerChoices.isEmpty {
+            commands.append(.submenu("Asignar hablante", speakerChoices.map { choice in
+                .action(choice.label, checked: paragraph.speakerID == choice.id) { onAssignSpeaker(choice.id) }
+            }))
+        }
+        commands.append(.separator)
+        commands.append(.action("Copiar bloque") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(paragraph.fullText, forType: .string)
+        })
+        return commands
+    }
+
+    private func play(from time: TimeInterval) {
+        playback.play(from: time)
     }
 
     private func segmentMenuTitle(_ segment: TranscriptSegment) -> String {
@@ -887,71 +853,6 @@ private struct TranscriptParagraphRow: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .prefix(42)
         return "\(LibraryFormatting.duration(segment.startTime)) · \(compactText)"
-    }
-}
-
-/// A paragraph's words as one piece of text. Only the paragraph being heard follows
-/// the player, lighting the current word and dimming those still ahead; every other
-/// paragraph is plain text that never redraws with playback.
-private struct KaraokeTranscriptText: View {
-    let words: [TranscriptWord]
-    let fallbackText: String
-    /// Set only while this paragraph is being heard.
-    let playback: AudioPlaybackController?
-
-    var body: some View {
-        if words.isEmpty {
-            Text(fallbackText)
-                .font(.body)
-                .lineSpacing(4)
-        } else if let playback {
-            LiveKaraokeText(words: words, playback: playback)
-        } else {
-            Text(Self.text(of: words, at: nil))
-                .font(.body)
-                .lineSpacing(4)
-                .accessibilityLabel(fallbackText)
-        }
-    }
-
-    static let seekScheme = "bardo-seek"
-
-    /// The moment a word's link plays from.
-    static func time(in url: URL) -> TimeInterval? {
-        guard url.scheme == seekScheme else { return nil }
-        return TimeInterval(url.absoluteString.dropFirst(seekScheme.count + 1))
-    }
-
-    /// The words joined once, coloured by `position` when there is one. The same string
-    /// either way, so a paragraph never reflows as it starts or stops playing.
-    static func text(of words: [TranscriptWord], at position: TimeInterval?) -> AttributedString {
-        var text = AttributedString()
-        for (index, word) in words.enumerated() {
-            if index > 0 { text += AttributedString(" ") }
-            var piece = AttributedString(word.text.trimmingCharacters(in: .whitespacesAndNewlines))
-            piece.link = URL(string: "\(seekScheme):\(word.startTime)")
-            if let position {
-                if position >= word.startTime && position <= word.endTime {
-                    piece.foregroundColor = .accentColor
-                } else if position < word.startTime {
-                    piece.foregroundColor = Color.secondary.opacity(0.78)
-                }
-            }
-            text += piece
-        }
-        return text
-    }
-}
-
-/// The paragraph being heard, following the player word by word.
-private struct LiveKaraokeText: View {
-    let words: [TranscriptWord]
-    @ObservedObject var playback: AudioPlaybackController
-
-    var body: some View {
-        Text(KaraokeTranscriptText.text(of: words, at: playback.position))
-            .font(.body)
-            .lineSpacing(4)
     }
 }
 

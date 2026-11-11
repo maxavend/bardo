@@ -15,7 +15,7 @@ final class CompressionPreviewPlayer: ObservableObject {
         case idle
         case preparing
         case ready
-        case unavailable
+        case unavailable(String)
     }
 
     @Published private(set) var state: State = .idle
@@ -28,17 +28,17 @@ final class CompressionPreviewPlayer: ObservableObject {
 
     private let workDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent("bardo-preview-\(UUID().uuidString)", isDirectory: true)
-    private var source: URL?
+    private var source: AudioCompressionInput?
     private var excerptURL: URL?
-    private var compressedURLs: [AudioQualityPreset: URL] = [:]
+    private var compressedURLs: [AudioCompressionEncoding: URL] = [:]
     private var original: AVAudioPlayer?
     private var compressed: AVAudioPlayer?
     private var preparation: Task<Void, Never>?
     private var progressTimer: Timer?
 
-    /// Prepares `source` at `preset`. Playback carries on from the same moment once the
+    /// Prepares `source` using `encoding`. Playback carries on from the same moment once the
     /// new version is ready.
-    func prepare(source: URL, duration sourceDuration: TimeInterval, preset: AudioQualityPreset) {
+    func prepare(source: AudioCompressionInput, encoding: AudioCompressionEncoding) {
         preparation?.cancel()
         let resumes = isPlaying
         let resumeAt = position
@@ -54,40 +54,47 @@ final class CompressionPreviewPlayer: ObservableObject {
         state = .preparing
 
         let directory = workDirectory
-        let start = AudioExcerpt.start(forDuration: sourceDuration)
         let cachedExcerpt = excerptURL
-        let cachedCompressed = compressedURLs[preset]
+        let cachedCompressed = compressedURLs[encoding]
 
         preparation = Task { [weak self] in
             do {
+                try Task.checkCancellation()
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 let excerpt: URL
                 if let cachedExcerpt {
                     excerpt = cachedExcerpt
                 } else {
                     excerpt = directory.appendingPathComponent("excerpt-\(UUID().uuidString).caf")
-                    try await Task.detached(priority: .userInitiated) {
-                        _ = try AudioExcerpt.write(from: source, start: start, to: excerpt)
-                    }.value
+                    try await AudioCompressionTranscoder.writeExcerpt(from: source, to: excerpt)
                 }
                 let compressedURL: URL
                 if let cachedCompressed {
                     compressedURL = cachedCompressed
                 } else {
-                    compressedURL = directory.appendingPathComponent("\(preset.rawValue)-\(UUID().uuidString).m4a")
-                    try await AudioFileTranscoder().transcode(
+                    let encoded = directory.appendingPathComponent(UUID().uuidString)
+                        .appendingPathExtension(encoding.format.fileExtension)
+                    try await AudioCompressionTranscoder.encode(
                         from: excerpt,
-                        to: compressedURL,
-                        encoding: AudioEncoding(preset: preset, format: .aac)
+                        to: encoded,
+                        using: encoding
                     )
+                    try Task.checkCancellation()
+                    if encoding.format == .opus {
+                        let decoded = encoded.deletingPathExtension().appendingPathExtension("wav")
+                        try await AudioCompressionTranscoder.decodeOpusPreview(from: encoded, to: decoded)
+                        compressedURL = decoded
+                    } else {
+                        compressedURL = encoded
+                    }
                 }
                 try Task.checkCancellation()
-                self?.load(excerpt: excerpt, compressed: compressedURL, preset: preset, resumeAt: resumeAt, resumes: resumes)
+                self?.load(excerpt: excerpt, compressed: compressedURL, encoding: encoding, resumeAt: resumeAt, resumes: resumes)
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.state = .unavailable
+                self?.state = .unavailable(error.localizedDescription)
             }
         }
     }
@@ -114,6 +121,11 @@ final class CompressionPreviewPlayer: ObservableObject {
         pausePlayers()
     }
 
+    func showUnavailable() {
+        stop()
+        state = .unavailable("No se pudo preparar la vista previa del audio.")
+    }
+
     /// Stops playback and removes the excerpts.
     func stop() {
         preparation?.cancel()
@@ -127,7 +139,7 @@ final class CompressionPreviewPlayer: ObservableObject {
         try? FileManager.default.removeItem(at: workDirectory)
     }
 
-    private func load(excerpt: URL, compressed compressedURL: URL, preset: AudioQualityPreset, resumeAt: TimeInterval, resumes: Bool) {
+    private func load(excerpt: URL, compressed compressedURL: URL, encoding: AudioCompressionEncoding, resumeAt: TimeInterval, resumes: Bool) {
         do {
             let original = try AVAudioPlayer(contentsOf: excerpt)
             let compressed = try AVAudioPlayer(contentsOf: compressedURL)
@@ -136,13 +148,13 @@ final class CompressionPreviewPlayer: ObservableObject {
             self.original = original
             self.compressed = compressed
             excerptURL = excerpt
-            compressedURLs[preset] = compressedURL
+            compressedURLs[encoding] = compressedURL
             duration = original.duration
             position = min(resumeAt, duration)
             state = .ready
             if resumes { play() }
         } catch {
-            state = .unavailable
+            state = .unavailable(error.localizedDescription)
         }
     }
 

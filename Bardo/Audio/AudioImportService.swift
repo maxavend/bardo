@@ -3,7 +3,7 @@ import Foundation
 import UniformTypeIdentifiers
 
 struct AudioMetadataReader: Sendable {
-    func read(from url: URL) throws -> AudioMetadata {
+    func read(from url: URL, verifySamples: Bool = false) throws -> AudioMetadata {
         do {
             let file = try AVAudioFile(forReading: url)
             let processingFormat = file.processingFormat
@@ -18,6 +18,14 @@ struct AudioMetadataReader: Sendable {
                   sampleRate > 0,
                   channelCount > 0 else {
                 throw AudioImportError.invalidAudio(String(localized: "The file does not contain a readable audio stream."))
+            }
+
+            if verifySamples {
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: processingFormat, frameCapacity: 1_024) else {
+                    throw AudioTranscodingError.couldNotAllocateBuffer
+                }
+                try file.read(into: buffer)
+                guard buffer.frameLength > 0 else { throw AudioTranscodingError.couldNotConvert }
             }
 
             let formatID = (fileFormat.settings[AVFormatIDKey] as? NSNumber)?.uint32Value
