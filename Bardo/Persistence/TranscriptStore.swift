@@ -114,7 +114,11 @@ actor TranscriptStore {
                     actual: document.transcript.recordingID
                 )
             }
-            return document.transcript
+            var transcript = document.transcript
+            if transcript.metadata.engine == "WhisperKit" {
+                transcript.segments = transcript.segments.map(TranscriptTextSanitizer.removingRecognitionLoop)
+            }
+            return transcript
         } catch let error as TranscriptStoreError {
             throw error
         } catch {

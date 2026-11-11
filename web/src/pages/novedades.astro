@@ -12,6 +12,21 @@ interface Release {
 
 const releases: Release[] = [
   {
+    version: "1.3.0",
+    date: "2026-11-11",
+    label: "11 de noviembre de 2026",
+    groups: [
+      { name: "Almacenamiento", items: [
+        "Mira cuánto ocupa cada conversación y cada pista de audio",
+        "Compara una muestra y comprime en AAC, Opus o MP3, de 16 a 96 kbps, en mono o estéreo",
+        "Junta las pistas o comprímelas por separado, con la opción de guardar una copia",
+        "Sigue el avance de la compresión por pista",
+      ] },
+      { name: "Biblioteca", items: ["Importa notas de voz de WhatsApp, Telegram y grabadoras del teléfono"] },
+      { name: "Transcripción", items: ["Haz clic en una palabra para escuchar el audio desde ahí", "Menos repeticiones espurias en las transcripciones de Whisper"] },
+    ],
+  },
+  {
     version: "1.2.1",
     date: "2026-11-02",
     label: "2 de noviembre de 2026",

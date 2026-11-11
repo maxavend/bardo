@@ -32,6 +32,7 @@ struct SettingsView: View {
     @State private var pendingReset: PendingModelReset?
     @State private var isLibraryRemovalPresented = false
     @State private var storageUsage = BardoStorageUsage.empty
+    @Environment(\.openWindow) private var openWindow
 
     init(initialTab: String? = nil) {
         _selectedTab = State(initialValue: initialTab.flatMap(SettingsTab.init(rawValue:)) ?? .general)
@@ -66,7 +67,7 @@ struct SettingsView: View {
                 .tag(SettingsTab.transcription)
 
             storageTab
-                .frame(width: Self.width, height: 460)
+                .frame(width: Self.width, height: 540)
                 .tabItem { Label("Almacenamiento", systemImage: "externaldrive") }
                 .tag(SettingsTab.storage)
 
@@ -322,6 +323,15 @@ struct SettingsView: View {
                 LabeledContent("Conversaciones", value: storageUsage.libraryText)
                 LabeledContent("Recursos locales", value: storageUsage.modelsText)
                 LabeledContent("Total", value: storageUsage.totalText)
+                LabeledContent {
+                    Button("Gestionar…") {
+                        openWindow(id: BardoApp.mainWindowID)
+                        NotificationCenter.default.post(name: BardoCommandNotification.manageStorage, object: nil)
+                    }
+                } label: {
+                    Text("Liberar espacio")
+                    Text("Comprime el audio o elimina conversaciones, de la más pesada a la más liviana.")
+                }
             }
 
             Section("Ubicaciones") {
@@ -466,37 +476,8 @@ private struct BardoStorageUsage {
     var totalText: String { formatted(libraryBytes + modelsBytes) }
 
     static func current() -> BardoStorageUsage {
-        let library = (try? RecordingStore.defaultLibraryURL()).map(directorySize) ?? 0
-        let models: Int64
-        if let store = try? BardoModelStore.live() {
-            let roots = ManagedModel.allCases.map { store.root(for: $0) }
-            let parentRoots = Set(roots.map { $0.standardizedFileURL })
-            models = parentRoots.reduce(0) { $0 + directorySize($1) }
-        } else {
-            models = 0
-        }
-        return BardoStorageUsage(libraryBytes: library, modelsBytes: models)
-    }
-
-    private static func directorySize(_ root: URL) -> Int64 {
-        guard let enumerator = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return 0
-        }
-
-        var total: Int64 = 0
-        for case let url as URL in enumerator {
-            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
-                  values.isRegularFile == true,
-                  let size = values.fileSize else {
-                continue
-            }
-            total += Int64(size)
-        }
-        return total
+        let library = (try? RecordingStore.defaultLibraryURL()).map(LibraryStorage.directorySize) ?? 0
+        return BardoStorageUsage(libraryBytes: library, modelsBytes: LibraryStorage.modelsSize())
     }
 
     private func formatted(_ bytes: Int64) -> String {

@@ -4,6 +4,15 @@ import SwiftUI
 
 /// Presentation-only formatting shared by the Library feature.
 enum LibraryFormatting {
+    static func audioTrackTitle(_ asset: AudioAsset) -> String {
+        switch asset.role {
+        case .microphoneOriginal: "Micrófono"
+        case .systemOriginal: "Audio del Mac"
+        case .conversationMix: "Mezcla"
+        case .importedOriginal: asset.originalFileName
+        }
+    }
+
     static func recordingTitle(_ recording: Recording) -> String {
         let title = recording.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !title.isEmpty, !isTechnicalRecordingTitle(title, id: recording.id) {

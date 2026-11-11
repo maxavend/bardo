@@ -2,6 +2,23 @@
 
 All notable changes to Bardo. Each version is also a [GitHub release](https://github.com/maxavend/bardo/releases) with its DMG and, from 1.2.0, its Windows installers.
 
+## 1.3.0 — 2026-11-11
+
+### Storage
+
+- **Almacenamiento.** Archivo › Gestionar almacenamiento… (or Ajustes › Almacenamiento › Gestionar…) lists conversations by size, shows the space each track uses and suggests which recordings to compress. You can compress, show in Finder or move one or several conversations to the Trash.
+- **Compress with a preview.** Comprimir audio… offers AAC, Opus and MP3 at 16, 24, 48 or 96 kbps in mono or stereo. Compare a 20-second Original and Comprimido preview, see the estimated savings and follow progress by track, even when compressing several conversations. Opus, MP3 and AAC at 16 or 24 kbps require FFmpeg (`brew install ffmpeg`).
+- **Choose how to save.** Compress each conversation to one mixed track or keep its tracks separate. Bardo replaces audio by default when the output saves at least 20% of its space. Turn on Guardar una copia to keep the original too.
+
+### Library
+
+- **Import voice notes.** Bardo now imports the voice notes of WhatsApp and Telegram (`.opus`, `.ogg`) and of phone recorders (`.amr`, `.3gp`), plus `.caf`, `.m4b` and `.mp4` audio. They are kept as they are: Opus and AMR already weigh less than AAC or MP3 would.
+
+### Transcription
+
+- **Play from the transcript.** Hover over a word to see where you can click, then click to start playback at that word. Passages without word timings start at the beginning of the passage.
+- **Fewer repeated words.** Bardo trims spurious bursts of repeated words from Whisper, including in saved transcripts, while preserving manual edits.
+
 ## 1.2.1 — 2026-11-02
 
 ### Mac

@@ -5,11 +5,10 @@ struct RecordingInspector: View {
     let recording: Recording
     let transcript: Transcript?
     var isCompressing = false
-    /// Compresses the audio at a lower quality; `nil` where it cannot be offered.
-    var compress: ((AudioQualityPreset) -> Void)?
+    /// Opens the compression sheet; `nil` where it cannot be offered.
+    var compress: (() -> Void)?
 
     @State private var showsTechnicalDetails = false
-    @State private var isConfirmingCompression = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -58,8 +57,9 @@ struct RecordingInspector: View {
                             "Pistas de audio",
                             value: "\(recording.audioAssets.count)"
                         )
+                        AudioTrackSizeRows(recording: recording, bytes: trackSizes)
                         if let size = formattedTotalFileSize {
-                            LabeledContent("Tamaño total", value: size)
+                            LabeledContent("Total de audio", value: size)
                         }
                     }
                     if compress != nil {
@@ -101,10 +101,12 @@ struct RecordingInspector: View {
                             }
                             .padding(.vertical, 4)
                         }
-                        ForEach(Array(recording.audioAssets.enumerated()), id: \.element.id) { index, asset in
+                        ForEach(recording.audioAssets) { asset in
                             VStack(alignment: .leading, spacing: 6) {
                                 if recording.audioAssets.count > 1 {
-                                    detailHeading("Pista \(index + 1)")
+                                    Text(LibraryFormatting.audioTrackTitle(asset))
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
                                 } else if processing != nil {
                                     detailHeading("Audio")
                                 }
@@ -144,56 +146,37 @@ struct RecordingInspector: View {
     // MARK: Compression
 
     private var compressionRow: some View {
-        let options = compressionOptions
-        return LabeledContent {
+        LabeledContent {
             if isCompressing {
                 ProgressView()
                     .controlSize(.small)
             } else {
-                Button("Comprimir…") { isConfirmingCompression = true }
-                    .disabled(options.isEmpty)
+                Button("Comprimir…") { compress?() }
             }
         } label: {
             Text("Comprimir audio")
-            Text(isCompressing
-                ? "Comprimiendo…"
-                : (options.last.map { "Puede ocupar unos \(SettingsView.megabytes($0.bytes))." } ?? "Ya ocupa poco espacio."))
+            Text(isCompressing ? "Comprimiendo…" : compressionHint)
         }
-        .confirmationDialog(
-            "¿Seguro que quieres comprimir el audio?",
-            isPresented: $isConfirmingCompression,
-            titleVisibility: .visible
-        ) {
-            ForEach(options, id: \.preset) { option in
-                Button("\(option.preset.title) · unos \(SettingsView.megabytes(option.bytes))") {
-                    compress?(option.preset)
-                }
+    }
+
+    /// What Equilibrada would leave, as a hint before opening the sheet.
+    private var compressionHint: String {
+        let plan = AudioCompressionPlan(recordings: [recording], audioBytes: trackSizes)
+        if AudioCompressionMix(recording: recording) != nil {
+            let merged = AudioCompressionPlan(recordings: [recording], audioBytes: trackSizes, mergeTracks: true)
+            if merged.savesSpace {
+                return "En una pista a 24 kbps: unos \(LibraryStorage.format(merged.copyBytes))."
             }
-            Button("Cancelar", role: .cancel) {}
-        } message: {
-            Text("\(formattedTotalBytes.map { "Ahora ocupa \($0). " } ?? "")Se seguirá entendiendo y transcribiendo todo, pero la calidad original no se puede recuperar.")
         }
+        return plan.savesSpace
+            ? "Puede ocupar unos \(LibraryStorage.format(plan.estimatedBytes))."
+            : "Ya ocupa poco espacio."
     }
 
-    /// The qualities that would save a real share of the space, with what each would take.
-    private var compressionOptions: [(preset: AudioQualityPreset, bytes: Double)] {
-        guard let current = totalByteCount else { return [] }
-        return [AudioQualityPreset.high, .balanced, .compact].compactMap { preset in
-            let encoding = AudioEncoding(preset: preset, format: .aac)
-            let bytes = recording.audioAssets.reduce(0.0) { total, asset in
-                total + encoding.bytesPerMinute(channels: Int(asset.metadata.channelCount)) * asset.metadata.duration / 60
-            }
-            return bytes < Double(current) * 0.8 ? (preset, bytes) : nil
-        }
-    }
-
-    private var totalByteCount: Int64? {
-        let sizes = recording.audioAssets.compactMap(byteCount(for:))
-        return sizes.count == recording.audioAssets.count ? sizes.reduce(0, +) : nil
-    }
-
-    private var formattedTotalBytes: String? {
-        totalByteCount.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+    private var trackSizes: [AudioAsset.ID: Int64] {
+        Dictionary(uniqueKeysWithValues: recording.audioAssets.compactMap { asset in
+            byteCount(for: asset).map { (asset.id, $0) }
+        })
     }
 
     private static let dateFormat = Date.FormatStyle.dateTime.day().month(.abbreviated).year().hour().minute()
@@ -233,5 +216,32 @@ struct RecordingInspector: View {
         let sizes = recording.audioAssets.compactMap(byteCount(for:))
         guard sizes.count == recording.audioAssets.count else { return nil }
         return ByteCountFormatter.string(fromByteCount: sizes.reduce(0, +), countStyle: .file)
+    }
+}
+
+struct AudioTrackSizeRows: View {
+    let recording: Recording
+    let bytes: [AudioAsset.ID: Int64]
+
+    var body: some View {
+        ForEach(recording.audioAssets) { asset in
+            LabeledContent {
+                Text(bytes[asset.id].map(LibraryStorage.format) ?? "—")
+                    .monospacedDigit()
+            } label: {
+                Text(title(for: asset))
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func title(for asset: AudioAsset) -> String {
+        if asset.role == .conversationMix {
+            if recording.audioAssets.count == 1 { return "Pista unificada" }
+            if recording.sources.contains(.systemAudio), recording.sources.contains(.microphone) {
+                return "Mezcla del Mac y micrófono"
+            }
+        }
+        return LibraryFormatting.audioTrackTitle(asset)
     }
 }

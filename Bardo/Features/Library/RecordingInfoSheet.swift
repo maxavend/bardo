@@ -8,6 +8,7 @@ struct RecordingInfoSheet: View {
     @ObservedObject var model: LibraryViewModel
 
     @Environment(\.dismiss) private var dismiss
+    @State private var compressionRequest: CompressionRequest?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,9 +28,9 @@ struct RecordingInfoSheet: View {
                 recording: recording,
                 transcript: transcript,
                 isCompressing: model.compressingRecordingID == recording.id,
-                compress: model.isProcessing(recording.id) ? nil : { preset in
-                    Task { await model.compressAudio(recording.id, to: preset) }
-                }
+                compress: LibrarySelection.canCompress([recording], model: model) ? {
+                    compressionRequest = CompressionRequest(ids: [recording.id])
+                } : nil
             )
                 // One surface from the title to the button, and scrolling only once the
                 // technical details are open.
@@ -48,5 +49,9 @@ struct RecordingInfoSheet: View {
         }
         .frame(width: 480)
         .frame(minHeight: 420, idealHeight: 640)
+        // Over the details, as a second sheet: they come back when it closes.
+        .sheet(item: $compressionRequest) { request in
+            CompressAudioSheet(recordingIDs: request.ids, model: model)
+        }
     }
 }

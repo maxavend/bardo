@@ -848,13 +848,14 @@ actor WhisperTranscriptionService: RecordingTranscribing {
                 probability: $0.probability
             )
         }
-        return TranscriptSegment(
+        let recognized = TranscriptSegment(
             startTime: TimeInterval(segment.start) + pass.offset,
             endTime: TimeInterval(segment.end) + pass.offset,
             text: text,
             words: words,
             source: pass.source
         )
+        return TranscriptTextSanitizer.removingRecognitionLoop(from: recognized)
     }
 
     /// A window whose text compresses this well is a repetition loop. Whisper's default

@@ -130,6 +130,21 @@ final class AudioPlaybackController: ObservableObject {
         return startPlayback()
     }
 
+    /// Explicit playback targets, such as a transcript word, never wrap to the start.
+    @discardableResult
+    func play(from time: TimeInterval) -> Bool {
+        guard isLoaded, time.isFinite else { return false }
+        pausePlayers()
+        playbackEndTime = nil
+        position = min(max(0, time), duration)
+        guard position < duration else {
+            isPlaying = false
+            stopProgressUpdates()
+            return false
+        }
+        return startPlayback()
+    }
+
     @discardableResult
     func playPreview(from startTime: TimeInterval, to endTime: TimeInterval) -> Bool {
         guard isLoaded,
